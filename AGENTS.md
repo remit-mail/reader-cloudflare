@@ -1,6 +1,6 @@
 # reader-cloudflare
 
-remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by `wrangler.jsonc`; OpenTofu in `infra/` for the Cloudflare account.
+remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by `wrangler.jsonc`, serving the React web client in `packages/web` as assets; OpenTofu in `infra/` for the Cloudflare account.
 
 ## Rules
 
@@ -11,7 +11,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 - Push straight to `main` until the prototype runs end to end.
 - CI is one fast job: `npm ci`, `npm run check`, `npm run typecheck`.
 - The Worker logs one JSON object per line through `log` in `src/log.ts`. Workers Observability is on in `wrangler.jsonc`.
-- `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `wrangler.jsonc` runs it as the build command and `typecheck` runs it first. The Worker answers `/api/version` with `{ commit }` and sends `x-reader-commit` on every response, so a deploy matches a commit.
+- `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `wrangler.jsonc` runs it and then `npm run build` as the build command, so `dev` and `deploy` ship fresh assets; `typecheck` runs it first. The Worker answers `/api/version` with `{ commit }` and an `x-reader-commit` header, so a deploy matches a commit.
 
 ## Scripts
 
@@ -19,6 +19,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `npm run dev`                        | `wrangler dev` on port 8790, bound to `0.0.0.0`                                           |
 | `npm run deploy -- --bootstrap`      | `wrangler deploy` from this machine, before Workers Builds runs; refuses without the flag |
+| `npm run build`                      | Vite builds the web client into `packages/web/dist`                                       |
 | `npm run tail`                       | `wrangler tail --format pretty` on the deployed Worker                                    |
 | `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                           |
 | `npm run fix`                        | Biome rewrites files                                                                      |

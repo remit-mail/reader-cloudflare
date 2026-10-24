@@ -36,9 +36,7 @@ export default {
       return Response.json({ commit }, { headers: { [COMMIT_HEADER]: commit } });
     }
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, url.pathname);
-    return new Response("remit reader\n", {
-      headers: { "content-type": "text/plain", [COMMIT_HEADER]: commit },
-    });
+    return env.ASSETS.fetch(request);
   },
 
   async queue(batch: MessageBatch<SyncMessage>, env: Env): Promise<void> {

@@ -15,7 +15,7 @@
     "deploy": "node npm-scripts/deploy.mjs",
     "fix": "biome check --write .",
     "check": "biome check .",
-    "typecheck": "npm run commit && tsc --noEmit -p tsconfig.json",
+    "typecheck": "npm run commit && tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/web/tsconfig.json",
     "infra:plan": "node npm-scripts/infra.mjs plan",
     "infra:apply": "node npm-scripts/infra.mjs apply",
     "ci": "npm run check && npm run typecheck",
@@ -24,7 +24,8 @@
     "db:generate:mail": "drizzle-kit generate --config drizzle.mail.config.ts",
     "db:generate:search": "drizzle-kit generate --config drizzle.search.config.ts",
     "db:migrate": "node npm-scripts/db-migrate.mjs",
-    "wrangler": "node npm-scripts/wrangler.mjs"
+    "wrangler": "node npm-scripts/wrangler.mjs",
+    "build": "npm run build --workspace packages/web"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",

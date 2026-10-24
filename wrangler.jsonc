@@ -2,7 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "reader-cloudflare",
   "main": "src/index.ts",
-  "build": { "command": "npm run commit" },
+  "build": { "command": "npm run commit && npm run build" },
+  "assets": {
+    "directory": "packages/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,

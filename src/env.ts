@@ -5,6 +5,7 @@ import type { SyncMessage } from "./sync/messages";
 export type { SyncMessage };
 
 export interface Env {
+  readonly ASSETS: Fetcher;
   readonly DB: D1Database;
   readonly MAIL: R2Bucket;
   readonly SYNC: Queue<SyncMessage>;
