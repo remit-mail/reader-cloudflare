@@ -1,0 +1,27 @@
+{
+  "name": "reader-cloudflare",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "wrangler dev --ip 0.0.0.0 --port 8790",
+    "tail": "wrangler tail --format pretty",
+    "fix": "biome check --write .",
+    "check": "biome check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "infra:plan": "node npm-scripts/infra.mjs plan",
+    "infra:apply": "node npm-scripts/infra.mjs apply"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "@cloudflare/workers-types": "^5.20261024.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.152.0"
+  }
+}
