@@ -4,11 +4,13 @@ import { getAccount } from "../db/accounts";
 import { openAppDb } from "../db/client";
 import type { Env } from "../env";
 import { log } from "../log";
+import { parseEmail, toBody } from "./parse";
 import type { ListMessagesOptions } from "./tenant-mail";
 import type { MailAccount } from "./types";
 
 const MAILBOXES_PATH = /^\/api\/accounts\/([A-Za-z0-9]+)\/mailboxes$/;
 const MESSAGES_PATH = /^\/api\/accounts\/([A-Za-z0-9]+)\/mailboxes\/([a-z0-9]+)\/messages$/;
+const BODY_PATH = /^\/api\/accounts\/([A-Za-z0-9]+)\/messages\/([a-z0-9]+)\/body$/;
 const MESSAGE_PATH = /^\/api\/accounts\/([A-Za-z0-9]+)\/messages\/([a-z0-9]+)$/;
 
 const listQuery = z.object({
@@ -32,7 +34,8 @@ const notFound = (): Response => Response.json({ error: "not found" }, { status:
 type MailRoute =
   | { readonly kind: "mailboxes"; readonly accountId: string }
   | { readonly kind: "messages"; readonly accountId: string; readonly mailboxId: string }
-  | { readonly kind: "message"; readonly accountId: string; readonly messageId: string };
+  | { readonly kind: "message"; readonly accountId: string; readonly messageId: string }
+  | { readonly kind: "body"; readonly accountId: string; readonly messageId: string };
 
 const matchRoute = (path: string): MailRoute | null => {
   const mailboxes = MAILBOXES_PATH.exec(path);
@@ -40,6 +43,10 @@ const matchRoute = (path: string): MailRoute | null => {
   const list = MESSAGES_PATH.exec(path);
   if (list?.[1] !== undefined && list[2] !== undefined) {
     return { kind: "messages", accountId: list[1], mailboxId: list[2] };
+  }
+  const body = BODY_PATH.exec(path);
+  if (body?.[1] !== undefined && body[2] !== undefined) {
+    return { kind: "body", accountId: body[1], messageId: body[2] };
   }
   const message = MESSAGE_PATH.exec(path);
   if (message?.[1] !== undefined && message[2] !== undefined) {
@@ -80,6 +87,20 @@ const listMessages = async (
   return Response.json(result.value);
 };
 
+const messageBody = async (
+  env: Env,
+  account: MailAccount,
+  messageId: string,
+): Promise<Response> => {
+  const result = await tenantMail(env, account.tenantId).getMessage(account, messageId);
+  if (!result.ok) return notFound();
+  const key = result.value.bodyStorageKey;
+  if (key === null) return Response.json({ error: "body not synced" }, { status: 404 });
+  const object = await env.MAIL.get(key);
+  if (object === null) return Response.json({ error: "body not found" }, { status: 404 });
+  return Response.json(toBody(await parseEmail(object.body)));
+};
+
 export const isMailPath = (path: string): boolean => matchRoute(path) !== null;
 
 export const mailApi = async (
@@ -103,6 +124,7 @@ export const mailApi = async (
   if (route.kind === "messages") {
     return listMessages(env, account, route.mailboxId, new URL(request.url));
   }
+  if (route.kind === "body") return messageBody(env, account, route.messageId);
   const result = await tenantMail(env, tenant.tenantId).getMessage(account, route.messageId);
   if (!result.ok) return notFound();
   return Response.json(result.value);

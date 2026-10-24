@@ -6,6 +6,8 @@ import { log } from "./log";
 import { isMailPath, mailApi } from "./mail/routes";
 import { isSearchPath, searchApi } from "./search/routes";
 import { spike } from "./spike";
+import { processSyncMessage } from "./sync/process";
+import { isSyncPath, syncApi } from "./sync/routes";
 
 export { TenantMail } from "./mail/tenant-mail";
 export { TenantSearch } from "./search/tenant-search";
@@ -20,6 +22,7 @@ const handleApi = async (request: Request, env: Env, path: string): Promise<Resp
   }
   log.info("authenticated request", { path, tenantId: result.tenant.tenantId });
   if (isMailPath(path)) return mailApi(request, env, path, result.tenant);
+  if (isSyncPath(path)) return syncApi(request, env, path, result.tenant);
   if (isSearchPath(path)) return searchApi(request, env, path, result.tenant);
   return api(request, env, path, result.tenant);
 };
@@ -39,14 +42,10 @@ export default {
     });
   },
 
-  queue(batch: MessageBatch<SyncMessage>): void {
+  async queue(batch: MessageBatch<SyncMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      log.info("queue message", {
-        queue: batch.queue,
-        id: message.id,
-        attempts: message.attempts,
-        body: message.body,
-      });
+      log.info("queue message", { queue: batch.queue, id: message.id, attempts: message.attempts });
+      await processSyncMessage(env, message.body);
       message.ack();
     }
   },

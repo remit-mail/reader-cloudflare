@@ -1,9 +1,8 @@
 import type { TenantMail } from "./mail/tenant-mail";
 import type { TenantSearch } from "./search/tenant-search";
+import type { SyncMessage } from "./sync/messages";
 
-export interface SyncMessage {
-  readonly kind: string;
-}
+export type { SyncMessage };
 
 export interface Env {
   readonly DB: D1Database;

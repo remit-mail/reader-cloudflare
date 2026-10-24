@@ -24,7 +24,14 @@
   "r2_buckets": [{ "binding": "MAIL", "bucket_name": "reader-cloudflare-mail" }],
   "queues": {
     "producers": [{ "binding": "SYNC", "queue": "reader-cloudflare-sync" }],
-    "consumers": [{ "queue": "reader-cloudflare-sync" }]
+    "consumers": [
+      {
+        "queue": "reader-cloudflare-sync",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "reader-cloudflare-sync-dlq"
+      }
+    ]
   },
   "durable_objects": {
     "bindings": [

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { and, desc, eq, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import migrations from "../../migrations/mail/migrations";
@@ -443,6 +443,57 @@ export class TenantMail extends DurableObject<Env> {
         uid: message.input.uid,
       })),
     };
+  }
+
+  setMailboxCursor(
+    account: MailAccount,
+    mailboxId: string,
+    lastSyncUid: number,
+  ): MailResult<number> {
+    const now = Date.now();
+    const updated = this.db
+      .update(mailboxes)
+      .set({ lastSyncUid, highWaterMarkUid: lastSyncUid, lastMessageSyncAt: now, updatedAt: now })
+      .where(and(eq(mailboxes.mailboxId, mailboxId), eq(mailboxes.accountId, account.accountId)))
+      .returning({ mailboxId: mailboxes.mailboxId })
+      .all();
+    if (updated.length === 0) return { ok: false, reason: "mailbox not found" };
+    log.info("mailbox cursor set", {
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      mailboxId,
+      lastSyncUid,
+    });
+    return { ok: true, value: lastSyncUid };
+  }
+
+  resetMailbox(account: MailAccount, mailboxId: string): MailResult<readonly string[]> {
+    const removed = this.db.transaction((tx) => {
+      if (!this.ownsMailbox(tx, account.accountId, mailboxId)) return null;
+      const owned = tx
+        .select({ messageId: messages.messageId })
+        .from(messages)
+        .where(eq(messages.mailboxId, mailboxId));
+      const messageIds = owned.all().map((row) => row.messageId);
+      tx.delete(envelopeAddresses).where(inArray(envelopeAddresses.messageId, owned)).run();
+      tx.delete(messageFlags).where(inArray(messageFlags.messageId, owned)).run();
+      tx.delete(envelopes).where(inArray(envelopes.messageId, owned)).run();
+      tx.delete(threadMessages).where(eq(threadMessages.mailboxId, mailboxId)).run();
+      tx.delete(messages).where(eq(messages.mailboxId, mailboxId)).run();
+      tx.update(mailboxes)
+        .set({ lastSyncUid: 0, highWaterMarkUid: 0, updatedAt: Date.now() })
+        .where(eq(mailboxes.mailboxId, mailboxId))
+        .run();
+      return messageIds;
+    });
+    if (removed === null) return { ok: false, reason: "mailbox not found" };
+    log.info("mailbox reset", {
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      mailboxId,
+      removed: removed.length,
+    });
+    return { ok: true, value: removed };
   }
 
   listMailboxes(account: MailAccount): readonly MailboxView[] {
