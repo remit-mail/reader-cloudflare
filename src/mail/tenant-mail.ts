@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { generateBase36Id } from "@remit/drizzle-sqlite-schema";
+import { and, asc, count, desc, eq, gt, inArray, like, lt, or, type SQL } from "drizzle-orm";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import migrations from "../../migrations/mail/migrations";
@@ -24,35 +25,37 @@ import {
   mailboxSpecialUseEntries,
   messageFlags,
   messages,
+  outboxMessages,
   threadMessages,
 } from "./schema";
 import type {
   AddressInput,
   AddressRole,
+  FlagChange,
   MailAccount,
   MailboxInput,
+  MailboxRow,
   MailboxView,
   MailResult,
   MessageInput,
-  MessagePage,
-  MessageSummary,
-  MessageView,
+  MessageLocation,
+  MessageRecord,
+  NewOutbox,
+  OutboxDraft,
+  OutboxRecord,
+  OutboxStateChange,
+  OutboxStatus,
+  SortOrder,
   SpecialUse,
+  ThreadCursor,
+  ThreadMessageRow,
+  ThreadPage,
+  ThreadQuery,
 } from "./types";
 
 type MailDb = DrizzleSqliteDODatabase<typeof schema>;
 
 type Tx = Parameters<Parameters<MailDb["transaction"]>[0]>[0];
-
-export interface MessageCursor {
-  readonly sentDate: number;
-  readonly messageId: string;
-}
-
-export interface ListMessagesOptions {
-  readonly limit: number;
-  readonly before: MessageCursor | null;
-}
 
 interface PreparedMailbox {
   readonly mailboxId: string;
@@ -380,6 +383,108 @@ const writeMessage = (
     .run();
 };
 
+const EDITABLE_OUTBOX: OutboxStatus[] = ["draft", "failed"];
+
+type OutboxRow = typeof outboxMessages.$inferSelect;
+
+const contains = (value: string): string => `%${value}%`;
+
+const threadFilter = (query: ThreadQuery): SQL | undefined =>
+  and(
+    inArray(threadMessages.mailboxId, [...query.mailboxIds]),
+    eq(threadMessages.isDeleted, false),
+    query.messageIds === null
+      ? undefined
+      : inArray(threadMessages.messageId, [...query.messageIds]),
+    query.unread === null ? undefined : eq(threadMessages.isRead, !query.unread),
+    query.starred === null ? undefined : eq(threadMessages.hasStars, query.starred),
+    query.attachments === null ? undefined : eq(threadMessages.hasAttachment, query.attachments),
+    query.from === null
+      ? undefined
+      : or(
+          like(threadMessages.fromEmail, contains(query.from)),
+          like(threadMessages.fromName, contains(query.from)),
+        ),
+    query.subject === null ? undefined : like(threadMessages.subject, contains(query.subject)),
+  );
+
+const cursorFilter = (order: SortOrder, cursor: ThreadCursor | null): SQL | undefined => {
+  if (cursor === null) return undefined;
+  const past = order === "desc" ? lt : gt;
+  return or(
+    past(threadMessages.sentDate, cursor.sentDate),
+    and(
+      eq(threadMessages.sentDate, cursor.sentDate),
+      past(threadMessages.messageId, cursor.messageId),
+    ),
+  );
+};
+
+const threadOrder = (order: SortOrder): [SQL, SQL] => {
+  const direction = order === "desc" ? desc : asc;
+  return [direction(threadMessages.sentDate), direction(threadMessages.messageId)];
+};
+
+const flagChanges = (change: FlagChange): { name: string; set: boolean }[] => [
+  ...(change.isRead === null ? [] : [{ name: SEEN, set: change.isRead }]),
+  ...(change.isStarred === null ? [] : [{ name: FLAGGED, set: change.isStarred }]),
+];
+
+const threadFlagUpdate = (change: FlagChange, now: number) => {
+  if (change.isRead === null && change.isStarred === null) return null;
+  return {
+    updatedAt: now,
+    ...(change.isRead === null ? {} : { isRead: change.isRead }),
+    ...(change.isStarred === null
+      ? {}
+      : {
+          hasStars: change.isStarred,
+          star: change.isStarred ? ("yellow" as const) : ("none" as const),
+        }),
+  };
+};
+
+const outboxDraftColumns = (draft: OutboxDraft) => ({
+  toAddresses: [...draft.toAddresses],
+  ccAddresses: [...draft.ccAddresses],
+  bccAddresses: [...draft.bccAddresses],
+  subject: orUndefined(draft.subject),
+  textBody: orUndefined(draft.textBody),
+  htmlBody: orUndefined(draft.htmlBody),
+  inReplyTo: orUndefined(draft.inReplyTo),
+  references: [...draft.references],
+});
+
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === "string");
+
+const stringList = (value: unknown, column: string): readonly string[] => {
+  if (!isStringList(value)) throw new Error(`outbox column ${column} is not a string list`);
+  return value;
+};
+
+const toOutboxRecord = (row: OutboxRow): OutboxRecord => ({
+  outboxMessageId: row.outboxMessageId,
+  accountId: row.accountId,
+  accountConfigId: row.accountConfigId,
+  fromAddress: row.fromAddress,
+  fromName: orNull(row.fromName),
+  toAddresses: stringList(row.toAddresses, "to_addresses"),
+  ccAddresses: stringList(row.ccAddresses, "cc_addresses"),
+  bccAddresses: stringList(row.bccAddresses, "bcc_addresses"),
+  subject: orNull(row.subject),
+  messageIdValue: row.messageIdValue,
+  inReplyTo: orNull(row.inReplyTo),
+  references: stringList(row.references, "references"),
+  textBody: orNull(row.textBody),
+  htmlBody: orNull(row.htmlBody),
+  status: row.status,
+  lastError: orNull(row.lastError),
+  sentAt: row.sentAt,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
 export class TenantMail extends DurableObject<Env> {
   private readonly db: MailDb;
 
@@ -529,92 +634,134 @@ export class TenantMail extends DurableObject<Env> {
     return rows.map((row) => ({ ...row, specialUse: byMailbox.get(row.mailboxId) ?? [] }));
   }
 
-  listMessages(
-    account: MailAccount,
-    mailboxId: string,
-    options: ListMessagesOptions,
-  ): MailResult<MessagePage> {
-    if (!this.ownsMailbox(this.db, account.accountId, mailboxId)) {
-      return { ok: false, reason: "mailbox not found" };
-    }
-    const { before } = options;
-    const cursor =
-      before === null
-        ? undefined
-        : or(
-            lt(threadMessages.sentDate, before.sentDate),
-            and(
-              eq(threadMessages.sentDate, before.sentDate),
-              lt(threadMessages.messageId, before.messageId),
-            ),
-          );
+  listMailboxRows(accountIds: readonly string[]): readonly MailboxRow[] {
+    if (accountIds.length === 0) return [];
     const rows = this.db
       .select({
-        messageId: threadMessages.messageId,
-        threadId: threadMessages.threadId,
-        uid: threadMessages.uid,
-        subject: threadMessages.subject,
-        fromName: threadMessages.fromName,
-        fromEmail: threadMessages.fromEmail,
-        sentDate: threadMessages.sentDate,
-        internalDate: threadMessages.internalDate,
-        isRead: threadMessages.isRead,
-        isFlagged: threadMessages.hasStars,
-        hasAttachment: threadMessages.hasAttachment,
-        snippet: threadMessages.snippet,
+        mailboxId: mailboxes.mailboxId,
+        accountId: mailboxes.accountId,
+        namespaceType: mailboxes.namespaceType,
+        namespacePrefix: mailboxes.namespacePrefix,
+        hierarchyDelimiter: mailboxes.hierarchyDelimiter,
+        fullPath: mailboxes.fullPath,
+        uidValidity: mailboxes.uidValidity,
+        uidNext: mailboxes.uidNext,
+        messageCount: mailboxes.messageCount,
+        unseenCount: mailboxes.unseenCount,
+        deletedCount: mailboxes.deletedCount,
+        lastSyncUid: mailboxes.lastSyncUid,
+        highWaterMarkUid: mailboxes.highWaterMarkUid,
+        lastMessageSyncAt: mailboxes.lastMessageSyncAt,
+        syncStatus: mailboxes.syncStatus,
+        syncFailureReason: mailboxes.syncFailureReason,
+        createdAt: mailboxes.createdAt,
+        updatedAt: mailboxes.updatedAt,
       })
-      .from(threadMessages)
-      .where(
-        and(
-          eq(threadMessages.accountConfigId, account.accountConfigId),
-          eq(threadMessages.mailboxId, mailboxId),
-          eq(threadMessages.isDeleted, false),
-          cursor,
-        ),
-      )
-      .orderBy(desc(threadMessages.sentDate), desc(threadMessages.messageId))
-      .limit(options.limit + 1)
+      .from(mailboxes)
+      .where(inArray(mailboxes.accountId, [...accountIds]))
+      .orderBy(mailboxes.accountId, mailboxes.fullPath)
       .all();
-    const page: MessageSummary[] = rows.slice(0, options.limit).map((row) => ({
+    const ids = rows.map((row) => row.mailboxId);
+    const uses = this.specialUses(ids);
+    const counts = new Map(
+      this.db
+        .select({ mailboxId: threadMessages.mailboxId, stored: count() })
+        .from(threadMessages)
+        .where(inArray(threadMessages.mailboxId, ids))
+        .groupBy(threadMessages.mailboxId)
+        .all()
+        .map((row) => [row.mailboxId, row.stored]),
+    );
+    return rows.map((row) => ({
       ...row,
-      subject: orNull(row.subject),
-      fromName: orNull(row.fromName),
-      fromEmail: orNull(row.fromEmail),
-      snippet: orNull(row.snippet),
+      specialUse: uses.get(row.mailboxId) ?? [],
+      storedMessages: counts.get(row.mailboxId) ?? 0,
     }));
-    const last = page.at(-1);
-    const nextBefore =
-      rows.length > options.limit && last !== undefined
-        ? `${last.sentDate}:${last.messageId}`
-        : null;
-    return { ok: true, value: { messages: page, nextBefore } };
   }
 
-  getMessage(account: MailAccount, messageId: string): MailResult<MessageView> {
+  findMailbox(mailboxId: string): MailboxRow | null {
+    const row = this.db
+      .select({ accountId: mailboxes.accountId })
+      .from(mailboxes)
+      .where(eq(mailboxes.mailboxId, mailboxId))
+      .get();
+    if (row === undefined) return null;
+    return (
+      this.listMailboxRows([row.accountId]).find((mailbox) => mailbox.mailboxId === mailboxId) ??
+      null
+    );
+  }
+
+  listThreads(query: ThreadQuery): ThreadPage {
+    if (query.mailboxIds.length === 0) return { rows: [], next: null };
+    const rows = this.db
+      .select()
+      .from(threadMessages)
+      .where(and(threadFilter(query), cursorFilter(query.order, query.cursor)))
+      .orderBy(...threadOrder(query.order))
+      .limit(query.limit + 1)
+      .all();
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    const next =
+      rows.length > query.limit && last !== undefined
+        ? { sentDate: last.sentDate, messageId: last.messageId }
+        : null;
+    return { rows: page, next };
+  }
+
+  countThreads(query: ThreadQuery): number {
+    if (query.mailboxIds.length === 0) return 0;
+    const row = this.db
+      .select({ total: count() })
+      .from(threadMessages)
+      .where(threadFilter(query))
+      .get();
+    return row?.total ?? 0;
+  }
+
+  listThreadMessages(threadId: string, order: SortOrder): readonly ThreadMessageRow[] {
+    return this.db
+      .select()
+      .from(threadMessages)
+      .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.isDeleted, false)))
+      .orderBy(...threadOrder(order))
+      .all();
+  }
+
+  describeMessage(messageId: string): MessageRecord | null {
     const row = this.db
       .select({
         messageId: messages.messageId,
+        accountId: mailboxes.accountId,
         mailboxId: messages.mailboxId,
+        mailboxPath: mailboxes.fullPath,
         uid: messages.uid,
         rfc822Size: messages.rfc822Size,
         internalDate: messages.internalDate,
         messageIdHeader: messages.messageIdHeader,
         bodyStorageKey: messages.bodyStorageKey,
+        status: messages.status,
+        syncStatus: messages.syncStatus,
+        abandonedMutation: messages.abandonedMutation,
         date: envelopes.dateValue,
-        dateRaw: envelopes.dateRaw,
         subject: envelopes.subject,
+        messageIdValue: envelopes.messageIdValue,
+        category: threadMessages.category,
       })
       .from(messages)
       .innerJoin(mailboxes, eq(mailboxes.mailboxId, messages.mailboxId))
       .innerJoin(envelopes, eq(envelopes.envelopeId, messages.envelopeId))
-      .where(and(eq(messages.messageId, messageId), eq(mailboxes.accountId, account.accountId)))
+      .innerJoin(threadMessages, eq(threadMessages.messageId, messages.messageId))
+      .where(eq(messages.messageId, messageId))
       .get();
-    if (row === undefined) return { ok: false, reason: "message not found" };
+    if (row === undefined) return null;
     const addressRows = this.db
       .select({
+        addressId: envelopeAddresses.addressId,
         role: envelopeAddresses.addressRole,
         order: envelopeAddresses.addressOrder,
-        name: envelopeAddresses.displayName,
+        displayName: envelopeAddresses.displayName,
         email: envelopeAddresses.normalizedEmail,
       })
       .from(envelopeAddresses)
@@ -628,16 +775,179 @@ export class TenantMail extends DurableObject<Env> {
       .orderBy(messageFlags.flagName)
       .all();
     return {
-      ok: true,
-      value: {
-        ...row,
-        messageIdHeader: orNull(row.messageIdHeader),
-        bodyStorageKey: orNull(row.bodyStorageKey),
-        subject: orNull(row.subject),
-        addresses: addressRows.map((address) => ({ ...address, name: orNull(address.name) })),
-        flags: flags.map((flag) => flag.name),
-      },
+      ...row,
+      messageIdHeader: orNull(row.messageIdHeader),
+      bodyStorageKey: orNull(row.bodyStorageKey),
+      subject: orNull(row.subject),
+      messageIdValue: orNull(row.messageIdValue),
+      addresses: addressRows.map((address) => ({
+        ...address,
+        displayName: orNull(address.displayName),
+      })),
+      flags: flags.map((flag) => flag.name),
     };
+  }
+
+  locateMessages(messageIds: readonly string[]): readonly MessageLocation[] {
+    if (messageIds.length === 0) return [];
+    return this.db
+      .select({
+        messageId: messages.messageId,
+        accountId: mailboxes.accountId,
+        mailboxId: messages.mailboxId,
+        mailboxPath: mailboxes.fullPath,
+        uid: messages.uid,
+      })
+      .from(messages)
+      .innerJoin(mailboxes, eq(mailboxes.mailboxId, messages.mailboxId))
+      .where(inArray(messages.messageId, [...messageIds]))
+      .all();
+  }
+
+  async setFlags(messageIds: readonly string[], change: FlagChange): Promise<number> {
+    const now = Date.now();
+    const changes = flagChanges(change);
+    const prepared = await Promise.all(
+      messageIds.flatMap((messageId) =>
+        changes.map(async (flag) => ({
+          ...flag,
+          messageId,
+          messageFlagId: await deriveFlagId(messageId, flag.name),
+        })),
+      ),
+    );
+    const summary = threadFlagUpdate(change, now);
+    this.db.transaction((tx) => {
+      if (summary !== null) {
+        tx.update(threadMessages)
+          .set(summary)
+          .where(inArray(threadMessages.messageId, [...messageIds]))
+          .run();
+      }
+      for (const flag of prepared) {
+        if (!flag.set) {
+          tx.delete(messageFlags).where(eq(messageFlags.messageFlagId, flag.messageFlagId)).run();
+          continue;
+        }
+        tx.insert(messageFlags)
+          .values({
+            messageFlagId: flag.messageFlagId,
+            messageId: flag.messageId,
+            flagName: flag.name,
+            setAt: now,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+    });
+    log.info("flags set", { count: messageIds.length, ...change });
+    return messageIds.length;
+  }
+
+  createOutbox(input: NewOutbox): OutboxRecord {
+    const now = Date.now();
+    const row = this.db
+      .insert(outboxMessages)
+      .values({
+        outboxMessageId: generateBase36Id(),
+        accountId: input.accountId,
+        accountConfigId: input.accountConfigId,
+        fromAddress: input.fromAddress,
+        messageIdValue: input.messageIdValue,
+        ...outboxDraftColumns(input.draft),
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning()
+      .get();
+    return toOutboxRecord(row);
+  }
+
+  getOutbox(outboxMessageId: string): OutboxRecord | null {
+    const row = this.db
+      .select()
+      .from(outboxMessages)
+      .where(eq(outboxMessages.outboxMessageId, outboxMessageId))
+      .get();
+    return row === undefined ? null : toOutboxRecord(row);
+  }
+
+  listOutbox(accountIds: readonly string[]): readonly OutboxRecord[] {
+    if (accountIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(outboxMessages)
+      .where(inArray(outboxMessages.accountId, [...accountIds]))
+      .orderBy(desc(outboxMessages.createdAt))
+      .all()
+      .map(toOutboxRecord);
+  }
+
+  updateOutboxDraft(outboxMessageId: string, draft: OutboxDraft): MailResult<OutboxRecord> {
+    const row = this.db
+      .update(outboxMessages)
+      .set({ ...outboxDraftColumns(draft), updatedAt: Date.now() })
+      .where(
+        and(
+          eq(outboxMessages.outboxMessageId, outboxMessageId),
+          inArray(outboxMessages.status, EDITABLE_OUTBOX),
+        ),
+      )
+      .returning()
+      .get();
+    if (row === undefined) return { ok: false, reason: "outbox message is not an editable draft" };
+    return { ok: true, value: toOutboxRecord(row) };
+  }
+
+  claimOutbox(outboxMessageId: string): MailResult<OutboxRecord> {
+    const row = this.db
+      .update(outboxMessages)
+      .set({ status: "sending", lastError: null, updatedAt: Date.now() })
+      .where(
+        and(
+          eq(outboxMessages.outboxMessageId, outboxMessageId),
+          inArray(outboxMessages.status, EDITABLE_OUTBOX),
+        ),
+      )
+      .returning()
+      .get();
+    if (row === undefined) return { ok: false, reason: "outbox message is not ready to send" };
+    return { ok: true, value: toOutboxRecord(row) };
+  }
+
+  settleOutbox(outboxMessageId: string, change: OutboxStateChange): OutboxRecord {
+    const row = this.db
+      .update(outboxMessages)
+      .set({
+        status: change.status,
+        lastError: change.lastError,
+        sentAt: change.sentAt,
+        updatedAt: Date.now(),
+      })
+      .where(eq(outboxMessages.outboxMessageId, outboxMessageId))
+      .returning()
+      .get();
+    if (row === undefined) throw new Error(`outbox message ${outboxMessageId} vanished`);
+    return toOutboxRecord(row);
+  }
+
+  private specialUses(mailboxIds: readonly string[]): Map<string, SpecialUse[]> {
+    const uses = this.db
+      .select({
+        mailboxId: mailboxSpecialUseEntries.mailboxId,
+        specialUse: mailboxSpecialUseEntries.specialUse,
+      })
+      .from(mailboxSpecialUseEntries)
+      .where(inArray(mailboxSpecialUseEntries.mailboxId, [...mailboxIds]))
+      .all();
+    const byMailbox = new Map<string, SpecialUse[]>();
+    for (const use of uses) {
+      byMailbox.set(use.mailboxId, [...(byMailbox.get(use.mailboxId) ?? []), use.specialUse]);
+    }
+    return byMailbox;
   }
 
   private ownsMailbox(db: MailDb | Tx, accountId: string, mailboxId: string): boolean {

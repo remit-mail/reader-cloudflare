@@ -91,9 +91,16 @@ const parseJson = (bytes: Uint8Array | undefined): unknown => {
   }
 };
 
+const bearerToken = (request: Request): string | undefined => {
+  const match = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "");
+  return match?.[1];
+};
+
 const readToken = (request: Request): string | undefined => {
   const header = request.headers.get(HEADER);
   if (header) return header;
+  const bearer = bearerToken(request);
+  if (bearer !== undefined) return bearer;
   const cookies = request.headers.get("cookie") ?? "";
   for (const part of cookies.split(";")) {
     const at = part.indexOf("=");

@@ -39,13 +39,16 @@
     "wrangler": "^4.152.0"
   },
   "dependencies": {
+    "@remit/api-openapi-spec": "^0.0.77",
+    "@remit/api-openapi-types": "^0.0.80",
+    "@remit/api-zod-schemas": "^0.0.60",
     "@remit/drizzle-sqlite-schema": "^0.0.34",
     "app-db-schema": "0.0.0",
     "drizzle-orm": "^0.45.4",
     "imapflow": "^2.9.1",
     "nodemailer": "^10.2.1",
+    "openapi-backend": "^5.22.0",
     "postal-mime": "^4.1.4",
-    "sync-state": "0.0.0",
-    "zod": "^4.6.7"
+    "zod": "^3.25.76"
   }
 }

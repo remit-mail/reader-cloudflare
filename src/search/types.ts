@@ -10,7 +10,8 @@ export interface SearchDocument {
 export interface SearchOptions {
   readonly query: string;
   readonly limit: number;
-  readonly mailboxId: string | null;
+  readonly accountIds: readonly string[];
+  readonly mailboxIds: readonly string[] | null;
 }
 
 export interface SearchHit {

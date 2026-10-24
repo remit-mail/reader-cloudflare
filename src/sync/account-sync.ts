@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import type { ImapFlow } from "imapflow";
-import { NEVER_SYNCED, type SyncState, syncStateSchema } from "sync-state";
+import { recordSyncOutcome } from "../db/accounts";
+import { openAppDb } from "../db/client";
 import type { Env } from "../env";
 import { log } from "../log";
 import { type ImapCredential, openImap } from "../mail/imap-connect";
-import { tenantMail } from "../mail/routes";
 import type { MailAccount } from "../mail/types";
+import { tenantMail } from "../stubs";
 import { listServerMailboxes, syncMailbox } from "./dump";
+import { NEVER_SYNCED, type SyncStart, type SyncState, syncStateSchema } from "./state";
 
 const STATE_KEY = "state";
 
@@ -34,14 +36,14 @@ export class AccountSync extends DurableObject<Env> {
     return lost;
   }
 
-  start(account: MailAccount, credential: ImapCredential): SyncState {
-    if (this.run !== null) return this.progress;
+  start(account: MailAccount, credential: ImapCredential): SyncStart {
+    if (this.run !== null) return { started: false, state: this.progress };
     this.progress = { ...NEVER_SYNCED, status: "Running", startedAt: Date.now() };
     this.run = this.execute(account, credential).finally(() => {
       this.run = null;
     });
     this.ctx.waitUntil(this.run);
-    return this.progress;
+    return { started: true, state: this.progress };
   }
 
   private async execute(account: MailAccount, credential: ImapCredential): Promise<void> {
@@ -55,9 +57,17 @@ export class AccountSync extends DurableObject<Env> {
     if (failure !== null) {
       log.error("sync failed", { ...fields, ...this.progress, reason: failure });
       await this.advance({ status: "Failed", finishedAt: Date.now(), error: failure });
+      await recordSyncOutcome(openAppDb(this.env.DB), account.accountId, {
+        ok: false,
+        reason: failure,
+      });
       return;
     }
     await this.advance({ status: "Idle", finishedAt: Date.now(), currentMailbox: "" });
+    await recordSyncOutcome(openAppDb(this.env.DB), account.accountId, {
+      ok: true,
+      mailboxes: this.progress.mailboxesTotal,
+    });
     log.info("sync finished", {
       ...fields,
       ...this.progress,

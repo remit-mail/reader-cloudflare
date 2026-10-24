@@ -104,18 +104,20 @@ export class TenantSearch extends DurableObject<Env> {
     return messageIds.length;
   }
 
-  search(account: MailAccount, options: SearchOptions): readonly SearchHit[] {
+  search(options: SearchOptions): readonly SearchHit[] {
     const expression = matchExpression(options.query);
-    if (expression === null) return [];
+    if (expression === null || options.accountIds.length === 0) return [];
     const mailbox: SQL | undefined =
-      options.mailboxId === null ? undefined : eq(messageFts.mailboxId, options.mailboxId);
+      options.mailboxIds === null
+        ? undefined
+        : inArray(messageFts.mailboxId, [...options.mailboxIds]);
     return this.db
       .select({ messageId: messageFts.messageId, mailboxId: messageFts.mailboxId, rank })
       .from(messageFts)
       .where(
         and(
           sql`${messageFts} MATCH ${expression}`,
-          eq(messageFts.accountId, account.accountId),
+          inArray(messageFts.accountId, [...options.accountIds]),
           mailbox,
         ),
       )

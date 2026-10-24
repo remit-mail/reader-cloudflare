@@ -1,9 +1,7 @@
 import { z } from "zod";
 
-export const syncStatusSchema = z.enum(["Idle", "Running", "Failed"]);
-
 export const syncStateSchema = z.object({
-  status: syncStatusSchema,
+  status: z.enum(["Idle", "Running", "Failed"]),
   startedAt: z.number().int().nonnegative(),
   finishedAt: z.number().int().nonnegative(),
   mailboxesDone: z.number().int().nonnegative(),
@@ -14,9 +12,12 @@ export const syncStateSchema = z.object({
   error: z.string(),
 });
 
-export type SyncStatus = z.infer<typeof syncStatusSchema>;
-
 export type SyncState = z.infer<typeof syncStateSchema>;
+
+export interface SyncStart {
+  readonly started: boolean;
+  readonly state: SyncState;
+}
 
 export const NEVER_SYNCED: SyncState = {
   status: "Idle",

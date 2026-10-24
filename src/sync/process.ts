@@ -1,10 +1,9 @@
 import type { Env } from "../env";
 import { log } from "../log";
 import { parseEmail, toAddressInputs, toDisplay } from "../mail/parse";
-import { tenantMail } from "../mail/routes";
 import type { MailAccount, MessageInput } from "../mail/types";
-import { tenantSearch } from "../search/routes";
 import type { SearchDocument } from "../search/types";
+import { tenantMail, tenantSearch } from "../stubs";
 import { objectMetadataSchema, type ProcessBatch, syncMessageSchema } from "./messages";
 
 const SNIPPET_LENGTH = 200;

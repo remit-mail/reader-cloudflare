@@ -6,5 +6,7 @@ export {
   mailboxSpecialUseEntries,
   messageFlags,
   messages,
+  outboxAttachments,
+  outboxMessages,
   threadMessages,
 } from "@remit/drizzle-sqlite-schema";

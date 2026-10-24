@@ -54,3 +54,6 @@ export const deriveEnvelopeAddressId = (
   role: string,
   order: number,
 ): Promise<string> => uuidV5Base36(`envelopeaddress:${messageId}:${role}:${order}`);
+
+export const deriveBodyPartId = (messageId: string, partPath: string): Promise<string> =>
+  uuidV5Base36(`bodypart:${messageId}:${partPath}`);

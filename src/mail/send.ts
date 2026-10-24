@@ -1,76 +1,75 @@
 import type { ImapFlow, ListResponse } from "imapflow";
 import MailComposer from "nodemailer/lib/mail-composer";
-import { z } from "zod";
-import type { Tenant } from "../access";
-import { type AccountView, decryptCredential, getAccount } from "../db/accounts";
-import { openAppDb } from "../db/client";
-import type { Env } from "../env";
-import { log } from "../log";
+import type { AccountRow } from "../db/accounts";
 import { type ImapCredential, openImap } from "./imap-connect";
-import { openSmtp } from "./smtp-connect";
+import { openSmtp, type SmtpCredential } from "./smtp-connect";
+import type { OutboxRecord } from "./types";
 
-const SEND_PATH = /^\/api\/accounts\/([A-Za-z0-9]+)\/send$/;
 const SENT_NAMES = ["sent", "sent mail"];
 
-export const sendBodySchema = z
-  .object({
-    to: z.array(z.email()),
-    cc: z.array(z.email()),
-    bcc: z.array(z.email()),
-    subject: z.string(),
-    text: z.string(),
-    html: z.string(),
-    inReplyTo: z.string(),
-    references: z.array(z.string().min(1)),
-  })
-  .refine((body) => body.to.length + body.cc.length + body.bcc.length > 0, {
-    message: "at least one recipient is required",
-  });
-
-export type SendBody = z.infer<typeof sendBodySchema>;
-
-type Outcome<T> =
+export type Outcome<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: string };
 
-const notFound = (): Response => Response.json({ error: "not found" }, { status: 404 });
+export interface AccountCredentials {
+  readonly imap: ImapCredential;
+  readonly smtp: SmtpCredential;
+}
+
+export type Delivery =
+  | { readonly kind: "Sent"; readonly sentMailbox: string }
+  | { readonly kind: "Unfiled"; readonly reason: string }
+  | { readonly kind: "Failed"; readonly reason: string };
 
 const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const settle = <T>(promise: Promise<T>): Promise<Outcome<T>> =>
+export const settle = <T>(promise: Promise<T>): Promise<Outcome<T>> =>
   promise.then(
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, reason: reasonOf(error) }),
   );
 
-const matchAccountId = (path: string): string | null => SEND_PATH.exec(path)?.[1] ?? null;
+export const domainOf = (address: string): string => address.slice(address.lastIndexOf("@") + 1);
 
-export const isSendPath = (path: string): boolean => matchAccountId(path) !== null;
+export const accountCredentials = (account: AccountRow, password: string): AccountCredentials => ({
+  imap: {
+    host: account.imapHost,
+    port: account.imapPort,
+    secure: account.imapTls,
+    username: account.username,
+    password,
+  },
+  smtp: {
+    host: account.smtpHost,
+    port: account.smtpPort,
+    secure: account.smtpTls,
+    username: account.smtpUsername === "" ? account.username : account.smtpUsername,
+    password,
+  },
+});
 
-const domainOf = (address: string): string => address.slice(address.lastIndexOf("@") + 1);
-
-const nonEmpty = (value: string): string | undefined => (value === "" ? undefined : value);
+const nonEmpty = (value: string | null): string | undefined =>
+  value === null || value === "" ? undefined : value;
 
 const nonEmptyList = (values: readonly string[]): string[] | undefined =>
   values.length === 0 ? undefined : [...values];
 
-const composeMessage = async (from: string, body: SendBody) => {
-  const messageId = `<${crypto.randomUUID()}@${domainOf(from)}>`;
+const composeMessage = async (outbox: OutboxRecord) => {
   const node = new MailComposer({
-    from,
-    to: nonEmptyList(body.to),
-    cc: nonEmptyList(body.cc),
-    bcc: nonEmptyList(body.bcc),
-    subject: body.subject,
-    text: body.text,
-    html: nonEmpty(body.html),
-    inReplyTo: nonEmpty(body.inReplyTo),
-    references: nonEmptyList(body.references),
-    messageId,
+    from: outbox.fromAddress,
+    to: nonEmptyList(outbox.toAddresses),
+    cc: nonEmptyList(outbox.ccAddresses),
+    bcc: nonEmptyList(outbox.bccAddresses),
+    subject: outbox.subject ?? "",
+    text: outbox.textBody ?? "",
+    html: nonEmpty(outbox.htmlBody),
+    inReplyTo: nonEmpty(outbox.inReplyTo),
+    references: nonEmptyList(outbox.references),
+    messageId: outbox.messageIdValue,
   }).compile();
   const raw: Uint8Array = await node.build();
-  return { messageId, envelope: node.getEnvelope(), raw };
+  return { envelope: node.getEnvelope(), raw };
 };
 
 const isSentByName = (entry: ListResponse): boolean =>
@@ -99,7 +98,7 @@ const appendSent = async (
 };
 
 const sendMessage = async (
-  credential: ImapCredential,
+  credential: SmtpCredential,
   envelope: { from: string | false; to: string[] },
   raw: Uint8Array,
 ): Promise<void> => {
@@ -111,79 +110,29 @@ const sendMessage = async (
   }
 };
 
-const credentialFor = (
-  server: AccountView["smtp"],
-  account: AccountView,
-  password: string,
-): ImapCredential => ({
-  host: server.host,
-  port: server.port,
-  secure: server.secure,
-  username: account.username,
-  password,
-});
+export const deliver = async (
+  credentials: AccountCredentials,
+  outbox: OutboxRecord,
+): Promise<Delivery> => {
+  const { envelope, raw } = await composeMessage(outbox);
+  const sent = await settle(sendMessage(credentials.smtp, envelope, raw));
+  if (!sent.ok) return { kind: "Failed", reason: sent.reason };
+  const appended = await settle(appendSent(credentials.imap, raw));
+  if (!appended.ok) return { kind: "Unfiled", reason: appended.reason };
+  if (!appended.value.ok) return { kind: "Unfiled", reason: appended.value.reason };
+  return { kind: "Sent", sentMailbox: appended.value.value };
+};
 
-export const sendApi = async (
-  request: Request,
-  env: Env,
-  path: string,
-  tenant: Tenant,
-): Promise<Response> => {
-  const accountId = matchAccountId(path);
-  if (accountId === null || request.method !== "POST") return notFound();
-  const parsed = sendBodySchema.safeParse(await request.json().catch(() => undefined));
-  if (!parsed.success) {
-    return Response.json(
-      { error: "invalid message", issues: parsed.error.issues },
-      { status: 400 },
-    );
+export const verifyImap = async (credential: ImapCredential): Promise<void> => {
+  const client = await openImap(credential);
+  await client.logout();
+};
+
+export const verifySmtp = async (credential: SmtpCredential): Promise<void> => {
+  const transport = openSmtp(credential);
+  try {
+    await transport.verify();
+  } finally {
+    transport.close();
   }
-  const db = openAppDb(env.DB);
-  const account = await getAccount(db, tenant.tenantId, accountId);
-  if (account === undefined) return notFound();
-  const fields = { tenantId: tenant.tenantId, accountId };
-  const secret = await decryptCredential(env, db, tenant.tenantId, accountId);
-  if (!secret.ok) {
-    log.error("send failed", { ...fields, reason: secret.reason });
-    return Response.json({ error: "send failed", reason: secret.reason }, { status: 500 });
-  }
-  const { messageId, envelope, raw } = await composeMessage(account.email, parsed.data);
-  const recipients = envelope.to.length;
-  const smtpStarted = Date.now();
-  const sent = await settle(
-    sendMessage(credentialFor(account.smtp, account, secret.plaintext), envelope, raw),
-  );
-  const smtpMs = Date.now() - smtpStarted;
-  if (!sent.ok) {
-    log.error("send failed", { ...fields, messageId, recipients, smtpMs, reason: sent.reason });
-    return Response.json({ error: "send failed", reason: sent.reason }, { status: 502 });
-  }
-  const appendStarted = Date.now();
-  const appended = await settle(
-    appendSent(credentialFor(account.imap, account, secret.plaintext), raw),
-  ).then((outcome): Outcome<string> => (outcome.ok ? outcome.value : outcome));
-  const appendMs = Date.now() - appendStarted;
-  if (!appended.ok) {
-    log.error("sent copy not appended", {
-      ...fields,
-      messageId,
-      recipients,
-      smtpMs,
-      appendMs,
-      reason: appended.reason,
-    });
-    return Response.json(
-      { sent: true, appended: false, messageId, reason: appended.reason },
-      { status: 502 },
-    );
-  }
-  log.info("message sent", {
-    ...fields,
-    messageId,
-    recipients,
-    smtpMs,
-    appendMs,
-    sentMailbox: appended.value,
-  });
-  return Response.json({ messageId, sentMailbox: appended.value });
 };

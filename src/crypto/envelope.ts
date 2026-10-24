@@ -38,13 +38,19 @@ const wrapContext = (tenantId: string, keyVersion: number): Uint8Array =>
 
 const secretContext = (tenantId: string): Uint8Array => encoder.encode(`credential:${tenantId}`);
 
-const importMasterKey = async (env: Env): Promise<CryptoKey> => {
+export const masterKeyBytes = async (env: Env): Promise<Uint8Array> => {
   const raw = decodeBase64(await env.MASTER_KEY.get());
   if (raw.byteLength !== MASTER_KEY_BYTES) {
     throw new Error(`MASTER_KEY must decode to ${MASTER_KEY_BYTES} bytes`);
   }
-  return crypto.subtle.importKey("raw", raw, AES_GCM, false, ["wrapKey", "unwrapKey"]);
+  return raw;
 };
+
+const importMasterKey = async (env: Env): Promise<CryptoKey> =>
+  crypto.subtle.importKey("raw", await masterKeyBytes(env), AES_GCM, false, [
+    "wrapKey",
+    "unwrapKey",
+  ]);
 
 const generateDataKey = async (): Promise<CryptoKey> => {
   const key = await crypto.subtle.generateKey({ name: AES_GCM, length: 256 }, true, [

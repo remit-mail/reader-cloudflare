@@ -1,4 +1,11 @@
-import type { envelopeAddresses, mailboxSpecialUseEntries } from "./schema";
+import type {
+  envelopeAddresses,
+  mailboxes,
+  mailboxSpecialUseEntries,
+  messages,
+  outboxMessages,
+  threadMessages,
+} from "./schema";
 
 export type SpecialUse = (typeof mailboxSpecialUseEntries.$inferInsert)["specialUse"];
 
@@ -66,48 +73,151 @@ export interface MailboxView {
   readonly lastSyncUid: number;
 }
 
-export interface MessageSummary {
-  readonly messageId: string;
-  readonly threadId: string;
-  readonly uid: number;
-  readonly subject: string | null;
-  readonly fromName: string | null;
-  readonly fromEmail: string | null;
-  readonly sentDate: number;
-  readonly internalDate: number;
-  readonly isRead: boolean;
-  readonly isFlagged: boolean;
-  readonly hasAttachment: boolean;
-  readonly snippet: string | null;
-}
+export type MailResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly reason: string };
 
-export interface MessagePage {
-  readonly messages: readonly MessageSummary[];
-  readonly nextBefore: string | null;
-}
+export type ThreadMessageRow = typeof threadMessages.$inferSelect;
 
-export interface EnvelopeAddressView {
-  readonly role: AddressRole;
-  readonly order: number;
-  readonly name: string | null;
-  readonly email: string;
-}
+export type MailboxSyncStatus = (typeof mailboxes.$inferSelect)["syncStatus"];
 
-export interface MessageView {
-  readonly messageId: string;
+export type NamespaceType = (typeof mailboxes.$inferSelect)["namespaceType"];
+
+export type OutboxStatus = (typeof outboxMessages.$inferSelect)["status"];
+
+export interface MailboxRow {
   readonly mailboxId: string;
+  readonly accountId: string;
+  readonly namespaceType: NamespaceType;
+  readonly namespacePrefix: string;
+  readonly hierarchyDelimiter: string;
+  readonly fullPath: string;
+  readonly uidValidity: number;
+  readonly uidNext: number;
+  readonly messageCount: number;
+  readonly unseenCount: number;
+  readonly deletedCount: number;
+  readonly lastSyncUid: number;
+  readonly highWaterMarkUid: number;
+  readonly lastMessageSyncAt: number;
+  readonly syncStatus: MailboxSyncStatus;
+  readonly syncFailureReason: string;
+  readonly specialUse: readonly SpecialUse[];
+  readonly storedMessages: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+export interface ThreadCursor {
+  readonly sentDate: number;
+  readonly messageId: string;
+}
+
+export type SortOrder = "asc" | "desc";
+
+export interface ThreadQuery {
+  readonly mailboxIds: readonly string[];
+  readonly messageIds: readonly string[] | null;
+  readonly unread: boolean | null;
+  readonly starred: boolean | null;
+  readonly attachments: boolean | null;
+  readonly from: string | null;
+  readonly subject: string | null;
+  readonly order: SortOrder;
+  readonly cursor: ThreadCursor | null;
+  readonly limit: number;
+}
+
+export interface ThreadPage {
+  readonly rows: readonly ThreadMessageRow[];
+  readonly next: ThreadCursor | null;
+}
+
+export interface MessageRecord {
+  readonly messageId: string;
+  readonly accountId: string;
+  readonly mailboxId: string;
+  readonly mailboxPath: string;
   readonly uid: number;
   readonly rfc822Size: number;
   readonly internalDate: number;
   readonly messageIdHeader: string | null;
   readonly bodyStorageKey: string | null;
+  readonly status: (typeof messages.$inferSelect)["status"];
+  readonly syncStatus: (typeof messages.$inferSelect)["syncStatus"];
+  readonly abandonedMutation: (typeof messages.$inferSelect)["abandonedMutation"];
   readonly date: number;
-  readonly dateRaw: string;
   readonly subject: string | null;
-  readonly addresses: readonly EnvelopeAddressView[];
+  readonly messageIdValue: string | null;
+  readonly category: ThreadMessageRow["category"];
+  readonly addresses: readonly EnvelopeAddressRecord[];
   readonly flags: readonly string[];
 }
 
-export type MailResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly reason: string };
+export interface EnvelopeAddressRecord {
+  readonly addressId: string;
+  readonly role: AddressRole;
+  readonly order: number;
+  readonly displayName: string | null;
+  readonly email: string;
+}
+
+export interface MessageLocation {
+  readonly messageId: string;
+  readonly accountId: string;
+  readonly mailboxId: string;
+  readonly mailboxPath: string;
+  readonly uid: number;
+}
+
+export interface FlagChange {
+  readonly isRead: boolean | null;
+  readonly isStarred: boolean | null;
+}
+
+export interface OutboxRecord {
+  readonly outboxMessageId: string;
+  readonly accountId: string;
+  readonly accountConfigId: string;
+  readonly fromAddress: string;
+  readonly fromName: string | null;
+  readonly toAddresses: readonly string[];
+  readonly ccAddresses: readonly string[];
+  readonly bccAddresses: readonly string[];
+  readonly subject: string | null;
+  readonly messageIdValue: string;
+  readonly inReplyTo: string | null;
+  readonly references: readonly string[];
+  readonly textBody: string | null;
+  readonly htmlBody: string | null;
+  readonly status: OutboxStatus;
+  readonly lastError: string | null;
+  readonly sentAt: number | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+export interface OutboxDraft {
+  readonly toAddresses: readonly string[];
+  readonly ccAddresses: readonly string[];
+  readonly bccAddresses: readonly string[];
+  readonly subject: string | null;
+  readonly textBody: string | null;
+  readonly htmlBody: string | null;
+  readonly inReplyTo: string | null;
+  readonly references: readonly string[];
+}
+
+export interface NewOutbox {
+  readonly accountId: string;
+  readonly accountConfigId: string;
+  readonly fromAddress: string;
+  readonly messageIdValue: string;
+  readonly draft: OutboxDraft;
+}
+
+export interface OutboxStateChange {
+  readonly status: OutboxStatus;
+  readonly lastError: string | null;
+  readonly sentAt: number | null;
+}

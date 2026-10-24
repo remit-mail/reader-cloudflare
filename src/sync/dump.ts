@@ -1,9 +1,8 @@
 import type { ImapFlow, ListResponse } from "imapflow";
 import type { Env } from "../env";
 import { log } from "../log";
-import { tenantMail } from "../mail/routes";
 import type { MailAccount, MailboxInput, MailboxView, SpecialUse } from "../mail/types";
-import { tenantSearch } from "../search/routes";
+import { tenantMail, tenantSearch } from "../stubs";
 import { messageKey, toCustomMetadata } from "./messages";
 
 const BATCH_SIZE = 25;
