@@ -7,6 +7,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 - TypeScript only. No Python.
 - npm workspaces with one lockfile at the root. Current major versions of every tool; Node 24 (`.nvmrc`).
 - Biome formats and lints. Run `npm run fix` before every commit.
+- Run `npm run ci` before every push.
 - Push straight to `main` until the prototype runs end to end.
 - CI is one fast job: `npm ci`, `npm run check`, `npm run typecheck`.
 - The Worker logs one JSON object per line through `log` in `src/log.ts`. Workers Observability is on in `wrangler.jsonc`.
@@ -20,6 +21,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run fix`                        | Biome rewrites files                                   |
 | `npm run check`                      | Biome format and lint check                            |
 | `npm run typecheck`                  | `tsc` over `src` and every package                     |
+| `npm run ci`                         | `check` then `typecheck`; run before every push        |
 | `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`          |
 
 ## Infra
