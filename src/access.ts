@@ -142,7 +142,21 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
 
 const denied = (reason: string): TenantResult => ({ ok: false, reason });
 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+const toHex = (bytes: ArrayBuffer): string =>
+  Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const devTenant = async (request: Request, email: string): Promise<TenantResult> => {
+  if (!LOOPBACK_HOSTS.has(new URL(request.url).hostname)) {
+    return denied("dev identity is only accepted on loopback");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
+  return { ok: true, tenant: { tenantId: `dev-${toHex(digest).slice(0, 32)}`, email } };
+};
+
 export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
+  if (env.ACCESS_DEV_IDENTITY !== undefined) return devTenant(request, env.ACCESS_DEV_IDENTITY);
   const token = readToken(request);
   if (token === undefined) return denied("missing Access token");
   const parts = token.split(".");

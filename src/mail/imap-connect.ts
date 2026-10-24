@@ -1,6 +1,7 @@
 import { connect } from "cloudflare:sockets";
 import { createSocketsTransport, ImapFlow } from "imapflow";
 import { log } from "../log";
+import { allowsPlaintext } from "./plaintext";
 
 export interface ImapCredential {
   readonly host: string;
@@ -23,7 +24,7 @@ export const openImap = async (credential: ImapCredential): Promise<ImapFlow> =>
     host: credential.host,
     port: credential.port,
     secure: credential.secure,
-    doSTARTTLS: !credential.secure,
+    doSTARTTLS: !credential.secure && !allowsPlaintext(credential.host, credential.secure),
     auth: { user: credential.username, pass: credential.password },
     logger: false,
     transport: socketsTransport(),

@@ -1,0 +1,9 @@
+services:
+  dovecot:
+    extends:
+      file: ./.reader/deploy/vps/docker-compose.dovecot.yml
+      service: dovecot
+  mailpit:
+    extends:
+      file: ./.reader/deploy/vps/docker-compose.dovecot.yml
+      service: mailpit

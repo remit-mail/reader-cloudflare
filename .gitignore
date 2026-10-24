@@ -5,3 +5,4 @@ dist/
 .dev.vars
 src/commit.ts
 .types/
+e2e/.reader/
