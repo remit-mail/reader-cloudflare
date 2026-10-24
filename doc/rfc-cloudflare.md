@@ -2,58 +2,72 @@
 
 ## Summary
 
-This build runs remit reader on Cloudflare alone. Cloudflare Access signs the user in. Each user is a tenant with their own mail accounts. Settings and credentials live in one shared database. Each tenant's mail and search index live in their own small databases, created on first use. Message bodies sit in object storage. The browser starts each sync. A queue spreads the follow-up work, and only the sync step talks to the mail server. The storage split follows reader#1420, so the same code can later run on other providers.
+This build runs remit reader on Cloudflare. The repo holds the infrastructure, a thin wrapper and the data that only Cloudflare needs. Everything shared comes from reader's published packages: the web client, the API contract, the handlers and the storage code. Cloudflare Access signs the user in. Settings live in one shared database, and each user gets their own mail and search databases.
 
 Each decision below carries a number. Disagree by number.
 
 ## Platform and tenants
 
-1. The build is cloud-native on Cloudflare: Workers, D1, Durable Objects, R2, Queues, Secrets Store and Access. Other cloud providers get their own builds later. The storage code reaches each driver through one thin adapter.
-2. Cloudflare Access handles sign-in, and the Access identity is the tenant id. A tenant is one user with one or more mail accounts. Access already proves who the user is, so the Worker runs no auth service of its own.
+1. The build is cloud-native on Cloudflare: Workers, D1, Durable Objects, R2, Queues, Secrets Store and Access. The repo carries no UI, no API handlers and no database layer for the shared parts. Other providers get their own builds.
+2. Cloudflare Access is the only sign-in. The Access JWT, from the cookie or a bearer header, is the identity. Access has no password store, so the build has none. Switching the provider (one-time PIN today, Google or GitHub later) is a Tofu change. Access admits matthijs@ischen.nl only.
 
 ## Storage
 
-3. The app DB is D1. It holds the state that lives in the client. That is accounts, config (already transferable), rules, labels, settings and encrypted credentials. Labels are reader's own labels, separate from Gmail labels.
-4. Tenant data is everything that lives on the IMAP server. Each tenant gets a mail DB and a separate FTS5 search DB, both Durable Object SQLite. D1 bindings are fixed at deploy time, and a Durable Object is created on first use. Search rebuilds from message bodies, so it never commits atomically with mail.
-5. Message bodies and attachments live in R2, outside the mail DB.
+3. One shared D1 database holds reader's app tables and three Cloudflare-only tables: `tenant_account`, `credential` and `tenant_key`.
+4. Each tenant gets one mail Durable Object and one search Durable Object, both on SQLite. The search object holds an FTS5 index. A Durable Object starts on first use, so a new tenant needs no deploy. Search rebuilds from message bodies, so it never commits atomically with mail.
+5. Message bodies and attachments live in R2, outside the mail database.
 6. No code uses an interactive transaction. A write is an atomic batch or an idempotent step that is safe to repeat. A queue can deliver a message twice. Two tabs can start the same sync.
-7. Every schema is a Drizzle sqlite-core schema. The code adds no raw SQL and no new emitter.
+7. Every schema is Drizzle sqlite-core. A small TypeSpec here generates the three Cloudflare-only tables. It uses reader's emitter and entity vocabulary. The only raw SQL is the FTS5 statements.
 
 ## Credentials
 
-8. Credentials use envelope encryption. One master key lives in Secrets Store. Each tenant gets a random data key, wrapped by the master key. Every ciphertext carries a key version, so a key can rotate. Where a provider supports OAuth, it takes priority over an app password.
+8. Credentials use envelope encryption. One master key lives in Secrets Store. Each tenant gets a random data key, wrapped by the master key. Every row carries a key version, so a key can rotate. Where a provider supports OAuth, it takes priority over an app password.
 
 ## Sync and schema updates
 
-9. Sync v1 is client-driven, as in the Lambda build, with no timers and no cron. The sync step dumps raw mail to R2. Queue consumers read from R2 and fan out the processing. They never open IMAP, because Gmail allows about 15 connections per account. Steps are idempotent, so the queue needs no FIFO ordering. Background sync comes later.
-10. Mail schema updates apply per tenant through remit's existing update flow. Orchestrated upgrades build on that flow later.
+9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns: `waitUntil` today, an alarm later. It fetches newest first in small batches, streams raw RFC822 to R2 and sends one queue message per batch. Queue consumers parse from R2 and write to the mail and search objects. They never open IMAP. A message moves to the dead-letter queue after 3 retries.
+10. Each mail and search object applies its own schema migrations when it starts.
 
 ## Delivery
 
-11. OpenTofu in `infra/` manages the account resources. `wrangler.jsonc` configures the Worker. Workers Builds deploys on every push to main, the same pattern as [stallion](https://github.com/mvhenten/stallion).
+11. OpenTofu in `infra/` manages the account resources. `wrangler.jsonc` configures the Worker. Workers Builds will deploy every push to main, but the repo is not connected to it yet. Until then, the bootstrap deploy runs from devbox.
 12. Until a real end-to-end user test works, the prototype pushes straight to main with no PRs. CI runs lint and typecheck only. Workers Logs and `wrangler tail` stand in for tests.
 
-## Reused reader packages
+## Shared code
 
-The web client ships as Worker assets and reuses packages from remit-mail/reader. `@remit/ui`, `@remit/data-ports`, `@remit/domain-enums`, `@remit/config-format` and `@remit/config-transfer` carry no AWS SDK and no better-sqlite3 dependency. `@remit/web-client` publishes the app shell and the auth shells as separate primitives. Its auth shells depend on Amplify and better-auth, so this build composes its own shell around Access. The entity schema comes from the generated `@remit/drizzle-sqlite-schema`.
+13. The repo owns the Access identity to tenant mapping and the port adapters that plug D1, Durable Objects, R2 and the queue into reader's ports. It also owns the socket plumbing: imapflow over a `cloudflare:sockets` transport, and nodemailer over a `getSocket` on `node:tls` and `node:net`.
+14. The web client is `@remit/web-client`, mounted with an Access auth provider. The Worker serves the API contract from `@remit/api-openapi-spec` through openapi-backend at `/api` and `/content`, typed by `@remit/api-zod-schemas` and `@remit/api-openapi-types`.
+15. Handlers come from `@remit/backend`, and repositories and schema sets from `@remit/drizzle-service`. `@remit/data-ports` and `@remit/domain-enums` supply the ports and enums. `@remit/logger` defines the logger, and the repo injects its Workers adapter.
 
-## Open risk
+## Interim
 
-imapflow and nodemailer need TLS and STARTTLS on Workers. A spike is testing both now. A Worker has 128 MB of memory, so fetch batches stay small or stream bodies straight to R2.
+1. Handlers for the needed operations live in this repo. They go once `@remit/backend` runs on Workers. A reader PR in flight extracts the logger and removes disk reads at import.
+2. The Durable Objects carry their own repository code. It goes once reader#1425 publishes the batch port and the app, mail and search split.
+3. Three list-wrapper types are hand-written. They go once reader's TypeSpec names them.
+4. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
+5. A sync run takes the newest 200 messages per mailbox. A later backfill fetches the older ones.
+
+## Open risks
+
+A Worker has 128 MB of memory, so bodies stream to R2 and batches stay small. `waitUntil` caps how long a detached run lives. Gmail allows about 15 connections per account.
 
 ## FAQ
 
 ### Why not one D1 database per tenant?
 
-New tenants arrive without a deploy, because Durable Objects start on demand (decision 4).
+D1 bindings are fixed at deploy time. Durable Objects start on demand, so new tenants arrive without a deploy (decision 4).
 
 ### Why split search from mail?
 
-The index is rebuildable, so atomic writes with mail buy nothing (decision 4).
+The index rebuilds from bodies, so atomic writes with mail buy nothing (decision 4).
 
 ### Why can't queue consumers fetch from IMAP?
 
-The Gmail connection limit leaves room for the sync step only (decision 9).
+The Gmail connection limit leaves room for one connection per account, owned by the sync object (decision 9).
+
+### Why not write the handlers here?
+
+Reader's handlers already serve the same contract. The build reuses them, so a fix in reader reaches it with the next package update (decisions 1 and 15).
 
 ### Why no tests yet?
 
@@ -61,17 +75,19 @@ Decision 12: the prototype relies on logs until the user test passes.
 
 ### Can it run on AWS?
 
-Not this build. Another provider gets its own build and its own storage adapter.
+Not this build. Another provider gets its own build and its own port adapters.
 
 ## Appendix
 
-| Term       | Meaning                                                 |
-| ---------- | ------------------------------------------------------- |
-| Tenant     | One user, keyed by Access identity                      |
-| App DB     | The D1 database for client-side state                   |
-| Mail DB    | Per-tenant Durable Object SQLite for IMAP-side state    |
-| Search DB  | Per-tenant Durable Object SQLite holding the FTS5 index |
-| Data key   | Random per-tenant key that encrypts credentials         |
-| Master key | The Secrets Store key that wraps every data key         |
+| Term       | Meaning                                                   |
+| ---------- | --------------------------------------------------------- |
+| Tenant     | One user, keyed by Access identity                        |
+| App DB     | The shared D1 database for app and Cloudflare-only tables |
+| Mail DB    | Per-tenant Durable Object SQLite for IMAP-side state      |
+| Search DB  | Per-tenant Durable Object SQLite holding the FTS5 index   |
+| Sync DO    | Per-account Durable Object that owns the IMAP connection  |
+| Port       | A reader interface that a platform adapter implements     |
+| Data key   | Random per-tenant key that encrypts credentials           |
+| Master key | The Secrets Store key that wraps every data key           |
 
-Background: [remit-mail/reader#1420](https://github.com/remit-mail/reader/issues/1420) splits reader's single SQLite file the same way.
+Background: [remit-mail/reader#1420](https://github.com/remit-mail/reader/issues/1420) splits reader's single SQLite file the same way. Pull request reader#1425 implements that split.
