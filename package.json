@@ -18,12 +18,17 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "infra:plan": "node npm-scripts/infra.mjs plan",
     "infra:apply": "node npm-scripts/infra.mjs apply",
-    "ci": "npm run check && npm run typecheck"
+    "ci": "npm run check && npm run typecheck",
+    "spike": "node npm-scripts/spike.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
     "@cloudflare/workers-types": "^5.20261024.1",
     "typescript": "^7.0.2",
     "wrangler": "^4.152.0"
+  },
+  "dependencies": {
+    "imapflow": "^2.9.1",
+    "nodemailer": "^10.2.1"
   }
 }
