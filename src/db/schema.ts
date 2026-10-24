@@ -2,6 +2,8 @@ export {
   accountConfigs,
   accountSettings,
   accounts,
+  configImports,
+  filterAnchors,
   filters,
   labels,
 } from "@remit/drizzle-sqlite-schema";

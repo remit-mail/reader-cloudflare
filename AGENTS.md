@@ -24,7 +24,8 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                           |
 | `npm run fix`                        | Biome rewrites files                                                                      |
 | `npm run check`                      | Biome format and lint check                                                               |
-| `npm run typecheck`                  | `tsc` over `src` and every package                                                        |
+| `npm run typecheck`                  | `tsc` over `src` and every package, against declarations `build:vendor-types` emits       |
+| `npm run smoke:config-import`        | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1)   |
 | `npm run ci`                         | `check` then `typecheck`; run before every push                                           |
 | `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`                                             |
 | `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                      |

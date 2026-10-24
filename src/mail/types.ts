@@ -245,3 +245,21 @@ export interface FlagState {
   readonly isRead: boolean;
   readonly isStarred: boolean;
 }
+
+export type MailboxEntity = Omit<typeof mailboxes.$inferSelect, "specialUse">;
+
+export interface AddressPage {
+  readonly items: readonly AddressRecord[];
+  readonly next: string | null;
+}
+
+export interface ImportedAddress {
+  readonly addressId: string;
+  readonly accountConfigId: string;
+  readonly displayName: string | null;
+  readonly localPart: string;
+  readonly domain: string;
+  readonly normalizedEmail: string;
+  readonly normalizedCompound: string;
+  readonly flags: Readonly<Record<string, unknown>>;
+}

@@ -36,3 +36,12 @@ export const optional = <K extends string, V>(
   entry[key] = value;
   return entry;
 };
+
+export const conflict = (
+  code: string,
+  message: string,
+  details: Readonly<Record<string, string>>,
+): Response => {
+  const body: ApiError = { code, message, details: { ...details } };
+  return Response.json(body, { status: 409 });
+};

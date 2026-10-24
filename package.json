@@ -15,7 +15,7 @@
     "deploy": "node npm-scripts/deploy.mjs",
     "fix": "biome check --write .",
     "check": "biome check .",
-    "typecheck": "npm run commit && npm run build:schema && tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/web/tsconfig.json",
+    "typecheck": "npm run commit && npm run build:schema && npm run build:vendor-types && tsc --noEmit -p tsconfig.check.json && tsc --noEmit -p packages/web/tsconfig.json",
     "infra:plan": "node npm-scripts/infra.mjs plan",
     "infra:apply": "node npm-scripts/infra.mjs apply",
     "ci": "npm run check && npm run typecheck",
@@ -27,7 +27,9 @@
     "wrangler": "node npm-scripts/wrangler.mjs",
     "build": "npm run build:schema && npm run build --workspace packages/web",
     "generate": "tsp format \"typespec/**/*.tsp\" && tsp compile ./typespec && biome check --write packages/app-db-schema",
-    "build:schema": "npm run build --workspace app-db-schema"
+    "build:schema": "npm run build --workspace app-db-schema",
+    "build:vendor-types": "tsc -p tsconfig.vendor.json",
+    "smoke:config-import": "node npm-scripts/smoke-config-import.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
@@ -35,6 +37,7 @@
     "@kattebak/typespec-drizzle-orm-generator": "^6.1.0",
     "@typespec/compiler": "^1.17.0",
     "drizzle-kit": "^0.31.11",
+    "miniflare": "^4.20260730.0",
     "typescript": "^7.0.2",
     "typespec-electrodb-emitter": "^6.0.1",
     "wrangler": "^4.152.0"
@@ -44,6 +47,10 @@
     "@remit/api-openapi-spec": "^0.0.77",
     "@remit/api-openapi-types": "^0.0.80",
     "@remit/api-zod-schemas": "^0.0.60",
+    "@remit/config-format": "^0.0.7",
+    "@remit/config-transfer": "^0.0.11",
+    "@remit/data-ports": "^0.0.83",
+    "@remit/domain-enums": "^0.0.28",
     "@remit/drizzle-sqlite-schema": "^0.0.34",
     "app-db-schema": "0.0.0",
     "drizzle-orm": "^0.45.4",
@@ -52,5 +59,10 @@
     "openapi-backend": "^5.22.0",
     "postal-mime": "^4.1.4",
     "zod": "^3.25.76"
+  },
+  "overrides": {
+    "@remit/data-ports": {
+      "short-uuid": "^6.0.3"
+    }
   }
 }

@@ -1,6 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
 import { generateBase36Id } from "@remit/drizzle-sqlite-schema";
-import { and, asc, count, desc, eq, gt, inArray, like, lt, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  like,
+  lt,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import migrations from "../../migrations/mail/migrations";
@@ -32,13 +45,16 @@ import {
 } from "./schema";
 import type {
   AddressInput,
+  AddressPage,
   AddressRecord,
   AddressRole,
   AddressRow,
   AddressUpdate,
   FlagChange,
   FlagState,
+  ImportedAddress,
   MailAccount,
+  MailboxEntity,
   MailboxInput,
   MailboxRow,
   MailboxView,
@@ -994,6 +1010,67 @@ export class TenantMail extends DurableObject<Env> {
       .get();
     if (row === undefined) throw new Error(`outbox message ${outboxMessageId} vanished`);
     return toOutboxRecord(row);
+  }
+
+  listMailboxEntities(accountIds: readonly string[]): readonly MailboxEntity[] {
+    if (accountIds.length === 0) return [];
+    const { specialUse: _specialUse, ...columns } = getTableColumns(mailboxes);
+    return this.db
+      .select(columns)
+      .from(mailboxes)
+      .where(inList(mailboxes.accountId, accountIds))
+      .orderBy(mailboxes.accountId, mailboxes.fullPath)
+      .all();
+  }
+
+  listConfigAddresses(accountConfigId: string, after: string | null, limit: number): AddressPage {
+    const rows = this.db
+      .select()
+      .from(addresses)
+      .where(
+        and(
+          eq(addresses.accountConfigId, accountConfigId),
+          after === null ? undefined : gt(addresses.addressId, after),
+        ),
+      )
+      .orderBy(asc(addresses.addressId))
+      .limit(limit + 1)
+      .all();
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(toAddressRecord),
+      next: rows.length > limit && last !== undefined ? last.addressId : null,
+    };
+  }
+
+  importAddressFlags(entries: readonly ImportedAddress[]): number {
+    const now = Date.now();
+    this.db.transaction((tx) => {
+      for (const { flags: patch, ...address } of entries) {
+        tx.insert(addresses)
+          .values({ ...address, flags: {}, createdAt: now, updatedAt: now })
+          .onConflictDoNothing()
+          .run();
+        const row = tx
+          .select({ flags: addresses.flags })
+          .from(addresses)
+          .where(eq(addresses.addressId, address.addressId))
+          .get();
+        if (row === undefined) throw new Error(`address ${address.addressId} missing after insert`);
+        const merged = mergeAddressFlags(storedFlags(row.flags, address.addressId), {
+          flags: patch,
+          clearFlags: [],
+        });
+        if (!merged.ok) throw new Error(`address ${address.addressId}: ${merged.reason}`);
+        tx.update(addresses)
+          .set({ flags: merged.flags, updatedAt: now })
+          .where(eq(addresses.addressId, address.addressId))
+          .run();
+      }
+    });
+    log.info("address flags imported", { addresses: entries.length });
+    return entries.length;
   }
 
   private async withSenderFlags(rows: readonly ThreadMessageRow[]): Promise<ThreadRow[]> {

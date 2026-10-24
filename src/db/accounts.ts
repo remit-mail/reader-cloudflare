@@ -183,3 +183,58 @@ export const recordSyncOutcome = async (
     })
     .where(eq(accounts.accountId, accountId));
 };
+
+export type AccountEndpoints = Partial<
+  Pick<
+    AccountRow,
+    | "imapHost"
+    | "imapPort"
+    | "imapTls"
+    | "imapStartTls"
+    | "smtpEnabled"
+    | "smtpHost"
+    | "smtpPort"
+    | "smtpTls"
+    | "smtpStartTls"
+    | "smtpUsername"
+    | "isActive"
+  >
+>;
+
+export const updateAccount = async (
+  env: Env,
+  db: AppDb,
+  tenantId: string,
+  account: AccountRow,
+  endpoints: AccountEndpoints,
+  password: string | null,
+): Promise<AccountRow> => {
+  const now = Date.now();
+  const credentialPatch: Partial<AccountRow> =
+    password === null ? {} : { connectionState: "not_authenticated", lastError: null };
+  const patch = { ...endpoints, ...credentialPatch, updatedAt: now };
+  const update = db.update(accounts).set(patch).where(eq(accounts.accountId, account.accountId));
+  if (password === null) {
+    await runBatch(db, [update]);
+    return { ...account, ...patch };
+  }
+  const sealed = await encryptSecret(env, tenantId, password);
+  const credential = {
+    keyVersion: sealed.keyVersion,
+    ciphertext: sealed.ciphertext,
+    iv: sealed.iv,
+  };
+  await runBatch(db, [
+    update,
+    db
+      .insert(credentials)
+      .values({ accountId: account.accountId, ...credential })
+      .onConflictDoUpdate({ target: credentials.accountId, set: credential }),
+  ]);
+  log.info("credential encrypted", {
+    tenantId,
+    accountId: account.accountId,
+    keyVersion: sealed.keyVersion,
+  });
+  return { ...account, ...patch };
+};

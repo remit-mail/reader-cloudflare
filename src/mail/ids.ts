@@ -57,3 +57,9 @@ export const deriveEnvelopeAddressId = (
 
 export const deriveBodyPartId = (messageId: string, partPath: string): Promise<string> =>
   uuidV5Base36(`bodypart:${messageId}:${partPath}`);
+
+export const deriveAccountSettingId = (accountConfigId: string, name: string): Promise<string> =>
+  uuidV5Base36(`accountsetting:${accountConfigId}:${name}`);
+
+export const deriveConfigImportId = (accountConfigId: string, document: string): Promise<string> =>
+  uuidV5Base36(`configimport:${accountConfigId}:${document}`);

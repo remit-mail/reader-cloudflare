@@ -1,0 +1,164 @@
+import { execFileSync } from "node:child_process";
+import { createSign, generateKeyPairSync } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { Miniflare, Response } from "miniflare";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const bundle = `${root}.tmp/smoke-bundle`;
+const teamDomain = "access.smoke.test";
+const audience = "smoke-audience";
+const kid = "smoke-key";
+
+const documentPath =
+  process.argv[2] ?? `${root}node_modules/@remit/config-format/src/fixtures/reader-config.v1.json`;
+const document = JSON.parse(readFileSync(documentPath, "utf8"));
+
+mkdirSync(bundle, { recursive: true });
+execFileSync("npx", ["wrangler", "deploy", "--dry-run", "--outdir", bundle], {
+  cwd: root,
+  stdio: ["ignore", "ignore", "inherit"],
+});
+
+const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "sig" };
+
+const base64Url = (value) => Buffer.from(value).toString("base64url");
+const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+const claims = base64Url(
+  JSON.stringify({
+    sub: "smoke-tenant",
+    email: "smoke@example.com",
+    iss: `https://${teamDomain}`,
+    aud: audience,
+    exp: Math.floor(Date.now() / 1000) + 600,
+  }),
+);
+const signer = createSign("RSA-SHA256");
+signer.update(`${header}.${claims}`);
+const token = `${header}.${claims}.${signer.sign(privateKey).toString("base64url")}`;
+
+const mf = new Miniflare({
+  workers: [
+    {
+      name: "reader-cloudflare",
+      modulesRoot: bundle,
+      modules: [
+        { type: "ESModule", path: `${bundle}/index.js` },
+        ...readdirSync(bundle)
+          .filter((name) => name.endsWith(".sql"))
+          .map((name) => ({ type: "Text", path: `${bundle}/${name}` })),
+      ],
+      compatibilityDate: "2026-08-06",
+      compatibilityFlags: ["nodejs_compat"],
+      bindings: { ACCESS_TEAM_DOMAIN: teamDomain, ACCESS_AUD: audience },
+      d1Databases: { DB: "smoke-db" },
+      r2Buckets: ["MAIL"],
+      queueProducers: { SYNC: { queueName: "smoke-sync" } },
+      durableObjects: {
+        TENANT_MAIL: { className: "TenantMail", useSQLite: true },
+        TENANT_SEARCH: { className: "TenantSearch", useSQLite: true },
+        ACCOUNT_SYNC: { className: "AccountSync", useSQLite: true },
+      },
+      outboundService: (request) => {
+        if (new URL(request.url).hostname === teamDomain) {
+          return Response.json({ keys: [jwk] });
+        }
+        return new Response("smoke has no network", { status: 502 });
+      },
+    },
+  ],
+});
+
+const db = await mf.getD1Database("DB");
+for (const file of readdirSync(`${root}migrations`).filter((name) => name.endsWith(".sql"))) {
+  const sql = readFileSync(`${root}migrations/${file}`, "utf8");
+  for (const statement of sql.split("--> statement-breakpoint")) {
+    if (statement.trim() !== "") await db.prepare(statement).run();
+  }
+}
+
+const call = async (method, path, body) => {
+  const response = await mf.dispatchFetch(`https://smoke.test${path}`, {
+    method,
+    headers: { "cf-access-jwt-assertion": token, "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: response.status, body: await response.json() };
+};
+
+const counts = (report) => {
+  const tally = {};
+  for (const item of report.items ?? []) {
+    tally[item.section] = (tally[item.section] ?? 0) + 1;
+  }
+  return {
+    valid: report.valid,
+    applied: report.applied,
+    schemaVersion: report.schemaVersion,
+    importId: report.importId,
+    items: tally,
+    errors: (report.errors ?? []).map((error) => error.code),
+    warnings: (report.warnings ?? []).length,
+    accountsNeedingCredentials: (report.accountsNeedingCredentials ?? []).length,
+  };
+};
+
+const rows = async () => {
+  const tables = [
+    "account",
+    "label",
+    "filter",
+    "filter_anchor",
+    "account_setting",
+    "config_import",
+  ];
+  const result = {};
+  for (const table of tables) {
+    const row = await db.prepare(`select count(*) as n from ${table}`).first();
+    result[table] = row.n;
+  }
+  return result;
+};
+
+const step = async (name, method, path, body) => {
+  const { status, body: answer } = await call(method, path, body);
+  const summary = path === "/api/config/import" && status === 200 ? counts(answer) : answer;
+  console.log(JSON.stringify({ step: name, status, ...{ result: summary } }));
+  return answer;
+};
+
+await step("preview", "POST", "/api/config/import", { mode: "validate", document });
+await step("apply", "POST", "/api/config/import", { mode: "apply", document });
+console.log(JSON.stringify({ step: "rows after apply", ...(await rows()) }));
+await step("reapply without merge", "POST", "/api/config/import", { mode: "apply", document });
+await step("reapply with merge", "POST", "/api/config/import", {
+  mode: "apply",
+  onExisting: "merge",
+  document,
+});
+console.log(JSON.stringify({ step: "rows after reapply", ...(await rows()) }));
+const config = await call("GET", "/api/config");
+console.log(
+  JSON.stringify({
+    step: "accounts",
+    accounts: config.body.accounts.map((account) => ({
+      email: account.email,
+      connectionState: account.connectionState,
+      isActive: account.isActive,
+    })),
+  }),
+);
+const exported = await call("GET", "/api/config/export");
+console.log(
+  JSON.stringify({
+    step: "export",
+    status: exported.status,
+    schemaVersion: exported.body.schemaVersion,
+    accounts: exported.body.document?.accounts?.length,
+    labels: exported.body.document?.labels?.length,
+    filters: exported.body.document?.filters?.length,
+    addressFlags: exported.body.document?.addressFlags?.length,
+  }),
+);
+await mf.dispose();

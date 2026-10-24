@@ -4,3 +4,4 @@ dist/
 .tmp/
 .dev.vars
 src/commit.ts
+.types/
