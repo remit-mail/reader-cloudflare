@@ -1,15 +1,11 @@
-import { requireTenant, type Tenant } from "./access";
+import { requireTenant } from "./access";
+import { api } from "./api";
 import { commit } from "./commit";
 import type { Env, SyncMessage } from "./env";
 import { log } from "./log";
 import { spike } from "./spike";
 
 const COMMIT_HEADER = "x-reader-commit";
-
-const api = (path: string, tenant: Tenant): Response => {
-  if (path === "/api/me") return Response.json({ tenantId: tenant.tenantId, email: tenant.email });
-  return Response.json({ error: "not found" }, { status: 404 });
-};
 
 const handleApi = async (request: Request, env: Env, path: string): Promise<Response> => {
   const result = await requireTenant(request, env);
@@ -18,7 +14,7 @@ const handleApi = async (request: Request, env: Env, path: string): Promise<Resp
     return Response.json({ error: "unauthorized", reason: result.reason }, { status: 401 });
   }
   log.info("authenticated request", { path, tenantId: result.tenant.tenantId });
-  return api(path, result.tenant);
+  return api(request, env, path, result.tenant);
 };
 
 export default {

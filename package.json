@@ -20,16 +20,23 @@
     "infra:apply": "node npm-scripts/infra.mjs apply",
     "ci": "npm run check && npm run typecheck",
     "spike": "node npm-scripts/spike.mjs",
-    "commit": "node npm-scripts/commit.mjs"
+    "commit": "node npm-scripts/commit.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node npm-scripts/db-migrate.mjs",
+    "wrangler": "node npm-scripts/wrangler.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
     "@cloudflare/workers-types": "^5.20261024.1",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^7.0.2",
     "wrangler": "^4.152.0"
   },
   "dependencies": {
+    "@remit/drizzle-sqlite-schema": "^0.0.34",
+    "drizzle-orm": "^0.45.4",
     "imapflow": "^2.9.1",
-    "nodemailer": "^10.2.1"
+    "nodemailer": "^10.2.1",
+    "zod": "^4.6.7"
   }
 }

@@ -26,6 +26,10 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run typecheck`                  | `tsc` over `src` and every package                                                        |
 | `npm run ci`                         | `check` then `typecheck`; run before every push                                           |
 | `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`                                             |
+| `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                      |
+| `npm run db:migrate`                 | `wrangler d1 migrations apply` on the remote D1                                           |
+| `npm run wrangler -- <args>`         | `wrangler` with the Cloudflare token from `cf-env`                                        |
+| `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`                                                      |
 
 ## Infra
 
