@@ -21,6 +21,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run deploy -- --bootstrap`      | `wrangler deploy` from this machine, before Workers Builds runs; refuses without the flag |
 | `npm run build`                      | Vite builds the web client into `packages/web/dist`                                       |
 | `npm run tail`                       | `wrangler tail --format pretty` on the deployed Worker                                    |
+| `npm run logs -- <minutes> [text]`   | Workers Observability events from the last minutes, one JSON line each                    |
 | `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                           |
 | `npm run fix`                        | Biome rewrites files                                                                      |
 | `npm run check`                      | Biome format and lint check                                                               |

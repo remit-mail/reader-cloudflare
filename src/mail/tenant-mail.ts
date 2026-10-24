@@ -58,6 +58,7 @@ import type {
   MailboxEntity,
   MailboxInput,
   MailboxRow,
+  MailboxSyncStatus,
   MailboxView,
   MailResult,
   MessageInput,
@@ -578,26 +579,39 @@ export class TenantMail extends DurableObject<Env> {
     };
   }
 
-  setMailboxCursor(
+  recordMailboxPass(
     account: MailAccount,
     mailboxId: string,
     lastSyncUid: number,
+    syncStatus: MailboxSyncStatus,
   ): MailResult<number> {
     const now = Date.now();
     const updated = this.db
       .update(mailboxes)
-      .set({ lastSyncUid, highWaterMarkUid: lastSyncUid, lastMessageSyncAt: now, updatedAt: now })
+      .set({
+        lastSyncUid,
+        highWaterMarkUid: lastSyncUid,
+        lastMessageSyncAt: now,
+        syncStatus,
+        updatedAt: now,
+      })
       .where(and(eq(mailboxes.mailboxId, mailboxId), eq(mailboxes.accountId, account.accountId)))
       .returning({ mailboxId: mailboxes.mailboxId })
       .all();
     if (updated.length === 0) return { ok: false, reason: "mailbox not found" };
-    log.info("mailbox cursor set", {
-      tenantId: account.tenantId,
-      accountId: account.accountId,
-      mailboxId,
-      lastSyncUid,
-    });
     return { ok: true, value: lastSyncUid };
+  }
+
+  lowestStoredUid(account: MailAccount, mailboxId: string): number {
+    if (!this.ownsMailbox(this.db, account.accountId, mailboxId)) return 0;
+    const row = this.db
+      .select({ uid: messages.uid })
+      .from(messages)
+      .where(eq(messages.mailboxId, mailboxId))
+      .orderBy(asc(messages.uid))
+      .limit(1)
+      .get();
+    return row?.uid ?? 0;
   }
 
   recordSkippedMessages(

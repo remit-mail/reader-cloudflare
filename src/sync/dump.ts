@@ -4,6 +4,7 @@ import { currentCorrelationId, log } from "../log";
 import type { MailAccount, MailboxInput, MailboxView, SpecialUse } from "../mail/types";
 import { tenantMail, tenantSearch } from "../stubs";
 import { messageKey, toCustomMetadata } from "./messages";
+import type { MailboxMark } from "./state";
 
 const BATCH_SIZE = 10;
 const MAILBOX_LIMIT = 200;
@@ -21,14 +22,6 @@ const SPECIAL_USE: Readonly<Record<string, SpecialUse>> = {
 };
 
 const UNSELECTABLE = ["\\Noselect", "\\NonExistent"];
-
-export interface MailboxSyncResult {
-  readonly mailboxId: string;
-  readonly path: string;
-  readonly reset: boolean;
-  readonly dumped: number;
-  readonly batches: number;
-}
 
 export type BatchQueued = (dumped: number) => Promise<void>;
 
@@ -163,25 +156,160 @@ const resetIfInvalidated = async (
   return true;
 };
 
-const newUids = async (client: ImapFlow, lastSyncUid: number): Promise<readonly number[]> => {
-  const found = await client.search({ uid: `${lastSyncUid + 1}:*` }, { uid: true });
+type WorkPhase = "Initial" | "NewMail" | "Backfill" | "Complete";
+
+interface MailboxWork {
+  readonly phase: WorkPhase;
+  readonly uids: readonly number[];
+  readonly cursor: number;
+  readonly lowWaterMark: number;
+  readonly remaining: number;
+}
+
+export interface MailboxPass {
+  readonly mark: MailboxMark;
+  readonly phase: WorkPhase;
+  readonly dumped: number;
+  readonly remaining: number;
+}
+
+const descending = (left: number, right: number): number => right - left;
+
+const ascending = (left: number, right: number): number => left - right;
+
+const searchUids = async (client: ImapFlow, range: string): Promise<number[]> => {
+  const found = await client.search({ uid: range }, { uid: true });
   if (found === false || found === undefined) return [];
-  return found.filter((uid) => uid > lastSyncUid).sort((left, right) => right - left);
+  return found;
 };
 
-const recordCursor = async (
+const lowestOf = (uids: readonly number[], fallback: number): number =>
+  uids.length === 0 ? fallback : Math.min(...uids);
+
+const initialWork = async (client: ImapFlow): Promise<MailboxWork> => {
+  const all = (await searchUids(client, "1:*")).sort(descending);
+  const uids = all.slice(0, MAILBOX_LIMIT);
+  const remaining = all.length - uids.length;
+  return {
+    phase: "Initial",
+    uids,
+    cursor: uids[0] ?? 0,
+    lowWaterMark: remaining === 0 ? 1 : lowestOf(uids, 1),
+    remaining,
+  };
+};
+
+const planWork = async (
+  client: ImapFlow,
+  cursor: number,
+  lowWaterMark: number,
+): Promise<MailboxWork> => {
+  if (cursor === 0) return initialWork(client);
+  const above = (await searchUids(client, `${cursor + 1}:*`))
+    .filter((uid) => uid > cursor)
+    .sort(ascending);
+  const below =
+    lowWaterMark > 1
+      ? (await searchUids(client, `1:${lowWaterMark - 1}`))
+          .filter((uid) => uid < lowWaterMark)
+          .sort(descending)
+      : [];
+  const settledLow = below.length === 0 ? 1 : lowWaterMark;
+  if (above.length > 0) {
+    const uids = above.slice(0, MAILBOX_LIMIT);
+    return {
+      phase: "NewMail",
+      uids: [...uids].sort(descending),
+      cursor: Math.max(...uids),
+      lowWaterMark: settledLow,
+      remaining: above.length - uids.length + below.length,
+    };
+  }
+  const uids = below.slice(0, MAILBOX_LIMIT);
+  const remaining = below.length - uids.length;
+  return {
+    phase: uids.length === 0 ? "Complete" : "Backfill",
+    uids,
+    cursor,
+    lowWaterMark: remaining === 0 ? 1 : lowestOf(uids, settledLow),
+    remaining,
+  };
+};
+
+const startingLowWaterMark = async (
   env: Env,
   account: MailAccount,
   mailbox: ServerMailbox,
-  highest: number | undefined,
-): Promise<void> => {
-  if (highest === undefined) return;
-  const cursor = await tenantMail(env, account.tenantId).setMailboxCursor(
+  cursor: number,
+  mark: MailboxMark | undefined,
+): Promise<number> => {
+  if (mark !== undefined && mark.uidValidity === mailbox.uidValidity) return mark.lowWaterMark;
+  if (cursor === 0) return 1;
+  const lowest = await tenantMail(env, account.tenantId).lowestStoredUid(
     account,
     mailbox.mailboxId,
-    highest,
   );
-  if (!cursor.ok) throw new Error(`cursor ${mailbox.entry.path}: ${cursor.reason}`);
+  return lowest === 0 ? cursor + 1 : lowest;
+};
+
+const enqueueBatches = async (
+  env: Env,
+  client: ImapFlow,
+  account: MailAccount,
+  mailbox: ServerMailbox,
+  uids: readonly number[],
+  onBatch: BatchQueued,
+): Promise<void> => {
+  for (const batch of chunk(uids, BATCH_SIZE)) {
+    const keys = await dumpBatch(env, client, account, mailbox, batch);
+    await env.SYNC.send({
+      kind: "ProcessBatch",
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      accountConfigId: account.accountConfigId,
+      mailboxId: mailbox.mailboxId,
+      uidValidity: mailbox.uidValidity,
+      keys,
+      correlationId: currentCorrelationId(),
+      redrive: false,
+      split: false,
+    });
+    log.info("batch enqueued", {
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      mailboxId: mailbox.mailboxId,
+      keys: keys.length,
+      firstUid: batch[0],
+      lastUid: batch[batch.length - 1],
+    });
+    await onBatch(keys.length);
+  }
+};
+
+const isUpToDate = (mailbox: ServerMailbox, cursor: number, lowWaterMark: number): boolean => {
+  const uidNext = mailbox.entry.status?.uidNext ?? 0;
+  return cursor > 0 && uidNext !== 0 && uidNext - 1 <= cursor && lowWaterMark <= 1;
+};
+
+const workFor = async (
+  env: Env,
+  client: ImapFlow,
+  account: MailAccount,
+  mailbox: ServerMailbox,
+  cursor: number,
+  lowWaterMark: number,
+  onBatch: BatchQueued,
+): Promise<MailboxWork> => {
+  if (isUpToDate(mailbox, cursor, lowWaterMark)) {
+    return { phase: "Complete", uids: [], cursor, lowWaterMark, remaining: 0 };
+  }
+  const lock = await client.getMailboxLock(mailbox.entry.path, { readOnly: true });
+  return planWork(client, cursor, lowWaterMark)
+    .then(async (planned) => {
+      await enqueueBatches(env, client, account, mailbox, planned.uids, onBatch);
+      return planned;
+    })
+    .finally(() => lock.release());
 };
 
 export const syncMailbox = async (
@@ -190,64 +318,61 @@ export const syncMailbox = async (
   account: MailAccount,
   mailbox: ServerMailbox,
   stored: MailboxView | undefined,
+  mark: MailboxMark | undefined,
   onBatch: BatchQueued,
-): Promise<MailboxSyncResult> => {
+): Promise<MailboxPass> => {
   const started = Date.now();
   const reset = await resetIfInvalidated(env, account, mailbox, stored);
-  const lastSyncUid = reset ? 0 : (stored?.lastSyncUid ?? 0);
-  const uidNext = mailbox.entry.status?.uidNext ?? 0;
-  const base = { mailboxId: mailbox.mailboxId, path: mailbox.entry.path, reset };
-  if (uidNext !== 0 && uidNext - 1 <= lastSyncUid) return { ...base, dumped: 0, batches: 0 };
-  const lock = await client.getMailboxLock(mailbox.entry.path, { readOnly: true });
-  try {
-    const found = await newUids(client, lastSyncUid);
-    const uids = found.slice(0, MAILBOX_LIMIT);
-    if (found.length > uids.length) {
-      log.warn("cap reached", {
-        tenantId: account.tenantId,
-        accountId: account.accountId,
-        mailboxId: mailbox.mailboxId,
-        path: mailbox.entry.path,
-        cap: MAILBOX_LIMIT,
-        found: found.length,
-        skipped: found.length - uids.length,
-      });
-    }
-    const batches = chunk(uids, BATCH_SIZE);
-    for (const batch of batches) {
-      const keys = await dumpBatch(env, client, account, mailbox, batch);
-      await env.SYNC.send({
-        kind: "ProcessBatch",
-        tenantId: account.tenantId,
-        accountId: account.accountId,
-        accountConfigId: account.accountConfigId,
-        mailboxId: mailbox.mailboxId,
-        uidValidity: mailbox.uidValidity,
-        keys,
-        correlationId: currentCorrelationId(),
-        redrive: false,
-        split: false,
-      });
-      log.info("batch enqueued", {
-        tenantId: account.tenantId,
-        accountId: account.accountId,
-        mailboxId: mailbox.mailboxId,
-        keys: keys.length,
-        firstUid: batch[0],
-        lastUid: batch[batch.length - 1],
-      });
-      await onBatch(keys.length);
-    }
-    await recordCursor(env, account, mailbox, uids[0]);
-    const result = { ...base, dumped: uids.length, batches: batches.length };
-    log.info("mailbox synced", {
-      tenantId: account.tenantId,
-      accountId: account.accountId,
-      ...result,
-      durationMs: Date.now() - started,
+  const cursor = reset ? 0 : (stored?.lastSyncUid ?? 0);
+  const lowWaterMark = await startingLowWaterMark(
+    env,
+    account,
+    mailbox,
+    cursor,
+    reset ? undefined : mark,
+  );
+  const fields = {
+    tenantId: account.tenantId,
+    accountId: account.accountId,
+    mailboxId: mailbox.mailboxId,
+    path: mailbox.entry.path,
+  };
+  const work = await workFor(env, client, account, mailbox, cursor, lowWaterMark, onBatch);
+  const recorded = await tenantMail(env, account.tenantId).recordMailboxPass(
+    account,
+    mailbox.mailboxId,
+    work.cursor,
+    work.remaining === 0 ? "synced" : "pending",
+  );
+  if (!recorded.ok) throw new Error(`pass ${mailbox.entry.path}: ${recorded.reason}`);
+  if (work.remaining > 0) {
+    log.warn("cap reached", {
+      ...fields,
+      phase: work.phase,
+      cap: MAILBOX_LIMIT,
+      remaining: work.remaining,
+      lowWaterMark: work.lowWaterMark,
     });
-    return result;
-  } finally {
-    lock.release();
   }
+  log.info("mailbox synced", {
+    ...fields,
+    reset,
+    phase: work.phase,
+    dumped: work.uids.length,
+    remaining: work.remaining,
+    cursor: work.cursor,
+    lowWaterMark: work.lowWaterMark,
+    durationMs: Date.now() - started,
+  });
+  return {
+    mark: {
+      uidValidity: mailbox.uidValidity,
+      lowWaterMark: work.lowWaterMark,
+      remaining: work.remaining,
+      checkedAt: Date.now(),
+    },
+    phase: work.phase,
+    dumped: work.uids.length,
+    remaining: work.remaining,
+  };
 };

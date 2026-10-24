@@ -29,7 +29,8 @@
     "generate": "tsp format \"typespec/**/*.tsp\" && tsp compile ./typespec && biome check --write packages/app-db-schema",
     "build:schema": "npm run build --workspace app-db-schema",
     "build:vendor-types": "tsc -p tsconfig.vendor.json",
-    "smoke:config-import": "node npm-scripts/smoke-config-import.mjs"
+    "smoke:config-import": "node npm-scripts/smoke-config-import.mjs",
+    "logs": "node npm-scripts/logs.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",

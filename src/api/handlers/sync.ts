@@ -5,15 +5,13 @@ import type {
   SyncTriggerResponse,
 } from "@remit/api-openapi-types";
 import { z } from "zod";
-import { decryptCredential, toMailAccount } from "../../db/accounts";
-import { openAppDb } from "../../db/client";
-import { currentCorrelationId, log } from "../../log";
-import { accountCredentials } from "../../mail/send";
+import { toMailAccount } from "../../db/accounts";
+import { currentCorrelationId } from "../../log";
 import type { MailboxRow } from "../../mail/types";
 import { accountSync, tenantMail } from "../../stubs";
 import type { SyncState } from "../../sync/state";
 import { accountOf, type Handler, parse } from "../request";
-import { apiError, notFound, ok, optional } from "../respond";
+import { notFound, ok, optional } from "../respond";
 
 const accountParams = z.object({ accountId: z.string().min(1) });
 
@@ -26,7 +24,8 @@ const phaseOf = (state: SyncState): SyncPhase => {
 
 const mailboxPhase = (state: SyncState, mailbox: MailboxRow): string => {
   if (state.status === "Running" && state.currentMailbox === mailbox.fullPath) return "syncing";
-  return mailbox.lastMessageSyncAt === 0 ? "pending" : "complete";
+  if (mailbox.lastMessageSyncAt === 0 || mailbox.syncStatus === "pending") return "pending";
+  return "complete";
 };
 
 const toProgress = (state: SyncState, mailbox: MailboxRow): MailboxSyncProgress => ({
@@ -45,19 +44,8 @@ const triggerSync: Handler = async (context, request) => {
   const { tenantId } = request.tenant;
   const account = await accountOf(request, params.value.accountId);
   if (account === undefined) return notFound("Account");
-  const secret = await decryptCredential(
-    request.env,
-    openAppDb(request.env.DB),
-    tenantId,
-    account.accountId,
-  );
-  if (!secret.ok) {
-    log.error("sync failed", { tenantId, accountId: account.accountId, reason: secret.reason });
-    return apiError(500, "CredentialUnavailable", secret.reason);
-  }
   const start = await accountSync(request.env, tenantId, account.accountId).start(
     toMailAccount(tenantId, account),
-    accountCredentials(account, secret.plaintext).imap,
     currentCorrelationId(),
   );
   const body: SyncTriggerResponse = {
