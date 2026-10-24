@@ -12,6 +12,7 @@
   "scripts": {
     "dev": "wrangler dev --ip 0.0.0.0 --port 8790",
     "tail": "wrangler tail --format pretty",
+    "deploy": "node npm-scripts/deploy.mjs",
     "fix": "biome check --write .",
     "check": "biome check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
