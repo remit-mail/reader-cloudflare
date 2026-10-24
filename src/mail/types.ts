@@ -1,4 +1,6 @@
+import type { AddressFlags } from "@remit/api-openapi-types";
 import type {
+  addresses,
   envelopeAddresses,
   mailboxes,
   mailboxSpecialUseEntries,
@@ -128,8 +130,12 @@ export interface ThreadQuery {
   readonly limit: number;
 }
 
+export interface ThreadRow extends ThreadMessageRow {
+  readonly senderFlags: AddressFlags;
+}
+
 export interface ThreadPage {
-  readonly rows: readonly ThreadMessageRow[];
+  readonly rows: readonly ThreadRow[];
   readonly next: ThreadCursor | null;
 }
 
@@ -160,6 +166,7 @@ export interface EnvelopeAddressRecord {
   readonly order: number;
   readonly displayName: string | null;
   readonly email: string;
+  readonly flags: AddressFlags;
 }
 
 export interface MessageLocation {
@@ -220,4 +227,21 @@ export interface OutboxStateChange {
   readonly status: OutboxStatus;
   readonly lastError: string | null;
   readonly sentAt: number | null;
+}
+
+export type AddressRow = typeof addresses.$inferSelect;
+
+export interface AddressRecord extends Omit<AddressRow, "flags"> {
+  readonly flags: AddressFlags;
+}
+
+export type AddressUpdate =
+  | { readonly kind: "Updated"; readonly address: AddressRecord }
+  | { readonly kind: "NotFound" }
+  | { readonly kind: "Invalid"; readonly reason: string };
+
+export interface FlagState {
+  readonly messageId: string;
+  readonly isRead: boolean;
+  readonly isStarred: boolean;
 }

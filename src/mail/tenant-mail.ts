@@ -7,6 +7,7 @@ import migrations from "../../migrations/mail/migrations";
 import { inList } from "../db/in-list";
 import type { Env } from "../env";
 import { log } from "../log";
+import { type AddressFlagsPatch, mergeAddressFlags, storedFlags } from "./address-flags";
 import {
   deriveAddressId,
   deriveEnvelopeAddressId,
@@ -31,8 +32,12 @@ import {
 } from "./schema";
 import type {
   AddressInput,
+  AddressRecord,
   AddressRole,
+  AddressRow,
+  AddressUpdate,
   FlagChange,
+  FlagState,
   MailAccount,
   MailboxInput,
   MailboxRow,
@@ -52,6 +57,7 @@ import type {
   ThreadMessageRow,
   ThreadPage,
   ThreadQuery,
+  ThreadRow,
 } from "./types";
 
 type MailDb = DrizzleSqliteDODatabase<typeof schema>;
@@ -384,6 +390,11 @@ const writeMessage = (
     .run();
 };
 
+const toAddressRecord = (row: AddressRow): AddressRecord => ({
+  ...row,
+  flags: storedFlags(row.flags, row.addressId),
+});
+
 const EDITABLE_OUTBOX: OutboxStatus[] = ["draft", "failed"];
 
 type OutboxRow = typeof outboxMessages.$inferSelect;
@@ -691,7 +702,7 @@ export class TenantMail extends DurableObject<Env> {
     );
   }
 
-  listThreads(query: ThreadQuery): ThreadPage {
+  async listThreads(query: ThreadQuery): Promise<ThreadPage> {
     if (query.mailboxIds.length === 0) return { rows: [], next: null };
     const rows = this.db
       .select()
@@ -706,7 +717,7 @@ export class TenantMail extends DurableObject<Env> {
       rows.length > query.limit && last !== undefined
         ? { sentDate: last.sentDate, messageId: last.messageId }
         : null;
-    return { rows: page, next };
+    return { rows: await this.withSenderFlags(page), next };
   }
 
   countThreads(query: ThreadQuery): number {
@@ -719,13 +730,14 @@ export class TenantMail extends DurableObject<Env> {
     return row?.total ?? 0;
   }
 
-  listThreadMessages(threadId: string, order: SortOrder): readonly ThreadMessageRow[] {
-    return this.db
+  async listThreadMessages(threadId: string, order: SortOrder): Promise<readonly ThreadRow[]> {
+    const rows = this.db
       .select()
       .from(threadMessages)
       .where(and(eq(threadMessages.threadId, threadId), eq(threadMessages.isDeleted, false)))
       .orderBy(...threadOrder(order))
       .all();
+    return this.withSenderFlags(rows);
   }
 
   describeMessage(messageId: string): MessageRecord | null {
@@ -762,8 +774,10 @@ export class TenantMail extends DurableObject<Env> {
         order: envelopeAddresses.addressOrder,
         displayName: envelopeAddresses.displayName,
         email: envelopeAddresses.normalizedEmail,
+        flags: addresses.flags,
       })
       .from(envelopeAddresses)
+      .innerJoin(addresses, eq(addresses.addressId, envelopeAddresses.addressId))
       .where(eq(envelopeAddresses.messageId, messageId))
       .orderBy(envelopeAddresses.addressRole, envelopeAddresses.addressOrder)
       .all();
@@ -782,6 +796,7 @@ export class TenantMail extends DurableObject<Env> {
       addresses: addressRows.map((address) => ({
         ...address,
         displayName: orNull(address.displayName),
+        flags: storedFlags(address.flags, address.addressId),
       })),
       flags: flags.map((flag) => flag.name),
     };
@@ -843,6 +858,54 @@ export class TenantMail extends DurableObject<Env> {
     });
     log.info("flags set", { count: messageIds.length, ...change });
     return messageIds.length;
+  }
+
+  flagState(messageId: string): FlagState | null {
+    const row = this.db
+      .select({
+        messageId: threadMessages.messageId,
+        isRead: threadMessages.isRead,
+        isStarred: threadMessages.hasStars,
+      })
+      .from(threadMessages)
+      .where(eq(threadMessages.messageId, messageId))
+      .get();
+    return row ?? null;
+  }
+
+  getAddress(addressId: string, accountConfigIds: readonly string[]): AddressRecord | null {
+    if (accountConfigIds.length === 0) return null;
+    const row = this.db
+      .select()
+      .from(addresses)
+      .where(
+        and(
+          eq(addresses.addressId, addressId),
+          inList(addresses.accountConfigId, accountConfigIds),
+        ),
+      )
+      .get();
+    return row === undefined ? null : toAddressRecord(row);
+  }
+
+  updateAddressFlags(
+    addressId: string,
+    accountConfigIds: readonly string[],
+    patch: AddressFlagsPatch,
+  ): AddressUpdate {
+    const current = this.getAddress(addressId, accountConfigIds);
+    if (current === null) return { kind: "NotFound" };
+    const merged = mergeAddressFlags(current.flags, patch);
+    if (!merged.ok) return { kind: "Invalid", reason: merged.reason };
+    const row = this.db
+      .update(addresses)
+      .set({ flags: merged.flags, updatedAt: Date.now() })
+      .where(eq(addresses.addressId, addressId))
+      .returning()
+      .get();
+    if (row === undefined) throw new Error(`address ${addressId} vanished during a flag update`);
+    log.info("address flags set", { addressId, flags: Object.keys(merged.flags) });
+    return { kind: "Updated", address: toAddressRecord(row) };
   }
 
   createOutbox(input: NewOutbox): OutboxRecord {
@@ -931,6 +994,35 @@ export class TenantMail extends DurableObject<Env> {
       .get();
     if (row === undefined) throw new Error(`outbox message ${outboxMessageId} vanished`);
     return toOutboxRecord(row);
+  }
+
+  private async withSenderFlags(rows: readonly ThreadMessageRow[]): Promise<ThreadRow[]> {
+    const keyed = await Promise.all(
+      rows.map(async (row) => ({
+        row,
+        addressId:
+          typeof row.fromEmail !== "string"
+            ? null
+            : await deriveAddressId(row.accountConfigId, row.fromEmail),
+      })),
+    );
+    const ids = [
+      ...new Set(keyed.flatMap((entry) => (entry.addressId === null ? [] : [entry.addressId]))),
+    ];
+    const flags = new Map(
+      ids.length === 0
+        ? []
+        : this.db
+            .select({ addressId: addresses.addressId, flags: addresses.flags })
+            .from(addresses)
+            .where(inList(addresses.addressId, ids))
+            .all()
+            .map((entry) => [entry.addressId, storedFlags(entry.flags, entry.addressId)]),
+    );
+    return keyed.map(({ row, addressId }) => ({
+      ...row,
+      senderFlags: (addressId === null ? undefined : flags.get(addressId)) ?? {},
+    }));
   }
 
   private specialUses(mailboxIds: readonly string[]): Map<string, SpecialUse[]> {

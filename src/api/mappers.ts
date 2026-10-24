@@ -2,6 +2,7 @@ import type {
   AccountConfigResponse,
   AccountResponse,
   AccountService,
+  AddressResponse,
   CanonicalMailboxRole,
   FolderAppointment,
   MailboxResponse,
@@ -9,7 +10,8 @@ import type {
   ThreadMessageResponse,
 } from "@remit/api-openapi-types";
 import type { AccountConfigRow, AccountRow } from "../db/accounts";
-import type { MailboxRow, OutboxRecord, ThreadMessageRow } from "../mail/types";
+import { isMuted, senderTrustOf } from "../mail/address-flags";
+import type { AddressRecord, MailboxRow, OutboxRecord, ThreadRow } from "../mail/types";
 import { optional } from "./respond";
 
 const ROLES: readonly CanonicalMailboxRole[] = [
@@ -120,7 +122,7 @@ export const toMailboxResponse = (row: MailboxRow): MailboxResponse => ({
 });
 
 export const toThreadMessageResponse = (
-  row: ThreadMessageRow,
+  row: ThreadRow,
   accountIds: ReadonlyMap<string, string>,
 ): ThreadMessageResponse => ({
   threadMessageId: row.threadMessageId,
@@ -141,8 +143,8 @@ export const toThreadMessageResponse = (
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
   category: row.category,
-  senderTrust: "unknown",
-  muted: false,
+  senderTrust: senderTrustOf(row.senderFlags),
+  muted: isMuted(row.senderFlags),
   status: "active",
   syncStatus: "synced",
   abandonedMutation: "none",
@@ -171,4 +173,21 @@ export const toOutboxMessageResponse = (record: OutboxRecord): OutboxMessageResp
   createdAt: record.createdAt,
   updatedAt: record.updatedAt,
   attachments: [],
+});
+
+export const toAddressResponse = (record: AddressRecord): AddressResponse => ({
+  addressId: record.addressId,
+  accountConfigId: record.accountConfigId,
+  ...optional("displayName", record.displayName),
+  localPart: record.localPart,
+  domain: record.domain,
+  normalizedEmail: record.normalizedEmail,
+  flags: record.flags,
+  inboundCount: record.inboundCount,
+  outboundCount: record.outboundCount,
+  replyCount: record.replyCount,
+  lastInboundAt: record.lastInboundAt,
+  lastReplyAt: record.lastReplyAt,
+  createdAt: record.createdAt,
+  updatedAt: record.updatedAt,
 });

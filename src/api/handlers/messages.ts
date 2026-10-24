@@ -1,3 +1,4 @@
+import type { MessageOperationsUpdateMessageFlagsResponse } from "@remit/api-http-client/types.gen.ts";
 import type {
   BodyPartResponse,
   DescribeMessageResponse,
@@ -5,7 +6,7 @@ import type {
   MessageBulkOperationResult,
   MessageReferenceResponse,
 } from "@remit/api-openapi-types";
-import { BulkUpdateFlagsInputSchema } from "@remit/api-zod-schemas";
+import { BulkUpdateFlagsInputSchema, UpdateFlagsInputSchema } from "@remit/api-zod-schemas";
 import type { Email } from "postal-mime";
 import { z } from "zod";
 import { messageParts } from "../../content/parts";
@@ -14,6 +15,7 @@ import { createContentSigner } from "../../content/signature";
 import { type AccountRow, decryptCredential } from "../../db/accounts";
 import { openAppDb } from "../../db/client";
 import { log } from "../../log";
+import { senderTrustOf } from "../../mail/address-flags";
 import { pushFlags } from "../../mail/flags";
 import { deriveBodyPartId } from "../../mail/ids";
 import { parseEmail } from "../../mail/parse";
@@ -45,6 +47,7 @@ const addressesFor = (
       normalizedEmail: address.email,
       addressRole: address.role,
       addressOrder: address.order,
+      flags: address.flags,
     }));
 
 const referencesOf = (email: Email | null): MessageReferenceResponse[] => {
@@ -138,7 +141,9 @@ const describeMessage: Handler = async (context, request) => {
       bcc: addressesFor(record.addresses, "bcc"),
       replyTo: addressesFor(record.addresses, "reply_to"),
       category: record.category,
-      senderTrust: "unknown",
+      senderTrust: senderTrustOf(
+        record.addresses.find((address) => address.role === "from")?.flags ?? {},
+      ),
     },
     flags: [...record.flags],
     bodyParts: await bodyPartsOf(request, account, record, email),
@@ -179,22 +184,21 @@ const pushAccount = async (
   return { ok: true, messageIds: locations.map((location) => location.messageId) };
 };
 
-const updateFlags: Handler = async (_context, request) => {
-  const parsed = parse(BulkUpdateFlagsInputSchema, request.body, "flag update");
-  if (!parsed.ok) return parsed.response;
-  const input = parsed.value;
-  if (input.messageIds.length === 0 || input.messageIds.length > MAX_BULK) {
-    return invalid(`messageIds must hold between 1 and ${MAX_BULK} ids`);
-  }
-  const change: FlagChange = {
-    isRead: input.isRead ?? null,
-    isStarred: input.isStarred ?? null,
-  };
+interface FlagOutcome {
+  readonly pushed: readonly string[];
+  readonly failure: Response | null;
+}
+
+const applyFlagChange = async (
+  request: ApiRequest,
+  messageIds: readonly string[],
+  change: FlagChange,
+): Promise<FlagOutcome> => {
   const mail = tenantMail(request.env, request.tenant.tenantId);
   const accounts = new Map(
     (await accountsOf(request)).map((account) => [account.accountId, account]),
   );
-  const located = (await mail.locateMessages(input.messageIds)).filter((location) =>
+  const located = (await mail.locateMessages(messageIds)).filter((location) =>
     accounts.has(location.accountId),
   );
   const results = await Promise.all(
@@ -206,22 +210,57 @@ const updateFlags: Handler = async (_context, request) => {
   const pushed = results.flatMap((result) => (result.ok ? result.messageIds : []));
   const failures = results.flatMap((result) => (result.ok ? [] : [result.reason]));
   if (pushed.length > 0) await mail.setFlags(pushed, change);
-  if (failures.length > 0) {
-    log.error("flag push failed", { tenantId: request.tenant.tenantId, reasons: failures });
-    return apiError(
+  if (failures.length === 0) return { pushed, failure: null };
+  log.error("flag push failed", { tenantId: request.tenant.tenantId, reasons: failures });
+  return {
+    pushed,
+    failure: apiError(
       502,
       "ImapFlagPushFailed",
       `The mail server refused the change: ${failures.join("; ")}`,
-    );
-  }
-  const body: MessageBulkOperationResult = {
-    successCount: pushed.length,
-    failureCount: input.messageIds.length - pushed.length,
+    ),
   };
+};
+
+const updateFlags: Handler = async (_context, request) => {
+  const parsed = parse(BulkUpdateFlagsInputSchema, request.body, "flag update");
+  if (!parsed.ok) return parsed.response;
+  const input = parsed.value;
+  if (input.messageIds.length === 0 || input.messageIds.length > MAX_BULK) {
+    return invalid(`messageIds must hold between 1 and ${MAX_BULK} ids`);
+  }
+  const outcome = await applyFlagChange(request, input.messageIds, {
+    isRead: input.isRead ?? null,
+    isStarred: input.isStarred ?? null,
+  });
+  if (outcome.failure !== null) return outcome.failure;
+  const body: MessageBulkOperationResult = {
+    successCount: outcome.pushed.length,
+    failureCount: input.messageIds.length - outcome.pushed.length,
+  };
+  return ok(body);
+};
+
+const updateMessageFlags: Handler = async (context, request) => {
+  const params = parse(messageParams, context.request.params, "path");
+  if (!params.ok) return params.response;
+  const parsed = parse(UpdateFlagsInputSchema, request.body, "flag update");
+  if (!parsed.ok) return parsed.response;
+  const { messageId } = params.value;
+  const outcome = await applyFlagChange(request, [messageId], {
+    isRead: parsed.value.isRead ?? null,
+    isStarred: parsed.value.isStarred ?? null,
+  });
+  if (outcome.failure !== null) return outcome.failure;
+  if (outcome.pushed.length === 0) return notFound("Message");
+  const state = await tenantMail(request.env, request.tenant.tenantId).flagState(messageId);
+  if (state === null) return notFound("Message");
+  const body: MessageOperationsUpdateMessageFlagsResponse = { ...state };
   return ok(body);
 };
 
 export const messageHandlers = {
   MessageOperations_describeMessage: describeMessage,
+  MessageOperations_updateMessageFlags: updateMessageFlags,
   MessageBulkOperations_updateFlags: updateFlags,
 } satisfies Record<string, Handler>;

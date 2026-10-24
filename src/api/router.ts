@@ -3,6 +3,7 @@ import { type Context, type Document, OpenAPIBackend } from "openapi-backend";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
 import { log } from "../log";
+import { addressHandlers } from "./handlers/addresses";
 import { configHandlers } from "./handlers/config";
 import { messageHandlers } from "./handlers/messages";
 import { outboxHandlers } from "./handlers/outbox";
@@ -13,6 +14,7 @@ import { apiError, invalid, notFound } from "./respond";
 
 const API_ROOT = "/api";
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -38,6 +40,7 @@ const emptied = (mock: unknown): unknown => {
 const systemUpdate: Handler = async () => notFound("System update");
 
 const handlers: Record<string, Handler> = {
+  ...addressHandlers,
   ...configHandlers,
   ...threadHandlers,
   ...messageHandlers,
@@ -61,6 +64,11 @@ api.register({
   methodNotAllowed: async () => apiError(405, "MethodNotAllowed", "Method not allowed"),
   notImplemented: async (context: Context) => {
     const operationId = context.operation.operationId ?? "";
+    const method = context.request.method.toUpperCase();
+    if (!READ_METHODS.has(method)) {
+      log.warn("write operation not implemented", { operationId, method });
+      return apiError(501, "NotImplemented", `not implemented on this build: ${operationId}`);
+    }
     const { status, mock } = api.mockResponseForOperation(operationId);
     log.info("operation not implemented", { operationId, status });
     return Response.json(emptied(mock), { status });
