@@ -1,3 +1,4 @@
+import { type SyncState, syncStateSchema } from "sync-state";
 import { z } from "zod";
 
 const server = z.object({ host: z.string(), port: z.number(), secure: z.boolean() });
@@ -75,8 +76,6 @@ const body = z.object({
 
 const searchResult = z.object({ messages: z.array(message) });
 
-const syncSummary = z.object({ mailboxes: z.number(), dumped: z.number(), batches: z.number() });
-
 const sent = z.object({ messageId: z.string(), sentMailbox: z.string() });
 
 const failure = z.object({
@@ -93,8 +92,8 @@ export type MessageSummary = z.infer<typeof messageSummary>;
 export type MessagePage = z.infer<typeof messagePage>;
 export type Message = z.infer<typeof message>;
 export type MessageBody = z.infer<typeof body>;
-export type SyncSummary = z.infer<typeof syncSummary>;
 export type Sent = z.infer<typeof sent>;
+export type { SyncState };
 
 export interface ServerInput {
   readonly host: string;
@@ -205,7 +204,8 @@ export const api = {
   me: () => get(me, "/api/me"),
   accounts: () => get(z.array(account), "/api/accounts"),
   createAccount: (input: NewAccount) => post(account, "/api/accounts", input),
-  sync: (accountId: string) => post(syncSummary, `${accountPath(accountId)}/sync`, {}),
+  startSync: (accountId: string) => post(syncStateSchema, `${accountPath(accountId)}/sync`, {}),
+  syncStatus: (accountId: string) => get(syncStateSchema, `${accountPath(accountId)}/sync`),
   mailboxes: (accountId: string) => get(z.array(mailbox), `${accountPath(accountId)}/mailboxes`),
   messages: (accountId: string, mailboxId: string, before: string | null) => {
     const query = new URLSearchParams({ limit: "50" });

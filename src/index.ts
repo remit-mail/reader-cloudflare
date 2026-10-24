@@ -11,6 +11,7 @@ import { isSyncPath, syncApi } from "./sync/routes";
 
 export { TenantMail } from "./mail/tenant-mail";
 export { TenantSearch } from "./search/tenant-search";
+export { AccountSync } from "./sync/account-sync";
 
 const COMMIT_HEADER = "x-reader-commit";
 

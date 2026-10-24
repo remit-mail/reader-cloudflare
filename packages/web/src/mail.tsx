@@ -12,22 +12,28 @@ import {
   type ThreadRowData,
 } from "@remit/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Account, api, type Mailbox, type MessageSummary, type SyncSummary } from "./api";
+import { type Account, api, type Mailbox, type MessageSummary, type SyncState } from "./api";
 import { Compose, type Composing, type Draft, EMPTY_DRAFT } from "./compose";
-import { defaultMailbox, depthOf, searchRow, sender, sortMailboxes, summaryRow } from "./format";
+import {
+  defaultMailbox,
+  depthOf,
+  fullDate,
+  searchRow,
+  sender,
+  sortMailboxes,
+  summaryRow,
+} from "./format";
 import { type Loaded, MessageView } from "./message-view";
 import { useCall } from "./session";
 import { useLoad } from "./use-load";
 
-const POLL_ROUNDS = 6;
-const POLL_INTERVAL_MS = 4000;
+const POLL_INTERVAL_MS = 2000;
 
-type SyncState =
-  | { readonly kind: "idle" }
-  | { readonly kind: "running" }
-  | { readonly kind: "polling"; readonly summary: SyncSummary; readonly round: number }
-  | { readonly kind: "done"; readonly summary: SyncSummary }
-  | { readonly kind: "failed"; readonly reason: string };
+type SyncView =
+  | { readonly kind: "unknown" }
+  | { readonly kind: "starting" }
+  | { readonly kind: "known"; readonly state: SyncState }
+  | { readonly kind: "unreachable"; readonly reason: string };
 
 type ListState =
   | { readonly kind: "loading" }
@@ -57,14 +63,27 @@ const replyDraft = ({ message, body }: Loaded): Draft => {
   };
 };
 
-const syncText = (sync: SyncState): string | null => {
-  if (sync.kind === "running") return "Syncing with the mail server…";
-  if (sync.kind === "polling") {
-    return `Synced ${sync.summary.mailboxes} mailboxes, ${sync.summary.dumped} messages queued. Loading them…`;
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const progressText = (state: SyncState): string => {
+  const where = state.currentMailbox === "" ? "the mailbox list" : state.currentMailbox;
+  return `Syncing ${where} (${state.mailboxesDone}/${state.mailboxesTotal} mailboxes): ${state.dumped} messages in ${state.batches} batches`;
+};
+
+const syncText = (sync: SyncView): string | null => {
+  if (sync.kind === "starting") return "Starting sync…";
+  if (sync.kind !== "known") return null;
+  const { state } = sync;
+  if (state.status === "Running") return progressText(state);
+  if (state.status === "Idle" && state.finishedAt > 0) {
+    return `Last synced ${fullDate(state.finishedAt)}: ${state.dumped} new messages from ${state.mailboxesTotal} mailboxes.`;
   }
-  if (sync.kind === "done") {
-    return `Synced ${sync.summary.mailboxes} mailboxes, ${sync.summary.dumped} messages queued.`;
-  }
+  return null;
+};
+
+const syncFailure = (sync: SyncView): string | null => {
+  if (sync.kind === "unreachable") return sync.reason;
+  if (sync.kind === "known" && sync.state.status === "Failed") return sync.state.error;
   return null;
 };
 
@@ -138,9 +157,10 @@ export const Mail = ({
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [listNonce, setListNonce] = useState(0);
   const [openMessage, setOpenMessage] = useState<string | null>(null);
-  const [sync, setSync] = useState<SyncState>({ kind: "idle" });
+  const [sync, setSync] = useState<SyncView>({ kind: "unknown" });
   const [notice, setNotice] = useState<string | null>(null);
   const live = useRef(true);
+  const generation = useRef(0);
 
   useEffect(() => {
     live.current = true;
@@ -200,22 +220,55 @@ export const Mail = ({
     setListNonce((value) => value + 1);
   }, [reloadMailboxes]);
 
+  const follow = useCallback(
+    async (initial: SyncState): Promise<void> => {
+      generation.current += 1;
+      const mine = generation.current;
+      const alive = (): boolean => live.current && generation.current === mine;
+      let state = initial;
+      while (state.status === "Running") {
+        if (!alive()) return;
+        setSync({ kind: "known", state });
+        refresh();
+        await wait(POLL_INTERVAL_MS);
+        if (!alive()) return;
+        const next = await call(api.syncStatus(accountId));
+        if (!next.ok) {
+          setSync({ kind: "unreachable", reason: next.reason });
+          return;
+        }
+        state = next.value;
+      }
+      if (!alive()) return;
+      setSync({ kind: "known", state });
+      refresh();
+    },
+    [accountId, call, refresh],
+  );
+
+  useEffect(() => {
+    call(api.syncStatus(accountId)).then((result) => {
+      if (!live.current) return;
+      if (!result.ok) {
+        setSync({ kind: "unreachable", reason: result.reason });
+        return;
+      }
+      if (result.value.status === "Running") {
+        follow(result.value);
+        return;
+      }
+      setSync({ kind: "known", state: result.value });
+    });
+  }, [accountId, call, follow]);
+
   const runSync = async (): Promise<void> => {
-    setSync({ kind: "running" });
-    const result = await call(api.sync(accountId));
+    setSync({ kind: "starting" });
+    const result = await call(api.startSync(accountId));
     if (!result.ok) {
-      setSync({ kind: "failed", reason: result.reason });
+      setSync({ kind: "unreachable", reason: result.reason });
       return;
     }
-    refresh();
-    for (let round = 1; round <= POLL_ROUNDS; round += 1) {
-      if (!live.current) return;
-      setSync({ kind: "polling", summary: result.value, round });
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      if (!live.current) return;
-      refresh();
-    }
-    setSync({ kind: "done", summary: result.value });
+    await follow(result.value);
   };
 
   const selectMailbox = (mailboxId: string): void => {
@@ -225,7 +278,9 @@ export const Mail = ({
   };
 
   const status = syncText(sync);
-  const busy = sync.kind === "running" || sync.kind === "polling";
+  const failure = syncFailure(sync);
+  const busy =
+    sync.kind === "starting" || (sync.kind === "known" && sync.state.status === "Running");
 
   const listPane = (() => {
     if (search !== "") {
@@ -288,7 +343,7 @@ export const Mail = ({
           {busy ? "Syncing…" : "Sync"}
         </Button>
         {status !== null && <p className="text-xs text-fg-muted">{status}</p>}
-        {sync.kind === "failed" && <Banner tone="danger">Sync failed: {sync.reason}</Banner>}
+        {failure !== null && <Banner tone="danger">Sync failed: {failure}</Banner>}
         {mailboxes.kind === "loading" && <MessageListLoading />}
         {mailboxes.kind === "failed" && (
           <Banner tone="danger">

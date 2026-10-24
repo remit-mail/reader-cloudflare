@@ -31,13 +31,9 @@ export interface MailboxSyncResult {
   readonly batches: number;
 }
 
-export interface SyncSummary {
-  readonly mailboxes: number;
-  readonly dumped: number;
-  readonly batches: number;
-}
+export type BatchQueued = (dumped: number) => Promise<void>;
 
-interface ServerMailbox {
+export interface ServerMailbox {
   readonly mailboxId: string;
   readonly entry: ListResponse;
   readonly uidValidity: number;
@@ -83,7 +79,7 @@ const toEpoch = (value: Date | string | undefined): number => {
   return Number.isNaN(time) ? 0 : time;
 };
 
-const listServerMailboxes = async (
+export const listServerMailboxes = async (
   env: Env,
   client: ImapFlow,
   account: MailAccount,
@@ -192,12 +188,13 @@ const recordCursor = async (
   if (!cursor.ok) throw new Error(`cursor ${mailbox.entry.path}: ${cursor.reason}`);
 };
 
-const syncMailbox = async (
+export const syncMailbox = async (
   env: Env,
   client: ImapFlow,
   account: MailAccount,
   mailbox: ServerMailbox,
   stored: MailboxView | undefined,
+  onBatch: BatchQueued,
 ): Promise<MailboxSyncResult> => {
   const started = Date.now();
   const reset = await resetIfInvalidated(env, account, mailbox, stored);
@@ -220,6 +217,7 @@ const syncMailbox = async (
         uidValidity: mailbox.uidValidity,
         keys,
       });
+      await onBatch(keys.length);
     }
     await recordCursor(env, account, mailbox, uids[0]);
     const result = { ...base, dumped: uids.length, batches: batches.length };
@@ -233,23 +231,4 @@ const syncMailbox = async (
   } finally {
     lock.release();
   }
-};
-
-export const syncAccount = async (
-  env: Env,
-  client: ImapFlow,
-  account: MailAccount,
-): Promise<SyncSummary> => {
-  const stored = await tenantMail(env, account.tenantId).listMailboxes(account);
-  const previous = new Map(stored.map((mailbox) => [mailbox.mailboxId, mailbox]));
-  const mailboxes = await listServerMailboxes(env, client, account);
-  const results: MailboxSyncResult[] = [];
-  for (const mailbox of mailboxes) {
-    results.push(await syncMailbox(env, client, account, mailbox, previous.get(mailbox.mailboxId)));
-  }
-  return {
-    mailboxes: results.length,
-    dumped: results.reduce((total, result) => total + result.dumped, 0),
-    batches: results.reduce((total, result) => total + result.batches, 0),
-  };
 };
