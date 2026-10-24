@@ -26,3 +26,8 @@ export const log = {
   warn: (message: string, fields: Fields = {}): void => write("warn", message, fields),
   error: (message: string, fields: Fields = {}): void => write("error", message, fields),
 };
+
+export const currentCorrelationId = (): string => {
+  const correlationId = context.getStore()?.correlationId;
+  return typeof correlationId === "string" ? correlationId : crypto.randomUUID();
+};

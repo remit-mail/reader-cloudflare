@@ -5,7 +5,7 @@ import { commit } from "./commit";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env, SyncMessage } from "./env";
 import { log, withLogContext } from "./log";
-import { processSyncMessage } from "./sync/process";
+import { describeSyncMessage, processSyncMessage } from "./sync/process";
 
 export { TenantMail } from "./mail/tenant-mail";
 export { TenantSearch } from "./search/tenant-search";
@@ -96,6 +96,7 @@ export default {
           queue: batch.queue,
           id: message.id,
           attempts: message.attempts,
+          ...describeSyncMessage(message.body),
         });
         await processSyncMessage(env, message.body);
         message.ack();

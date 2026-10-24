@@ -3,7 +3,7 @@ import type { ImapFlow } from "imapflow";
 import { recordSyncOutcome } from "../db/accounts";
 import { openAppDb } from "../db/client";
 import type { Env } from "../env";
-import { log } from "../log";
+import { log, withLogContext } from "../log";
 import { type ImapCredential, openImap } from "../mail/imap-connect";
 import type { MailAccount } from "../mail/types";
 import { tenantMail } from "../stubs";
@@ -36,12 +36,14 @@ export class AccountSync extends DurableObject<Env> {
     return lost;
   }
 
-  start(account: MailAccount, credential: ImapCredential): SyncStart {
+  start(account: MailAccount, credential: ImapCredential, correlationId: string): SyncStart {
     if (this.run !== null) return { started: false, state: this.progress };
     this.progress = { ...NEVER_SYNCED, status: "Running", startedAt: Date.now() };
-    this.run = this.execute(account, credential).finally(() => {
-      this.run = null;
-    });
+    this.run = withLogContext({ correlationId }, () => this.execute(account, credential)).finally(
+      () => {
+        this.run = null;
+      },
+    );
     this.ctx.waitUntil(this.run);
     return { started: true, state: this.progress };
   }

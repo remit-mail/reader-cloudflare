@@ -9,6 +9,7 @@ import { objectMetadataSchema, type ProcessBatch, syncMessageSchema } from "./me
 const SNIPPET_LENGTH = 200;
 
 interface ProcessedMessage {
+  readonly parseMs: number;
   readonly input: MessageInput;
   readonly search: Omit<SearchDocument, "messageId" | "mailboxId">;
 }
@@ -26,9 +27,12 @@ const processObject = async (env: Env, key: string): Promise<ProcessedMessage> =
   const object = await env.MAIL.get(key);
   if (object === null) throw new Error(`object ${key} not found`);
   const metadata = objectMetadataSchema.parse(object.customMetadata);
+  const parseStarted = Date.now();
   const email = await parseEmail(object.body);
+  const parseMs = Date.now() - parseStarted;
   const text = email.text ?? "";
   return {
+    parseMs,
     input: {
       uid: metadata.uid,
       sequenceNumber: metadata.sequenceNumber,
@@ -82,16 +86,33 @@ const processBatch = async (env: Env, body: ProcessBatch): Promise<void> => {
     return [{ ...message.search, messageId: stored.messageId, mailboxId: body.mailboxId }];
   });
   await tenantSearch(env, account.tenantId).indexMessages(account, docs);
+  const durationMs = Date.now() - started;
+  const parseMs = processed.reduce((total, message) => total + message.parseMs, 0);
   log.info("batch processed", {
     tenantId: account.tenantId,
     accountId: account.accountId,
     mailboxId: body.mailboxId,
     count: processed.length,
-    durationMs: Date.now() - started,
+    durationMs,
+    parseMs,
+    perMessageMs: Math.round(durationMs / processed.length),
+    parsePerMessageMs: Math.round(parseMs / processed.length),
   });
 };
 
 export const processSyncMessage = async (env: Env, body: unknown): Promise<void> => {
   const message = syncMessageSchema.parse(body);
   if (message.kind === "ProcessBatch") await processBatch(env, message);
+};
+
+export const describeSyncMessage = (body: unknown): Record<string, unknown> => {
+  const message = syncMessageSchema.safeParse(body);
+  if (!message.success) return { kind: "Unknown" };
+  return {
+    kind: message.data.kind,
+    tenantId: message.data.tenantId,
+    accountId: message.data.accountId,
+    mailboxId: message.data.mailboxId,
+    keys: message.data.keys.length,
+  };
 };

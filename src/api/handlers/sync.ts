@@ -7,7 +7,7 @@ import type {
 import { z } from "zod";
 import { decryptCredential, toMailAccount } from "../../db/accounts";
 import { openAppDb } from "../../db/client";
-import { log } from "../../log";
+import { currentCorrelationId, log } from "../../log";
 import { accountCredentials } from "../../mail/send";
 import type { MailboxRow } from "../../mail/types";
 import { accountSync, tenantMail } from "../../stubs";
@@ -58,6 +58,7 @@ const triggerSync: Handler = async (context, request) => {
   const start = await accountSync(request.env, tenantId, account.accountId).start(
     toMailAccount(tenantId, account),
     accountCredentials(account, secret.plaintext).imap,
+    currentCorrelationId(),
   );
   const body: SyncTriggerResponse = {
     triggered: start.started,

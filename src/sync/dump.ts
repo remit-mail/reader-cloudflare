@@ -166,10 +166,7 @@ const resetIfInvalidated = async (
 const newUids = async (client: ImapFlow, lastSyncUid: number): Promise<readonly number[]> => {
   const found = await client.search({ uid: `${lastSyncUid + 1}:*` }, { uid: true });
   if (found === false || found === undefined) return [];
-  return found
-    .filter((uid) => uid > lastSyncUid)
-    .sort((left, right) => right - left)
-    .slice(0, MAILBOX_LIMIT);
+  return found.filter((uid) => uid > lastSyncUid).sort((left, right) => right - left);
 };
 
 const recordCursor = async (
@@ -203,7 +200,19 @@ export const syncMailbox = async (
   if (uidNext !== 0 && uidNext - 1 <= lastSyncUid) return { ...base, dumped: 0, batches: 0 };
   const lock = await client.getMailboxLock(mailbox.entry.path, { readOnly: true });
   try {
-    const uids = await newUids(client, lastSyncUid);
+    const found = await newUids(client, lastSyncUid);
+    const uids = found.slice(0, MAILBOX_LIMIT);
+    if (found.length > uids.length) {
+      log.warn("cap reached", {
+        tenantId: account.tenantId,
+        accountId: account.accountId,
+        mailboxId: mailbox.mailboxId,
+        path: mailbox.entry.path,
+        cap: MAILBOX_LIMIT,
+        found: found.length,
+        skipped: found.length - uids.length,
+      });
+    }
     const batches = chunk(uids, BATCH_SIZE);
     for (const batch of batches) {
       const keys = await dumpBatch(env, client, account, mailbox, batch);
@@ -215,6 +224,14 @@ export const syncMailbox = async (
         mailboxId: mailbox.mailboxId,
         uidValidity: mailbox.uidValidity,
         keys,
+      });
+      log.info("batch enqueued", {
+        tenantId: account.tenantId,
+        accountId: account.accountId,
+        mailboxId: mailbox.mailboxId,
+        keys: keys.length,
+        firstUid: batch[0],
+        lastUid: batch[batch.length - 1],
       });
       await onBatch(keys.length);
     }
