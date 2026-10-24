@@ -23,22 +23,22 @@ variable "alert_email" {
 
 variable "usage_alert_limits" {
   type        = map(number)
-  description = "billing_usage_alert threshold per Cloudflare product id, per billing period. Defaults sit at the Workers Paid included quota."
+  description = "billing_usage_alert threshold per Cloudflare product id. Defaults sit at the Workers Free included allowance; Workers, Durable Objects, D1 rows and Queues allowances are per day, the rest per billing period."
   default = {
-    worker_requests                        = 10000000
-    worker_standard_cpu_ms                 = 30000000
-    worker_durable_objects_requests        = 1000000
-    worker_durable_objects_duration        = 400000
-    worker_durable_objects_stored_data     = 1000000000
-    worker_durable_objects_storage_reads   = 1000000
-    worker_durable_objects_storage_writes  = 1000000
-    worker_durable_objects_storage_deletes = 1000000
-    d1_rows_read                           = 25000000000
-    d1_rows_written                        = 50000000
+    worker_requests                        = 100000
+    worker_standard_cpu_ms                 = 1000000
+    worker_durable_objects_requests        = 100000
+    worker_durable_objects_duration        = 13000
+    worker_durable_objects_stored_data     = 5000000000
+    worker_durable_objects_storage_reads   = 5000000
+    worker_durable_objects_storage_writes  = 100000
+    worker_durable_objects_storage_deletes = 100000
+    d1_rows_read                           = 5000000
+    d1_rows_written                        = 100000
     d1_storage                             = 5000000000
     r2_storage                             = 10000000000
     r2_class_a_operations                  = 1000000
     r2_class_b_operations                  = 10000000
-    queues_standard_operations             = 1000000
+    queues_standard_operations             = 10000
   }
 }
