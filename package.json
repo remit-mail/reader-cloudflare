@@ -36,7 +36,7 @@
     "@typespec/compiler": "^1.17.0",
     "drizzle-kit": "^0.31.11",
     "typescript": "^7.0.2",
-    "typespec-electrodb-emitter": "^6.0.0",
+    "typespec-electrodb-emitter": "^6.0.1",
     "wrangler": "^4.152.0"
   },
   "dependencies": {
@@ -51,10 +51,5 @@
     "openapi-backend": "^5.22.0",
     "postal-mime": "^4.1.4",
     "zod": "^3.25.76"
-  },
-  "overrides": {
-    "typespec-electrodb-emitter": {
-      "typescript": "$typescript"
-    }
   }
 }
