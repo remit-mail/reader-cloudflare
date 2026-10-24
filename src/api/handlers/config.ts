@@ -23,14 +23,15 @@ import {
   createAccount,
   decryptCredential,
   ensureAccountConfig,
+  toMailAccount,
   updateAccount,
 } from "../../db/accounts";
 import { openAppDb } from "../../db/client";
 import { type ConfigRepositories, openConfigStore } from "../../db/config-store";
-import { log } from "../../log";
+import { currentCorrelationId, log } from "../../log";
 import type { ImapCredential } from "../../mail/imap-connect";
 import { settle, verifyImap, verifySmtp } from "../../mail/send";
-import { tenantMail } from "../../stubs";
+import { accountSync, tenantMail } from "../../stubs";
 import { toAccountConfigResponse, toAccountResponse } from "../mappers";
 import { type ApiRequest, accountOf, accountsOf, type Handler, parse } from "../request";
 import { apiError, conflict, invalid, notFound, ok, optional } from "../respond";
@@ -232,7 +233,12 @@ const createAccountHandler: Handler = async (_context, request) => {
     input,
     password: input.password,
   });
-  log.info("account created", { tenantId: request.tenant.tenantId, accountId: account.accountId });
+  const { tenantId } = request.tenant;
+  log.info("account created", { tenantId, accountId: account.accountId });
+  await accountSync(request.env, tenantId, account.accountId).start(
+    toMailAccount(tenantId, account),
+    currentCorrelationId(),
+  );
   return ok(toAccountResponse(account, []));
 };
 
