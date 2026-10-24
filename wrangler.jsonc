@@ -10,6 +10,10 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "stallion-app.cloudflareaccess.com",
+    "ACCESS_AUD": "b06099dd8699373a9073e60ed78ca5d1bfff972808c1d5b46714f3b4ec567596"
+  },
   "d1_databases": [
     {
       "binding": "DB",
