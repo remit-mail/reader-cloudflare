@@ -1,0 +1,9 @@
+emit:
+  - "@kattebak/typespec-drizzle-orm-generator"
+options:
+  "@kattebak/typespec-drizzle-orm-generator":
+    emitter-output-dir: "{project-root}/../packages/app-db-schema"
+    package-name: "app-db-schema"
+    package-version: "0.0.0"
+    dialect: "sqlite"
+    schema-only: true
