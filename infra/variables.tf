@@ -12,5 +12,5 @@ variable "app_domain" {
 variable "allowed_emails" {
   type        = list(string)
   description = "Addresses Access lets through with a one-time PIN."
-  default     = ["matthijs.vanhenten@gmail.com"]
+  default     = ["matthijs@ischen.nl"]
 }
