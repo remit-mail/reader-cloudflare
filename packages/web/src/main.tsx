@@ -1,13 +1,4 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { App } from "./app";
-import "./app.css";
+import { mountApp } from "@remit/web-client/shell";
+import { accessAuthProvider } from "./access-auth";
 
-const root = document.getElementById("root");
-if (root === null) throw new Error("index.html has no #root element");
-
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+mountApp({ authProvider: accessAuthProvider });

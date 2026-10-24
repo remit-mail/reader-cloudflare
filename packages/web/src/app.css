@@ -1,5 +1,0 @@
-@import "@remit/ui/tokens.css";
-
-@source "./**/*.{ts,tsx}";
-@source "../../../node_modules/@remit/ui/src/**/*.{ts,tsx}";
-@source not "../../../node_modules/@remit/ui/src/**/*.test.{ts,tsx}";
