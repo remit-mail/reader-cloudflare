@@ -4,4 +4,5 @@ window.__REMIT_CONFIG__ = {
   betterAuthEnabled: false,
   rum: { appMonitorId: "" },
   disableDevtools: true,
+  issuesUrl: "https://github.com/remit-mail/reader-cloudflare/issues/new",
 };
