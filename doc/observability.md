@@ -4,20 +4,20 @@ Account `f496802dcadb597e5939f6449c759a43`, Worker `reader-cloudflare`.
 
 ## Dashboard paths
 
-| What                                                              | Path                                                                                    |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Worker metrics: requests, errors, CPU time, wall time percentiles | Workers & Pages / reader-cloudflare / Metrics                                           |
-| Workers Logs, query builder, saved queries                        | Workers & Pages / reader-cloudflare / Observability                                     |
-| Grouped Worker failures                                           | Workers & Pages / reader-cloudflare / Observability / Issues                            |
-| Durable Objects                                                   | Workers & Pages / Durable Objects / TenantMail, TenantSearch, AccountSync / Metrics     |
-| D1                                                                | Storage & Databases / D1 SQL Database / reader-cloudflare / Metrics                     |
-| R2                                                                | Storage & Databases / R2 Object Storage / reader-cloudflare-mail / Metrics              |
-| Queues backlog and DLQ depth                                      | Workers & Pages / Queues / reader-cloudflare-sync, reader-cloudflare-sync-dlq / Metrics |
-| Billable usage                                                    | Manage Account / Billing / Billable Usage                                               |
-| Notification policies                                             | Manage Account / Notifications                                                          |
-| Budget alert (not in OpenTofu)                                    | Manage Account / Notifications / Add / Billing Budget Alert                             |
-| Error rate alert (not in OpenTofu)                                | Workers & Pages / reader-cloudflare / Observability / Alerts                            |
-| GraphQL explorer                                                  | https://graphql.cloudflare.com/explorer                                                 |
+| What                                                                                                                             | Path                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Worker metrics: requests, errors, CPU time, wall time percentiles                                                                | Workers & Pages / reader-cloudflare / Metrics                                           |
+| Workers Logs, query builder, saved queries                                                                                       | Workers & Pages / reader-cloudflare / Observability                                     |
+| Grouped Worker failures                                                                                                          | Workers & Pages / reader-cloudflare / Observability / Issues                            |
+| Durable Objects                                                                                                                  | Workers & Pages / Durable Objects / TenantMail, TenantSearch, AccountSync / Metrics     |
+| D1                                                                                                                               | Storage & Databases / D1 SQL Database / reader-cloudflare / Metrics                     |
+| R2                                                                                                                               | Storage & Databases / R2 Object Storage / reader-cloudflare-mail / Metrics              |
+| Queues backlog and DLQ depth                                                                                                     | Workers & Pages / Queues / reader-cloudflare-sync, reader-cloudflare-sync-dlq / Metrics |
+| Billable usage                                                                                                                   | Manage Account / Billing / Billable Usage                                               |
+| Notification policies                                                                                                            | Manage Account / Notifications                                                          |
+| Budget alert at 5 and 20 USD (not in OpenTofu, [#7438](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7438)) | Manage Account / Notifications / Add / Billing Budget Alert                             |
+| Error rate alert (not in OpenTofu, [#7259](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7259))             | Workers & Pages / reader-cloudflare / Observability / Alerts                            |
+| GraphQL explorer                                                                                                                 | https://graphql.cloudflare.com/explorer                                                 |
 
 ## Queries
 
