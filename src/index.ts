@@ -3,7 +3,10 @@ import { api } from "./api";
 import { commit } from "./commit";
 import type { Env, SyncMessage } from "./env";
 import { log } from "./log";
+import { isMailPath, mailApi } from "./mail/routes";
 import { spike } from "./spike";
+
+export { TenantMail } from "./mail/tenant-mail";
 
 const COMMIT_HEADER = "x-reader-commit";
 
@@ -14,6 +17,7 @@ const handleApi = async (request: Request, env: Env, path: string): Promise<Resp
     return Response.json({ error: "unauthorized", reason: result.reason }, { status: 401 });
   }
   log.info("authenticated request", { path, tenantId: result.tenant.tenantId });
+  if (isMailPath(path)) return mailApi(request, env, path, result.tenant);
   return api(request, env, path, result.tenant);
 };
 

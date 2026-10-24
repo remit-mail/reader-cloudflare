@@ -25,6 +25,7 @@ export type NewAccount = z.infer<typeof newAccountSchema>;
 
 export interface AccountView {
   readonly accountId: string;
+  readonly accountConfigId: string;
   readonly name: string;
   readonly email: string;
   readonly username: string;
@@ -36,6 +37,7 @@ export interface AccountView {
 
 const columns = {
   accountId: accounts.accountId,
+  accountConfigId: accounts.accountConfigId,
   name: accountConfigs.name,
   email: accounts.email,
   username: accounts.username,
@@ -61,6 +63,7 @@ type AccountRow = Awaited<ReturnType<typeof selectAccounts>>[number];
 
 const toView = (row: AccountRow): AccountView => ({
   accountId: row.accountId,
+  accountConfigId: row.accountConfigId,
   name: row.name ?? row.email,
   email: row.email,
   username: row.username,
@@ -134,6 +137,7 @@ export const createAccount = async (
   log.info("credential encrypted", { tenantId, accountId, keyVersion: sealed.keyVersion });
   return {
     accountId,
+    accountConfigId,
     name: input.name,
     email: input.username,
     username: input.username,

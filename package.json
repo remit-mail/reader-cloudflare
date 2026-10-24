@@ -22,6 +22,7 @@
     "spike": "node npm-scripts/spike.mjs",
     "commit": "node npm-scripts/commit.mjs",
     "db:generate": "drizzle-kit generate",
+    "db:generate:mail": "drizzle-kit generate --config drizzle.mail.config.ts",
     "db:migrate": "node npm-scripts/db-migrate.mjs",
     "wrangler": "node npm-scripts/wrangler.mjs"
   },
