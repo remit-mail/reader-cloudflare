@@ -5,7 +5,27 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
+  "routes": [{ "pattern": "app.remit.email", "custom_domain": true }],
   "observability": {
     "enabled": true
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "reader-cloudflare",
+      "database_id": "b89e3e29-23ba-427b-95ae-cc4cd5c15167"
+    }
+  ],
+  "r2_buckets": [{ "binding": "MAIL", "bucket_name": "reader-cloudflare-mail" }],
+  "queues": {
+    "producers": [{ "binding": "SYNC", "queue": "reader-cloudflare-sync" }],
+    "consumers": [{ "queue": "reader-cloudflare-sync" }]
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "MASTER_KEY",
+      "store_id": "0376668ade8548e5a44a2d63d0a7f537",
+      "secret_name": "MASTER_KEY"
+    }
+  ]
 }

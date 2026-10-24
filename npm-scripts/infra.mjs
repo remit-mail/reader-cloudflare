@@ -12,12 +12,18 @@ if (command !== "plan" && command !== "apply") {
 }
 
 const fileEnv = readEnvFile(CF_ENV);
-if (!fileEnv.CLOUDFLARE_API_TOKEN) {
-  console.error(`${CF_ENV} does not set CLOUDFLARE_API_TOKEN`);
-  process.exit(1);
+for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+  if (!fileEnv[name]) {
+    console.error(`${CF_ENV} does not set ${name}`);
+    process.exit(1);
+  }
 }
 
-const env = { ...process.env, CLOUDFLARE_API_TOKEN: fileEnv.CLOUDFLARE_API_TOKEN };
+const env = {
+  ...process.env,
+  CLOUDFLARE_API_TOKEN: fileEnv.CLOUDFLARE_API_TOKEN,
+  TF_VAR_account_id: fileEnv.CLOUDFLARE_ACCOUNT_ID,
+};
 const tofu = (...tofuArgs) => {
   const run = spawnSync("tofu", tofuArgs, { cwd: infraDir, env, stdio: "inherit" });
   if (run.error) throw run.error;
