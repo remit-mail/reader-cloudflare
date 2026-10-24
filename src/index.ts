@@ -4,8 +4,8 @@ import { commit } from "./commit";
 import type { Env, SyncMessage } from "./env";
 import { log } from "./log";
 import { isMailPath, mailApi } from "./mail/routes";
+import { isSendPath, sendApi } from "./mail/send";
 import { isSearchPath, searchApi } from "./search/routes";
-import { spike } from "./spike";
 import { processSyncMessage } from "./sync/process";
 import { isSyncPath, syncApi } from "./sync/routes";
 
@@ -22,6 +22,7 @@ const handleApi = async (request: Request, env: Env, path: string): Promise<Resp
   }
   log.info("authenticated request", { path, tenantId: result.tenant.tenantId });
   if (isMailPath(path)) return mailApi(request, env, path, result.tenant);
+  if (isSendPath(path)) return sendApi(request, env, path, result.tenant);
   if (isSyncPath(path)) return syncApi(request, env, path, result.tenant);
   if (isSearchPath(path)) return searchApi(request, env, path, result.tenant);
   return api(request, env, path, result.tenant);
@@ -31,8 +32,6 @@ export default {
   fetch(request: Request, env: Env): Response | Promise<Response> {
     const url = new URL(request.url);
     log.info("request", { method: request.method, path: url.pathname });
-    const spiked = spike(url.pathname);
-    if (spiked !== undefined) return spiked;
     if (url.pathname === "/api/version") {
       return Response.json({ commit }, { headers: { [COMMIT_HEADER]: commit } });
     }
