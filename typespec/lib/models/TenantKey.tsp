@@ -1,3 +1,4 @@
+import "typespec-electrodb-emitter";
 import "@kattebak/typespec-drizzle-orm-generator";
 
 using Drizzle;
@@ -5,15 +6,17 @@ using Drizzle;
 namespace ReaderCloudflare;
 
 @doc("A tenant data key wrapped by the master key of `keyVersion` (AES-GCM).")
-@table("tenantKey", "app")
-@primaryKey("tenant_key")
+@entity("tenantKey", "app")
+@index(
+  "TenantKey",
+  {
+    pk: [TenantKey.tenantId],
+    sk: [TenantKey.keyVersion],
+  }
+)
 model TenantKey {
-  @pk
   tenantId: string;
-
-  @pk
   keyVersion: int32;
-
   wrappedKey: bytes;
   iv: bytes;
 }

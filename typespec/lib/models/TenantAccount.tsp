@@ -1,3 +1,4 @@
+import "typespec-electrodb-emitter";
 import "@kattebak/typespec-drizzle-orm-generator";
 
 using Drizzle;
@@ -5,13 +6,16 @@ using Drizzle;
 namespace ReaderCloudflare;
 
 @doc("Binds an account to the tenant that owns it. An account belongs to exactly one tenant.")
-@table("tenantAccount", "app")
-@primaryKey("tenant_account")
+@entity("tenantAccount", "app")
+@index(
+  "TenantAccount",
+  {
+    pk: [TenantAccount.tenantId],
+    sk: [TenantAccount.accountId],
+  }
+)
+@indexDef("tenant_account_account_id_unique", [TenantAccount.accountId], true)
 model TenantAccount {
-  @pk
   tenantId: string;
-
-  @pk
-  @unique
   accountId: string;
 }
