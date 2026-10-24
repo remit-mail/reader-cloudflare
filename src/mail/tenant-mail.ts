@@ -41,6 +41,7 @@ import {
   messageFlags,
   messages,
   outboxMessages,
+  syncSkips,
   threadMessages,
 } from "./schema";
 import type {
@@ -67,6 +68,7 @@ import type {
   OutboxRecord,
   OutboxStateChange,
   OutboxStatus,
+  SkippedMessage,
   SortOrder,
   SpecialUse,
   ThreadCursor,
@@ -598,6 +600,52 @@ export class TenantMail extends DurableObject<Env> {
     return { ok: true, value: lastSyncUid };
   }
 
+  recordSkippedMessages(
+    account: MailAccount,
+    mailboxId: string,
+    skipped: readonly SkippedMessage[],
+  ): MailResult<number> {
+    const now = Date.now();
+    const total = this.db.transaction((tx) => {
+      if (!this.ownsMailbox(tx, account.accountId, mailboxId)) return null;
+      for (const skip of skipped) {
+        tx.insert(syncSkips)
+          .values({
+            mailboxId,
+            uid: skip.uid,
+            objectKey: skip.key,
+            reason: skip.reason,
+            createdAt: now,
+          })
+          .onConflictDoUpdate({
+            target: [syncSkips.mailboxId, syncSkips.uid],
+            set: { objectKey: skip.key, reason: skip.reason, createdAt: now },
+          })
+          .run();
+      }
+      const stored = tx
+        .select({ skipped: count() })
+        .from(syncSkips)
+        .where(eq(syncSkips.mailboxId, mailboxId))
+        .get();
+      const skippedTotal = stored?.skipped ?? 0;
+      tx.update(mailboxes)
+        .set({ syncFailureReason: `${skippedTotal} messages could not be parsed`, updatedAt: now })
+        .where(eq(mailboxes.mailboxId, mailboxId))
+        .run();
+      return skippedTotal;
+    });
+    if (total === null) return { ok: false, reason: "mailbox not found" };
+    log.warn("messages skipped", {
+      tenantId: account.tenantId,
+      accountId: account.accountId,
+      mailboxId,
+      skipped: skipped.length,
+      total,
+    });
+    return { ok: true, value: total };
+  }
+
   resetMailbox(account: MailAccount, mailboxId: string): MailResult<readonly string[]> {
     const removed = this.db.transaction((tx) => {
       if (!this.ownsMailbox(tx, account.accountId, mailboxId)) return null;
@@ -611,8 +659,9 @@ export class TenantMail extends DurableObject<Env> {
       tx.delete(envelopes).where(inArray(envelopes.messageId, owned)).run();
       tx.delete(threadMessages).where(eq(threadMessages.mailboxId, mailboxId)).run();
       tx.delete(messages).where(eq(messages.mailboxId, mailboxId)).run();
+      tx.delete(syncSkips).where(eq(syncSkips.mailboxId, mailboxId)).run();
       tx.update(mailboxes)
-        .set({ lastSyncUid: 0, highWaterMarkUid: 0, updatedAt: Date.now() })
+        .set({ lastSyncUid: 0, highWaterMarkUid: 0, syncFailureReason: "", updatedAt: Date.now() })
         .where(eq(mailboxes.mailboxId, mailboxId))
         .run();
       return messageIds;

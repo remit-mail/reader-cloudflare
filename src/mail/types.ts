@@ -263,3 +263,9 @@ export interface ImportedAddress {
   readonly normalizedCompound: string;
   readonly flags: Readonly<Record<string, unknown>>;
 }
+
+export interface SkippedMessage {
+  readonly uid: number;
+  readonly key: string;
+  readonly reason: string;
+}

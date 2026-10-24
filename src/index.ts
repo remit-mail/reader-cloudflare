@@ -3,9 +3,15 @@ import { apiError, unauthorized } from "./api/respond";
 import { handleApi } from "./api/router";
 import { commit } from "./commit";
 import { isContentPath, serveContent } from "./content/route";
-import type { Env, SyncMessage } from "./env";
+import type { Env } from "./env";
 import { log, withLogContext } from "./log";
-import { describeSyncMessage, processSyncMessage } from "./sync/process";
+import {
+  describeSyncMessage,
+  handleDeadLetter,
+  handleSyncMessage,
+  parseSyncMessage,
+  SYNC_DLQ,
+} from "./sync/process";
 
 export { TenantMail } from "./mail/tenant-mail";
 export { TenantSearch } from "./search/tenant-search";
@@ -89,18 +95,27 @@ export default {
     });
   },
 
-  async queue(batch: MessageBatch<SyncMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     for (const message of batch.messages) {
-      await withLogContext({ correlationId: message.id }, async () => {
+      const body = parseSyncMessage(message.body);
+      const correlationId =
+        body === null || body.correlationId === "" ? message.id : body.correlationId;
+      await withLogContext({ correlationId }, async () => {
         log.info("queue message", {
           queue: batch.queue,
           id: message.id,
           attempts: message.attempts,
-          ...describeSyncMessage(message.body),
+          ...describeSyncMessage(body),
         });
-        await processSyncMessage(env, message.body);
+        if (batch.queue === SYNC_DLQ) {
+          await handleDeadLetter(env, body, message.attempts, message.body);
+          message.ack();
+          return;
+        }
+        if (body === null) throw new Error(`queue message ${message.id} is not a sync message`);
+        await handleSyncMessage(env, body, message.attempts);
         message.ack();
       });
     }
   },
-} satisfies ExportedHandler<Env, SyncMessage>;
+} satisfies ExportedHandler<Env, unknown>;

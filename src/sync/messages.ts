@@ -8,6 +8,9 @@ export const processBatchSchema = z.object({
   mailboxId: z.string().regex(/^[a-z0-9]+$/),
   uidValidity: z.number().int().nonnegative(),
   keys: z.array(z.string().min(1)).min(1).max(25),
+  correlationId: z.string().default(""),
+  redrive: z.boolean().default(false),
+  split: z.boolean().default(false),
 });
 
 export const syncMessageSchema = z.discriminatedUnion("kind", [processBatchSchema]);

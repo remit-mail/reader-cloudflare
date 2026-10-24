@@ -1,11 +1,11 @@
 import type { ImapFlow, ListResponse } from "imapflow";
 import type { Env } from "../env";
-import { log } from "../log";
+import { currentCorrelationId, log } from "../log";
 import type { MailAccount, MailboxInput, MailboxView, SpecialUse } from "../mail/types";
 import { tenantMail, tenantSearch } from "../stubs";
 import { messageKey, toCustomMetadata } from "./messages";
 
-const BATCH_SIZE = 25;
+const BATCH_SIZE = 10;
 const MAILBOX_LIMIT = 200;
 const INBOX = "INBOX";
 
@@ -224,6 +224,9 @@ export const syncMailbox = async (
         mailboxId: mailbox.mailboxId,
         uidValidity: mailbox.uidValidity,
         keys,
+        correlationId: currentCorrelationId(),
+        redrive: false,
+        split: false,
       });
       log.info("batch enqueued", {
         tenantId: account.tenantId,

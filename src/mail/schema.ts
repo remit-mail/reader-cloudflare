@@ -10,3 +10,4 @@ export {
   outboxMessages,
   threadMessages,
 } from "@remit/drizzle-sqlite-schema";
+export { syncSkips } from "./sync-skips";
