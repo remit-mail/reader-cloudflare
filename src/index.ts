@@ -4,9 +4,11 @@ import { commit } from "./commit";
 import type { Env, SyncMessage } from "./env";
 import { log } from "./log";
 import { isMailPath, mailApi } from "./mail/routes";
+import { isSearchPath, searchApi } from "./search/routes";
 import { spike } from "./spike";
 
 export { TenantMail } from "./mail/tenant-mail";
+export { TenantSearch } from "./search/tenant-search";
 
 const COMMIT_HEADER = "x-reader-commit";
 
@@ -18,6 +20,7 @@ const handleApi = async (request: Request, env: Env, path: string): Promise<Resp
   }
   log.info("authenticated request", { path, tenantId: result.tenant.tenantId });
   if (isMailPath(path)) return mailApi(request, env, path, result.tenant);
+  if (isSearchPath(path)) return searchApi(request, env, path, result.tenant);
   return api(request, env, path, result.tenant);
 };
 

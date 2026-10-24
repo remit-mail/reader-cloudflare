@@ -51,7 +51,7 @@ const matchRoute = (path: string): MailRoute | null => {
 export const tenantMail = (env: Env, tenantId: string) =>
   env.TENANT_MAIL.get(env.TENANT_MAIL.idFromName(tenantId));
 
-const resolveAccount = async (
+export const resolveAccount = async (
   env: Env,
   tenant: Tenant,
   accountId: string,

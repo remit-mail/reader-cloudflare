@@ -27,9 +27,15 @@
     "consumers": [{ "queue": "reader-cloudflare-sync" }]
   },
   "durable_objects": {
-    "bindings": [{ "name": "TENANT_MAIL", "class_name": "TenantMail" }]
+    "bindings": [
+      { "name": "TENANT_MAIL", "class_name": "TenantMail" },
+      { "name": "TENANT_SEARCH", "class_name": "TenantSearch" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TenantMail"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TenantMail"] },
+    { "tag": "v2", "new_sqlite_classes": ["TenantSearch"] }
+  ],
   "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
   "secrets_store_secrets": [
     {
