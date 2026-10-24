@@ -1,10 +1,11 @@
 import { generateBase36Id } from "@remit/drizzle-sqlite-schema";
 import { and, eq, isNull, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { type DecryptResult, decryptSecret, encryptSecret } from "../crypto/envelope";
+import type { Env } from "../env";
+import { log } from "../log";
 import { type AppDb, runBatch } from "./client";
 import { accountConfigs, accounts, credentials, tenantAccounts } from "./schema";
-
-const PLAINTEXT_KEY_VERSION = 0;
 
 const server = z.object({
   host: z.string().min(1),
@@ -84,6 +85,7 @@ export const getAccount = async (
 };
 
 export const createAccount = async (
+  env: Env,
   db: AppDb,
   tenantId: string,
   input: NewAccount,
@@ -91,6 +93,7 @@ export const createAccount = async (
   const now = Date.now();
   const accountConfigId = generateBase36Id();
   const accountId = generateBase36Id();
+  const sealed = await encryptSecret(env, tenantId, input.password);
   await runBatch(db, [
     db.insert(accountConfigs).values({
       accountConfigId,
@@ -123,11 +126,12 @@ export const createAccount = async (
     db.insert(tenantAccounts).values({ tenantId, accountId }),
     db.insert(credentials).values({
       accountId,
-      keyVersion: PLAINTEXT_KEY_VERSION,
-      ciphertext: new TextEncoder().encode(input.password),
-      iv: new Uint8Array(0),
+      keyVersion: sealed.keyVersion,
+      ciphertext: sealed.ciphertext,
+      iv: sealed.iv,
     }),
   ]);
+  log.info("credential encrypted", { tenantId, accountId, keyVersion: sealed.keyVersion });
   return {
     accountId,
     name: input.name,
@@ -138,4 +142,24 @@ export const createAccount = async (
     connectionState: "not_authenticated",
     createdAt: now,
   };
+};
+
+export const decryptCredential = async (
+  env: Env,
+  db: AppDb,
+  tenantId: string,
+  accountId: string,
+): Promise<DecryptResult> => {
+  const [row] = await db
+    .select({
+      accountId: credentials.accountId,
+      keyVersion: credentials.keyVersion,
+      ciphertext: credentials.ciphertext,
+      iv: credentials.iv,
+    })
+    .from(credentials)
+    .innerJoin(tenantAccounts, eq(tenantAccounts.accountId, credentials.accountId))
+    .where(and(eq(tenantAccounts.tenantId, tenantId), eq(credentials.accountId, accountId)));
+  if (row === undefined) return { ok: false, reason: "credential not found" };
+  return decryptSecret(env, tenantId, row);
 };

@@ -8,6 +8,13 @@
       "when": 1792852401893,
       "tag": "0000_app_db",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792852621168,
+      "tag": "0001_tenant_key",
+      "breakpoints": true
     }
   ]
 }

@@ -42,3 +42,14 @@ export const credentials = sqliteTable(
   },
   (table) => [index("credential_by_key_version").on(table.keyVersion)],
 );
+
+export const tenantKeys = sqliteTable(
+  "tenant_key",
+  {
+    tenantId: text("tenant_id").notNull(),
+    keyVersion: integer("key_version").notNull(),
+    wrappedKey: bytes("wrapped_key").notNull(),
+    iv: bytes("iv").notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.tenantId, table.keyVersion] })],
+);

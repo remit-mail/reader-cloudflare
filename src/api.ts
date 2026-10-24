@@ -16,7 +16,7 @@ const postAccount = async (request: Request, env: Env, tenant: Tenant): Promise<
       { status: 400 },
     );
   }
-  const account = await createAccount(openAppDb(env.DB), tenant.tenantId, parsed.data);
+  const account = await createAccount(env, openAppDb(env.DB), tenant.tenantId, parsed.data);
   return Response.json(account, { status: 201 });
 };
 
