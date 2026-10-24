@@ -4,6 +4,7 @@ import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlit
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import migrations from "../../migrations/search/migrations";
+import { inList } from "../db/in-list";
 import type { Env } from "../env";
 import { log } from "../log";
 import type { MailAccount } from "../mail/types";
@@ -108,16 +109,14 @@ export class TenantSearch extends DurableObject<Env> {
     const expression = matchExpression(options.query);
     if (expression === null || options.accountIds.length === 0) return [];
     const mailbox: SQL | undefined =
-      options.mailboxIds === null
-        ? undefined
-        : inArray(messageFts.mailboxId, [...options.mailboxIds]);
+      options.mailboxIds === null ? undefined : inList(messageFts.mailboxId, options.mailboxIds);
     return this.db
       .select({ messageId: messageFts.messageId, mailboxId: messageFts.mailboxId, rank })
       .from(messageFts)
       .where(
         and(
           sql`${messageFts} MATCH ${expression}`,
-          inArray(messageFts.accountId, [...options.accountIds]),
+          inList(messageFts.accountId, options.accountIds),
           mailbox,
         ),
       )

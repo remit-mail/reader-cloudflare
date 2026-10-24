@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, gt, inArray, like, lt, or, type SQL } from "
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import migrations from "../../migrations/mail/migrations";
+import { inList } from "../db/in-list";
 import type { Env } from "../env";
 import { log } from "../log";
 import {
@@ -391,11 +392,9 @@ const contains = (value: string): string => `%${value}%`;
 
 const threadFilter = (query: ThreadQuery): SQL | undefined =>
   and(
-    inArray(threadMessages.mailboxId, [...query.mailboxIds]),
+    inList(threadMessages.mailboxId, query.mailboxIds),
     eq(threadMessages.isDeleted, false),
-    query.messageIds === null
-      ? undefined
-      : inArray(threadMessages.messageId, [...query.messageIds]),
+    query.messageIds === null ? undefined : inList(threadMessages.messageId, query.messageIds),
     query.unread === null ? undefined : eq(threadMessages.isRead, !query.unread),
     query.starred === null ? undefined : eq(threadMessages.hasStars, query.starred),
     query.attachments === null ? undefined : eq(threadMessages.hasAttachment, query.attachments),
@@ -658,7 +657,7 @@ export class TenantMail extends DurableObject<Env> {
         updatedAt: mailboxes.updatedAt,
       })
       .from(mailboxes)
-      .where(inArray(mailboxes.accountId, [...accountIds]))
+      .where(inList(mailboxes.accountId, accountIds))
       .orderBy(mailboxes.accountId, mailboxes.fullPath)
       .all();
     const ids = rows.map((row) => row.mailboxId);
@@ -667,7 +666,7 @@ export class TenantMail extends DurableObject<Env> {
       this.db
         .select({ mailboxId: threadMessages.mailboxId, stored: count() })
         .from(threadMessages)
-        .where(inArray(threadMessages.mailboxId, ids))
+        .where(inList(threadMessages.mailboxId, ids))
         .groupBy(threadMessages.mailboxId)
         .all()
         .map((row) => [row.mailboxId, row.stored]),
@@ -800,7 +799,7 @@ export class TenantMail extends DurableObject<Env> {
       })
       .from(messages)
       .innerJoin(mailboxes, eq(mailboxes.mailboxId, messages.mailboxId))
-      .where(inArray(messages.messageId, [...messageIds]))
+      .where(inList(messages.messageId, messageIds))
       .all();
   }
 
@@ -821,7 +820,7 @@ export class TenantMail extends DurableObject<Env> {
       if (summary !== null) {
         tx.update(threadMessages)
           .set(summary)
-          .where(inArray(threadMessages.messageId, [...messageIds]))
+          .where(inList(threadMessages.messageId, messageIds))
           .run();
       }
       for (const flag of prepared) {
@@ -880,7 +879,7 @@ export class TenantMail extends DurableObject<Env> {
     return this.db
       .select()
       .from(outboxMessages)
-      .where(inArray(outboxMessages.accountId, [...accountIds]))
+      .where(inList(outboxMessages.accountId, accountIds))
       .orderBy(desc(outboxMessages.createdAt))
       .all()
       .map(toOutboxRecord);
@@ -941,7 +940,7 @@ export class TenantMail extends DurableObject<Env> {
         specialUse: mailboxSpecialUseEntries.specialUse,
       })
       .from(mailboxSpecialUseEntries)
-      .where(inArray(mailboxSpecialUseEntries.mailboxId, [...mailboxIds]))
+      .where(inList(mailboxSpecialUseEntries.mailboxId, mailboxIds))
       .all();
     const byMailbox = new Map<string, SpecialUse[]>();
     for (const use of uses) {
