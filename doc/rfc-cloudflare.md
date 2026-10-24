@@ -65,13 +65,13 @@ Not this build. Another provider gets its own build and its own storage adapter.
 
 ## Appendix
 
-| Term | Meaning |
-| --- | --- |
-| Tenant | One user, keyed by Access identity |
-| App DB | The D1 database for client-side state |
-| Mail DB | Per-tenant Durable Object SQLite for IMAP-side state |
-| Search DB | Per-tenant Durable Object SQLite holding the FTS5 index |
-| Data key | Random per-tenant key that encrypts credentials |
-| Master key | The Secrets Store key that wraps every data key |
+| Term       | Meaning                                                 |
+| ---------- | ------------------------------------------------------- |
+| Tenant     | One user, keyed by Access identity                      |
+| App DB     | The D1 database for client-side state                   |
+| Mail DB    | Per-tenant Durable Object SQLite for IMAP-side state    |
+| Search DB  | Per-tenant Durable Object SQLite holding the FTS5 index |
+| Data key   | Random per-tenant key that encrypts credentials         |
+| Master key | The Secrets Store key that wraps every data key         |
 
 Background: [remit-mail/reader#1420](https://github.com/remit-mail/reader/issues/1420) splits reader's single SQLite file the same way.
