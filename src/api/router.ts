@@ -1,6 +1,7 @@
 import spec from "@remit/api-openapi-spec/openapi.json";
 import { type Context, type Document, OpenAPIBackend } from "openapi-backend";
 import type { Tenant } from "../access";
+import { openSettings } from "../db/settings";
 import type { Env } from "../env";
 import { log } from "../log";
 import { addressHandlers } from "./handlers/addresses";
@@ -113,7 +114,13 @@ export const handleApi = async (request: Request, env: Env, tenant: Tenant): Pro
   const url = new URL(request.url);
   const body = await readBody(request);
   if (!body.ok) return invalid("Request body is not valid JSON");
-  const apiRequest: ApiRequest = { env, tenant, origin: url.origin, body: body.value };
+  const apiRequest: ApiRequest = {
+    env,
+    tenant,
+    settings: openSettings(env, tenant.tenantId),
+    origin: url.origin,
+    body: body.value,
+  };
   const response: unknown = await api.handleRequest(
     {
       method: request.method,

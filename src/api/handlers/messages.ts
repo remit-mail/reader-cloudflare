@@ -7,14 +7,16 @@ import type {
   MessageReferenceResponse,
 } from "@remit/api-openapi-types";
 import { BulkUpdateFlagsInputSchema, UpdateFlagsInputSchema } from "@remit/api-zod-schemas";
+import type { AccountItem } from "@remit/data-ports";
 import { deriveBodyPartId } from "@remit/data-ports/id";
 import type { Email } from "postal-mime";
 import { z } from "zod";
 import { messageParts } from "../../content/parts";
 import { contentPath } from "../../content/route";
 import { createContentSigner } from "../../content/signature";
-import { type AccountRow, decryptCredential, toMailAccount } from "../../db/accounts";
-import { openAppDb } from "../../db/client";
+import { decryptCredential } from "../../db/accounts";
+import { openAppStore } from "../../db/client";
+import { toMailAccount } from "../../db/settings";
 import { log } from "../../log";
 import { senderTrustOf } from "../../mail/address-flags";
 import { pushFlags } from "../../mail/flags";
@@ -87,7 +89,7 @@ const loadEmail = async (request: ApiRequest, record: MessageRecord): Promise<Em
 
 const bodyPartsOf = async (
   request: ApiRequest,
-  account: AccountRow,
+  account: AccountItem,
   record: MessageRecord,
   email: Email | null,
 ): Promise<BodyPartResponse[]> => {
@@ -180,13 +182,13 @@ type PushResult =
 
 const pushAccount = async (
   request: ApiRequest,
-  account: AccountRow,
+  account: AccountItem,
   locations: readonly MessageLocation[],
   change: FlagChange,
 ): Promise<PushResult> => {
   const secret = await decryptCredential(
     request.env,
-    openAppDb(request.env.DB),
+    openAppStore(request.env.DB),
     request.tenant.tenantId,
     account.accountId,
   );

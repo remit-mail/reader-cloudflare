@@ -3,6 +3,7 @@ import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Miniflare, Response } from "miniflare";
+import { rekeyAppDb } from "./rekey-app-db.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const bundle = `${root}.tmp/smoke-bundle`;
@@ -59,7 +60,6 @@ const mf = new Miniflare({
       queueProducers: { SYNC: { queueName: "smoke-sync" } },
       durableObjects: {
         TENANT_MAIL: { className: "TenantMail", useSQLite: true },
-        TENANT_SEARCH: { className: "TenantSearch", useSQLite: true },
         ACCOUNT_SYNC: { className: "AccountSync", useSQLite: true },
       },
       outboundService: (request) => {
@@ -86,6 +86,7 @@ await db
   )
   .bind(legacyAccountConfigId, sub)
   .run();
+await rekeyAppDb(async (sql) => (await db.prepare(sql).all()).results);
 
 const call = async (method, path, body) => {
   const response = await mf.dispatchFetch(`https://smoke.test${path}`, {
@@ -114,14 +115,7 @@ const counts = (report) => {
 };
 
 const rows = async () => {
-  const tables = [
-    "account",
-    "label",
-    "filter",
-    "filter_anchor",
-    "account_setting",
-    "config_import",
-  ];
+  const tables = ["account", "label", "filter", "account_setting", "config_import"];
   const result = {};
   for (const table of tables) {
     const row = await db.prepare(`select count(*) as n from ${table}`).first();

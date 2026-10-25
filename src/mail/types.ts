@@ -169,20 +169,10 @@ export type AddressUpdate =
   | { readonly kind: "NotFound" }
   | { readonly kind: "Invalid"; readonly reason: string };
 
-export interface AddressPage {
-  readonly items: readonly AddressRecord[];
-  readonly next: string | null;
-}
-
-export interface ImportedAddress {
-  readonly addressId: string;
+export interface AddressPageRequest {
   readonly accountConfigId: string;
-  readonly displayName: string | null;
-  readonly localPart: string;
-  readonly domain: string;
-  readonly normalizedEmail: string;
-  readonly normalizedCompound: string;
-  readonly flags: Readonly<Record<string, unknown>>;
+  readonly cursor?: string;
+  readonly limit?: number;
 }
 
 export interface SkippedMessage {

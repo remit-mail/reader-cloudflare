@@ -2,9 +2,10 @@ import {
   CreateOutboxMessageInputSchema,
   UpdateOutboxMessageInputSchema,
 } from "@remit/api-zod-schemas";
+import type { AccountItem } from "@remit/data-ports";
 import { z } from "zod";
-import { type AccountRow, decryptCredential } from "../../db/accounts";
-import { openAppDb } from "../../db/client";
+import { decryptCredential } from "../../db/accounts";
+import { openAppStore } from "../../db/client";
 import { log } from "../../log";
 import { accountCredentials, deliver, domainOf } from "../../mail/send";
 import type { OutboxDraft, OutboxRecord } from "../../mail/types";
@@ -27,7 +28,7 @@ const orNull = (value: string | undefined): string | null => value ?? null;
 
 const send = async (
   request: ApiRequest,
-  account: AccountRow,
+  account: AccountItem,
   outboxMessageId: string,
 ): Promise<Response> => {
   const mail = tenantMail(request.env, request.tenant.tenantId);
@@ -41,7 +42,7 @@ const send = async (
   };
   const secret = await decryptCredential(
     request.env,
-    openAppDb(request.env.DB),
+    openAppStore(request.env.DB),
     request.tenant.tenantId,
     account.accountId,
   );
@@ -149,7 +150,7 @@ const listOutbox: Handler = async (_context, request) => {
 };
 
 type Owned =
-  | { readonly ok: true; readonly record: OutboxRecord; readonly account: AccountRow }
+  | { readonly ok: true; readonly record: OutboxRecord; readonly account: AccountItem }
   | { readonly ok: false; readonly response: Response };
 
 const ownedOutbox = async (request: ApiRequest, params: unknown): Promise<Owned> => {

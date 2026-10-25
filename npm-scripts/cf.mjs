@@ -22,3 +22,14 @@ export const wrangler = (args) => {
   if (run.error) throw run.error;
   return run.status ?? 1;
 };
+
+export const wranglerOutput = (args) => {
+  const run = spawnSync("wrangler", args, {
+    env: cloudflareEnv(),
+    stdio: ["ignore", "pipe", "inherit"],
+    encoding: "utf8",
+  });
+  if (run.error) throw run.error;
+  if (run.status !== 0) throw new Error(`wrangler ${args.join(" ")} exited with ${run.status}`);
+  return run.stdout;
+};

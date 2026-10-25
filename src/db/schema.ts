@@ -1,7 +1,12 @@
 export {
   accountConfigs,
+  accountExportRequests,
   accountSettings,
   accounts,
+  calendarCollections,
+  calendarEventIndexes,
+  calendarFeedTokens,
+  calendarObjects,
   configImports,
   filters,
   labels,

@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import type { ImapFlow } from "imapflow";
-import { decryptCredential, getAccount, recordSyncOutcome } from "../db/accounts";
-import { openAppDb } from "../db/client";
+import { decryptCredential } from "../db/accounts";
+import { openAppStore } from "../db/client";
+import { openSettings } from "../db/settings";
 import type { Env } from "../env";
 import { errorKindOf } from "../error-kind";
 import { log, withLogContext } from "../log";
@@ -141,9 +142,9 @@ export class AccountSync extends DurableObject<Env> {
         durationMs: Date.now() - started,
       });
       await this.advance({ status: "Failed", finishedAt: Date.now(), error: outcome.reason });
-      await recordSyncOutcome(openAppDb(this.env.DB), account.accountId, {
-        ok: false,
-        reason: outcome.reason,
+      await openSettings(this.env, account.tenantId).account.update(account.accountId, {
+        syncPhase: "error",
+        lastError: outcome.reason,
       });
       return;
     }
@@ -165,10 +166,19 @@ export class AccountSync extends DurableObject<Env> {
       return;
     }
     await this.advance({ status: "Idle", finishedAt: Date.now(), currentMailbox: "" });
-    await recordSyncOutcome(openAppDb(this.env.DB), account.accountId, {
-      ok: true,
-      mailboxes: this.progress.mailboxesTotal,
-    });
+    const finishedAt = Date.now();
+    await openSettings(this.env, account.tenantId).account.update(
+      account.accountId,
+      {
+        connectionState: "authenticated",
+        syncPhase: "complete",
+        lastConnectedAt: finishedAt,
+        lastSyncAt: finishedAt,
+        mailboxCountTotal: this.progress.mailboxesTotal,
+        mailboxCountSynced: this.progress.mailboxesTotal,
+      },
+      ["lastError"],
+    );
     log.info("sync finished", {
       event: "sync.complete",
       ...fields,
@@ -180,10 +190,15 @@ export class AccountSync extends DurableObject<Env> {
   }
 
   private async credential(account: MailAccount): Promise<ImapCredential> {
-    const db = openAppDb(this.env.DB);
-    const row = await getAccount(db, account.tenantId, account.accountId);
-    if (row === undefined) throw new Error("account no longer exists");
-    const secret = await decryptCredential(this.env, db, account.tenantId, account.accountId);
+    const [row] = await openSettings(this.env, account.tenantId).account.get([account.accountId]);
+    const owned = row?.accountConfigId === account.accountConfigId && row.deletedAt === undefined;
+    if (row === undefined || !owned) throw new Error("account no longer exists");
+    const secret = await decryptCredential(
+      this.env,
+      openAppStore(this.env.DB),
+      account.tenantId,
+      account.accountId,
+    );
     if (!secret.ok) throw new Error(secret.reason);
     return accountCredentials(row, secret.plaintext).imap;
   }

@@ -5,7 +5,7 @@ import type {
   SyncTriggerResponse,
 } from "@remit/api-openapi-types";
 import { z } from "zod";
-import { toMailAccount } from "../../db/accounts";
+import { toMailAccount } from "../../db/settings";
 import { currentCorrelationId } from "../../log";
 import type { MailboxRow } from "../../mail/types";
 import { accountSync, tenantMail } from "../../stubs";

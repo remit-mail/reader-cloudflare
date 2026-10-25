@@ -29,6 +29,13 @@
       "when": 1792927329183,
       "tag": "0003_drop_filter_anchor",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792929092132,
+      "tag": "0004_reader_app",
+      "breakpoints": true
     }
   ]
 }

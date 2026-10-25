@@ -17,17 +17,12 @@ import {
   composeFolderRoleAppointmentLabelName,
   composeFolderRoleAppointmentName,
 } from "@remit/data-ports/folder-role";
+import { generateBase36Id } from "@remit/drizzle-sqlite-schema";
 import { z } from "zod";
 import { commit } from "../../commit";
-import {
-  createAccount,
-  decryptCredential,
-  ensureAccountConfig,
-  toMailAccount,
-  updateAccount,
-} from "../../db/accounts";
-import { openAppDb } from "../../db/client";
-import { type ConfigRepositories, openConfigStore } from "../../db/config-store";
+import { decryptCredential, storeCredential } from "../../db/accounts";
+import { openAppStore } from "../../db/client";
+import { ensureAccountConfig, type SettingsRepositories, toMailAccount } from "../../db/settings";
 import { currentCorrelationId, log } from "../../log";
 import type { ImapCredential } from "../../mail/imap-connect";
 import { settle, verifyImap, verifySmtp } from "../../mail/send";
@@ -52,15 +47,15 @@ const isCanonicalRole = (role: string): role is CanonicalMailboxRoleValue =>
   CANONICAL_ROLES.some((canonical) => canonical === role);
 
 const folderRoleWriter =
-  (repositories: ConfigRepositories): AppointFolderRole =>
+  ({ accountSetting }: SettingsRepositories): AppointFolderRole =>
   async (accountConfigId, accountId, role, mailboxId, lastKnownPath) => {
     if (!isCanonicalRole(role)) throw new Error(`folder role ${role} is not a canonical role`);
-    await repositories.accountSetting.upsert({
+    await accountSetting.upsert({
       accountConfigId,
       name: composeFolderRoleAppointmentName(accountId, role),
       value: { kind: "String", value: mailboxId },
     });
-    await repositories.accountSetting.upsert({
+    await accountSetting.upsert({
       accountConfigId,
       name: composeFolderRoleAppointmentLabelName(accountId, role),
       value: { kind: "String", value: lastKnownPath },
@@ -69,10 +64,8 @@ const folderRoleWriter =
 
 const exportConfig: Handler = async (_context, request) => {
   const { tenantId } = request.tenant;
-  const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, request.tenant);
-  const store = openConfigStore(request.env, db, tenantId, config.accountConfigId);
-  const document = await readConfigForExport(store.repositories, config.accountConfigId, {
+  const config = await ensureAccountConfig(request.settings, request.tenant);
+  const document = await readConfigForExport(request.settings, config.accountConfigId, {
     app: "reader",
     version: commit,
     exportedAt: new Date().toISOString(),
@@ -95,24 +88,20 @@ const importConfigHandler: Handler = async (_context, request) => {
   if (!parsed.ok) return parsed.response;
   const { tenantId } = request.tenant;
   const mode = parsed.value.mode ?? "validate";
-  const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, request.tenant);
-  const store = openConfigStore(request.env, db, tenantId, config.accountConfigId);
-  const run = () =>
-    importConfig(
-      {
-        repositories: store.repositories,
-        appointFolderRole: folderRoleWriter(store.repositories),
-      },
-      {
-        accountConfigId: config.accountConfigId,
-        userId: request.tenant.userId,
-        document: parsed.value.document,
-        mode,
-        onExisting: parsed.value.onExisting ?? "abort",
-      },
-    );
-  const outcome = await (mode === "apply" ? store.transaction(run) : run());
+  const config = await ensureAccountConfig(request.settings, request.tenant);
+  const outcome = await importConfig(
+    {
+      repositories: request.settings,
+      appointFolderRole: folderRoleWriter(request.settings),
+    },
+    {
+      accountConfigId: config.accountConfigId,
+      userId: request.tenant.userId,
+      document: parsed.value.document,
+      mode,
+      onExisting: parsed.value.onExisting ?? "abort",
+    },
+  );
   if (outcome.outcome === "conflict") {
     log.info("config import refused", { tenantId, mode, ...outcome.conflict.details });
     return conflict(outcome.conflict.code, outcome.conflict.message, outcome.conflict.details);
@@ -189,11 +178,18 @@ const updateAccountHandler: Handler = async (context, request) => {
   const account = await accountOf(request, params.value.accountId);
   if (account === undefined) return notFound("Account");
   const { tenantId } = request.tenant;
-  const updated = await updateAccount(
-    request.env,
-    openAppDb(request.env.DB),
-    tenantId,
-    account,
+  const password = input.password ?? null;
+  if (password !== null) {
+    await storeCredential(
+      request.env,
+      openAppStore(request.env.DB),
+      tenantId,
+      account.accountId,
+      password,
+    );
+  }
+  const updated = await request.settings.account.update(
+    account.accountId,
     {
       ...optional("imapHost", input.imapHost),
       ...optional("imapPort", input.imapPort),
@@ -206,8 +202,9 @@ const updateAccountHandler: Handler = async (context, request) => {
       ...optional("smtpStartTls", input.smtpStartTls),
       ...optional("smtpUsername", input.smtpUsername),
       ...optional("isActive", input.isActive),
+      ...(password === null ? {} : { connectionState: "not_authenticated" as const }),
     },
-    input.password ?? null,
+    password === null ? [] : ["lastError"],
   );
   log.info("account updated", {
     tenantId,
@@ -219,8 +216,7 @@ const updateAccountHandler: Handler = async (context, request) => {
 };
 
 const getConfig: Handler = async (_context, request) => {
-  const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, request.tenant);
+  const config = await ensureAccountConfig(request.settings, request.tenant);
   const accounts = await accountsOf(request);
   const mailboxes = await tenantMail(request.env, request.tenant.tenantId).listMailboxItems(
     accounts.map((account) => account.accountId),
@@ -243,12 +239,40 @@ const createAccountHandler: Handler = async (_context, request) => {
   if (input.password === undefined || input.password === "") {
     return invalid("A password is required");
   }
-  const db = openAppDb(request.env.DB);
-  const account = await createAccount(request.env, db, request.tenant, {
-    input,
-    password: input.password,
-  });
   const { tenantId } = request.tenant;
+  const config = await ensureAccountConfig(request.settings, request.tenant);
+  const accountId = generateBase36Id();
+  const username = input.username ?? input.email;
+  const smtpHost = input.smtpHost ?? "";
+  await storeCredential(
+    request.env,
+    openAppStore(request.env.DB),
+    tenantId,
+    accountId,
+    input.password,
+  );
+  const account = await request.settings.account.create({
+    accountId,
+    accountConfigId: config.accountConfigId,
+    username,
+    email: input.email,
+    authType: "password",
+    syncedServices: ["Mail"],
+    grantedScopes: [],
+    imapHost: input.imapHost,
+    imapPort: input.imapPort,
+    imapTls: input.imapTls,
+    imapStartTls: input.imapStartTls,
+    smtpEnabled: input.smtpEnabled ?? smtpHost !== "",
+    smtpHost,
+    smtpPort: input.smtpPort ?? 587,
+    smtpTls: input.smtpTls ?? false,
+    smtpStartTls: input.smtpStartTls ?? true,
+    smtpUsername: input.smtpUsername ?? username,
+    isActive: true,
+    connectionState: "not_authenticated",
+    syncPhase: "idle",
+  });
   log.info("account created", { tenantId, accountId: account.accountId });
   await accountSync(request.env, tenantId, account.accountId).start(
     toMailAccount(tenantId, account),
@@ -266,7 +290,7 @@ const storedPassword = async (
   if (account === undefined) return null;
   const secret = await decryptCredential(
     request.env,
-    openAppDb(request.env.DB),
+    openAppStore(request.env.DB),
     request.tenant.tenantId,
     accountId,
   );

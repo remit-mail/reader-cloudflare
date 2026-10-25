@@ -9,8 +9,7 @@ import type {
   OutboxMessageResponse,
   ThreadMessageResponse,
 } from "@remit/api-openapi-types";
-import type { MailboxItem } from "@remit/data-ports";
-import type { AccountConfigRow, AccountRow } from "../db/accounts";
+import type { AccountConfigItem, AccountItem, MailboxItem } from "@remit/data-ports";
 import { isMuted, senderTrustOf, storedFlags } from "../mail/address-flags";
 import type { AddressRecord, MailboxRow, OutboxRecord, ThreadRow } from "../mail/types";
 import { optional } from "./respond";
@@ -57,7 +56,7 @@ const appointment = (role: CanonicalMailboxRole, mailboxes: readonly MailboxItem
 export const folderAppointments = (mailboxes: readonly MailboxItem[]): FolderAppointment[] =>
   ROLES.map((role) => appointment(role, mailboxes));
 
-export const toAccountConfigResponse = (row: AccountConfigRow): AccountConfigResponse => ({
+export const toAccountConfigResponse = (row: AccountConfigItem): AccountConfigResponse => ({
   accountConfigId: row.accountConfigId,
   userId: row.userId,
   ...optional("name", row.name),
@@ -69,7 +68,7 @@ export const toAccountConfigResponse = (row: AccountConfigRow): AccountConfigRes
 });
 
 export const toAccountResponse = (
-  row: AccountRow,
+  row: AccountItem,
   mailboxes: readonly MailboxItem[],
 ): AccountResponse => ({
   accountId: row.accountId,

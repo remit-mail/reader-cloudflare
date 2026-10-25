@@ -1,6 +1,6 @@
+import type { AccountItem } from "@remit/data-ports";
 import type { ImapFlow, ListResponse } from "imapflow";
 import MailComposer from "nodemailer/lib/mail-composer";
-import type { AccountRow } from "../db/accounts";
 import { type ImapCredential, openImap } from "./imap-connect";
 import { openSmtp, type SmtpCredential } from "./smtp-connect";
 import type { OutboxRecord } from "./types";
@@ -32,7 +32,7 @@ export const settle = <T>(promise: Promise<T>): Promise<Outcome<T>> =>
 
 export const domainOf = (address: string): string => address.slice(address.lastIndexOf("@") + 1);
 
-export const accountCredentials = (account: AccountRow, password: string): AccountCredentials => ({
+export const accountCredentials = (account: AccountItem, password: string): AccountCredentials => ({
   imap: {
     host: account.imapHost,
     port: account.imapPort,

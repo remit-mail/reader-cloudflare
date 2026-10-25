@@ -32,9 +32,3 @@ export const deriveMessageId = (
   mailboxId: string,
   uid: number,
 ): Promise<string> => uuidV5Base36(`mailboxmessage:${accountId}:${mailboxId}:${uid}`);
-
-export const deriveAccountSettingId = (accountConfigId: string, name: string): Promise<string> =>
-  uuidV5Base36(`accountsetting:${accountConfigId}:${name}`);
-
-export const deriveConfigImportId = (accountConfigId: string, document: string): Promise<string> =>
-  uuidV5Base36(`configimport:${accountConfigId}:${document}`);

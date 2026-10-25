@@ -1,8 +1,8 @@
+import type { AccountItem } from "@remit/data-ports";
 import type { Context } from "openapi-backend";
 import { z } from "zod";
 import type { Tenant } from "../access";
-import { type AccountRow, getAccount, listAccounts, toMailAccount } from "../db/accounts";
-import { openAppDb } from "../db/client";
+import { listTenantAccounts, type SettingsRepositories, toMailAccount } from "../db/settings";
 import type { Env } from "../env";
 import type { MailAccount } from "../mail/types";
 import { invalid } from "./respond";
@@ -10,6 +10,7 @@ import { invalid } from "./respond";
 export interface ApiRequest {
   readonly env: Env;
   readonly tenant: Tenant;
+  readonly settings: SettingsRepositories;
   readonly origin: string;
   readonly body: unknown;
 }
@@ -44,14 +45,14 @@ export const listParam = z
   .transform((value) => (typeof value === "string" ? value.split(",") : value))
   .optional();
 
-export const accountsOf = (request: ApiRequest): Promise<AccountRow[]> =>
-  listAccounts(openAppDb(request.env.DB), request.tenant.tenantId);
+export const accountsOf = (request: ApiRequest): Promise<AccountItem[]> =>
+  listTenantAccounts(request.settings, request.tenant);
 
-export const accountOf = (
+export const accountOf = async (
   request: ApiRequest,
   accountId: string,
-): Promise<AccountRow | undefined> =>
-  getAccount(openAppDb(request.env.DB), request.tenant.tenantId, accountId);
+): Promise<AccountItem | undefined> =>
+  (await accountsOf(request)).find((account) => account.accountId === accountId);
 
 export const mailAccountsOf = async (request: ApiRequest): Promise<MailAccount[]> =>
   (await accountsOf(request)).map((account) => toMailAccount(request.tenant.tenantId, account));

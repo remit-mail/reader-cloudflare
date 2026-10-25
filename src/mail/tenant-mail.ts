@@ -3,6 +3,7 @@ import type { AddressFlags } from "@remit/api-openapi-types";
 import type {
   AddressItem,
   CreateAddressInput,
+  FlagsMergePatch,
   MailboxItem,
   ResultList,
   ThreadMessageItem,
@@ -21,12 +22,11 @@ import { rekeyMail } from "./rekey";
 import { composeMailRepositories, type MailRepositories } from "./repositories";
 import type {
   AddressInput,
-  AddressPage,
+  AddressPageRequest,
   AddressRole,
   AddressUpdate,
   FlagChange,
   FlagState,
-  ImportedAddress,
   MailAccount,
   MailboxInput,
   MailboxRow,
@@ -547,34 +547,24 @@ export class TenantMail extends DurableObject<Env> {
     });
   }
 
-  async listConfigAddresses(
-    accountConfigId: string,
-    after: string | null,
-    limit: number,
-  ): Promise<AddressPage> {
-    const page = await this.mail.address.listAllByAccountConfigPage({
-      accountConfigId,
-      limit,
-      ...(after === null ? {} : { cursor: after }),
-    });
-    return { items: page.items, next: page.continuationToken ?? null };
+  async listAddresses(accountConfigId: string): Promise<AddressItem[]> {
+    return this.mail.address.listAllByAccountConfig(accountConfigId);
   }
 
-  async importAddressFlags(entries: readonly ImportedAddress[]): Promise<number> {
-    for (const { flags: patch, displayName, ...address } of entries) {
-      const input: CreateAddressInput = {
-        ...address,
-        ...(displayName === null ? {} : { displayName }),
-      };
-      const stored = await this.mail.address.upsertAddress(input);
-      const merged = mergeAddressFlags(flagsOf(stored), { flags: patch, clearFlags: [] });
-      if (!merged.ok) throw new Error(`address ${address.addressId}: ${merged.reason}`);
-      await this.mail.address.updateAddress(address.accountConfigId, address.addressId, {
-        flags: merged.flags,
-      });
-    }
-    log.info("address flags imported", { addresses: entries.length });
-    return entries.length;
+  async listAddressPage(page: AddressPageRequest): Promise<ResultList<AddressItem>> {
+    return this.mail.address.listAllByAccountConfigPage(page);
+  }
+
+  async upsertAddress(input: CreateAddressInput): Promise<AddressItem> {
+    return this.mail.address.upsertAddress(input);
+  }
+
+  async mergeAddressFlags(
+    accountConfigId: string,
+    addressId: string,
+    patch: FlagsMergePatch,
+  ): Promise<AddressItem> {
+    return this.mail.address.mergeFlags(accountConfigId, addressId, patch);
   }
 
   private async applyFlag(messageId: string, flag: string, set: boolean | null): Promise<void> {

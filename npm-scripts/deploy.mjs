@@ -11,6 +11,6 @@ if (!inWorkersBuilds && !bootstrap) {
   process.exit(2);
 }
 
-const migrated = migrate();
+const migrated = await migrate();
 if (migrated !== 0) process.exit(migrated);
 process.exit(wrangler(["deploy", ...args.filter((arg) => arg !== "--bootstrap")]));
