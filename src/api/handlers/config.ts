@@ -98,20 +98,21 @@ const importConfigHandler: Handler = async (_context, request) => {
   const db = openAppDb(request.env.DB);
   const config = await ensureAccountConfig(db, tenantId);
   const store = openConfigStore(request.env, db, tenantId, config.accountConfigId);
-  const outcome = await importConfig(
-    {
-      repositories: store.repositories,
-      transaction: store.transaction,
-      appointFolderRole: folderRoleWriter(store.repositories),
-    },
-    {
-      accountConfigId: config.accountConfigId,
-      userId: tenantId,
-      document: parsed.value.document,
-      mode,
-      onExisting: parsed.value.onExisting ?? "abort",
-    },
-  );
+  const run = () =>
+    importConfig(
+      {
+        repositories: store.repositories,
+        appointFolderRole: folderRoleWriter(store.repositories),
+      },
+      {
+        accountConfigId: config.accountConfigId,
+        userId: tenantId,
+        document: parsed.value.document,
+        mode,
+        onExisting: parsed.value.onExisting ?? "abort",
+      },
+    );
+  const outcome = await (mode === "apply" ? store.transaction(run) : run());
   if (outcome.outcome === "conflict") {
     log.info("config import refused", { tenantId, mode, ...outcome.conflict.details });
     return conflict(outcome.conflict.code, outcome.conflict.message, outcome.conflict.details);
@@ -213,7 +214,7 @@ const getConfig: Handler = async (_context, request) => {
   const body: ConfigDescriptionResponse = {
     accountConfig: toAccountConfigResponse(config),
     accounts: accounts.map((account) => toAccountResponse(account, mailboxes)),
-    semanticSearchEnabled: false,
+    buildCommit: commit,
   };
   return ok(body);
 };

@@ -3,7 +3,6 @@ import {
   AccountSchema,
   AddressSchema,
   ConfigImportSchema,
-  FilterAnchorSchema,
   FilterSchema,
   LabelSchema,
   MailboxSchema,
@@ -40,7 +39,6 @@ import {
   accountSettings,
   accounts,
   configImports,
-  filterAnchors,
   filters,
   labels,
   tenantAccounts,
@@ -417,37 +415,6 @@ export const openConfigStore = (
         const next = { ...row, ...patch };
         filterRows.set(filterId, next);
         return itemOf(FilterSchema, next);
-      },
-    },
-    filterAnchor: {
-      listByAccountConfig: async (id) => {
-        ownConfig(id);
-        const rows = await db
-          .select()
-          .from(filterAnchors)
-          .where(eq(filterAnchors.accountConfigId, id));
-        return rows.map((row) => itemOf(FilterAnchorSchema, row));
-      },
-      put: async (input) => {
-        ownConfig(input.accountConfigId);
-        const now = Date.now();
-        const row = { ...input, createdAt: now, updatedAt: now };
-        queue(
-          db
-            .insert(filterAnchors)
-            .values(row)
-            .onConflictDoUpdate({
-              target: [filterAnchors.accountConfigId, filterAnchors.filterId],
-              set: {
-                anchorEmbedding: input.anchorEmbedding,
-                anchorEmbeddingId: input.anchorEmbeddingId,
-                anchorSourceText: input.anchorSourceText,
-                anchorMessageId: input.anchorMessageId,
-                updatedAt: now,
-              },
-            }),
-        );
-        return itemOf(FilterAnchorSchema, row);
       },
     },
     address: {

@@ -95,6 +95,7 @@ const bodyPartsOf = async (
       const { exp, sig } = await sign(path);
       return {
         bodyPartId: await deriveBodyPartId(record.messageId, part.partPath),
+        partPath: part.partPath,
         mediaType: part.mediaType,
         mediaSubtype: part.mediaSubtype,
         ...optional("contentId", part.contentId),
