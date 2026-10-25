@@ -10,7 +10,15 @@ import { accountCredentials, deliver, domainOf } from "../../mail/send";
 import type { OutboxDraft, OutboxRecord } from "../../mail/types";
 import { tenantMail } from "../../stubs";
 import { toOutboxMessageResponse } from "../mappers";
-import { type ApiRequest, accountOf, accountsOf, type Handler, parse } from "../request";
+import {
+  type ApiRequest,
+  accountConfigOf,
+  accountOf,
+  accountsOf,
+  type Handler,
+  mailAccountsOf,
+  parse,
+} from "../request";
 import { apiError, invalid, notFound, ok } from "../respond";
 
 const outboxParams = z.object({ outboxMessageId: z.string().min(1) });
@@ -23,7 +31,7 @@ const send = async (
   outboxMessageId: string,
 ): Promise<Response> => {
   const mail = tenantMail(request.env, request.tenant.tenantId);
-  const claimed = await mail.claimOutbox(outboxMessageId);
+  const claimed = await mail.claimOutbox(account.accountConfigId, outboxMessageId);
   if (!claimed.ok) return apiError(409, "OutboxNotSendable", claimed.reason);
   const fields = {
     event: "smtp.send",
@@ -38,7 +46,7 @@ const send = async (
     account.accountId,
   );
   if (!secret.ok) {
-    await mail.settleOutbox(outboxMessageId, {
+    await mail.settleOutbox(account.accountConfigId, outboxMessageId, {
       status: "failed",
       lastError: secret.reason,
       sentAt: null,
@@ -56,7 +64,7 @@ const send = async (
   const delivery = await deliver(accountCredentials(account, secret.plaintext), claimed.value);
   const durationMs = Date.now() - started;
   if (delivery.kind === "Failed") {
-    await mail.settleOutbox(outboxMessageId, {
+    await mail.settleOutbox(account.accountConfigId, outboxMessageId, {
       status: "failed",
       lastError: delivery.reason,
       sentAt: null,
@@ -83,7 +91,7 @@ const send = async (
       durationMs,
       reason: delivery.reason,
     });
-    const unfiled = await mail.settleOutbox(outboxMessageId, {
+    const unfiled = await mail.settleOutbox(account.accountConfigId, outboxMessageId, {
       status: "unfiled",
       lastError: delivery.reason,
       sentAt,
@@ -96,7 +104,7 @@ const send = async (
     durationMs,
     sentMailbox: delivery.sentMailbox,
   });
-  const sent = await mail.settleOutbox(outboxMessageId, {
+  const sent = await mail.settleOutbox(account.accountConfigId, outboxMessageId, {
     status: "sent",
     lastError: null,
     sentAt,
@@ -147,7 +155,10 @@ type Owned =
 const ownedOutbox = async (request: ApiRequest, params: unknown): Promise<Owned> => {
   const parsed = parse(outboxParams, params, "path");
   if (!parsed.ok) return parsed;
+  const accountConfigId = accountConfigOf(await mailAccountsOf(request));
+  if (accountConfigId === null) return { ok: false, response: notFound("Outbox message") };
   const record = await tenantMail(request.env, request.tenant.tenantId).getOutbox(
+    accountConfigId,
     parsed.value.outboxMessageId,
   );
   if (record === null) return { ok: false, response: notFound("Outbox message") };
@@ -176,13 +187,14 @@ const updateOutbox: Handler = async (context, request) => {
     toAddresses: input.toAddresses ?? record.toAddresses,
     ccAddresses: input.ccAddresses ?? record.ccAddresses,
     bccAddresses: input.bccAddresses ?? record.bccAddresses,
-    subject: input.subject ?? record.subject,
-    textBody: input.textBody ?? record.textBody,
-    htmlBody: input.htmlBody ?? record.htmlBody,
-    inReplyTo: input.inReplyTo ?? record.inReplyTo,
+    subject: input.subject ?? record.subject ?? null,
+    textBody: input.textBody ?? record.textBody ?? null,
+    htmlBody: input.htmlBody ?? record.htmlBody ?? null,
+    inReplyTo: input.inReplyTo ?? record.inReplyTo ?? null,
     references: input.references ?? record.references,
   };
   const updated = await tenantMail(request.env, request.tenant.tenantId).updateOutboxDraft(
+    record.accountConfigId,
     record.outboxMessageId,
     draft,
   );

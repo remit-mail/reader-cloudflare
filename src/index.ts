@@ -14,7 +14,6 @@ import {
 } from "./sync/process";
 
 export { TenantMail } from "./mail/tenant-mail";
-export { TenantSearch } from "./search/tenant-search";
 export { AccountSync } from "./sync/account-sync";
 
 const CORRELATION_HEADER = "x-correlation-id";

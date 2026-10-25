@@ -25,13 +25,6 @@ export const toAddressInputs = (addresses: readonly Address[] | undefined): Addr
     address: mailbox.address,
   }));
 
-export const toDisplay = (addresses: readonly Address[] | undefined): string =>
-  mailboxes(addresses)
-    .map((mailbox) =>
-      mailbox.name === "" ? mailbox.address : `${mailbox.name} <${mailbox.address}>`,
-    )
-    .join(", ");
-
 const sizeOf = (content: ArrayBuffer | Uint8Array | string): number =>
   typeof content === "string" ? content.length : content.byteLength;
 

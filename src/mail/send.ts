@@ -49,8 +49,8 @@ export const accountCredentials = (account: AccountRow, password: string): Accou
   },
 });
 
-const nonEmpty = (value: string | null): string | undefined =>
-  value === null || value === "" ? undefined : value;
+const nonEmpty = (value: string | undefined): string | undefined =>
+  value === "" ? undefined : value;
 
 const nonEmptyList = (values: readonly string[]): string[] | undefined =>
   values.length === 0 ? undefined : [...values];

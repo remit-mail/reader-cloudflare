@@ -4,8 +4,7 @@
     "paths": {
       "@remit/config-format": ["./.types/config-format/src/index.d.ts"],
       "@remit/config-transfer": ["./.types/config-transfer/src/index.d.ts"],
-      "@remit/data-ports": ["./.types/data-ports/src/index.d.ts"],
-      "@remit/data-ports/*": ["./.types/data-ports/src/*.d.ts"]
+      "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"]
     }
   }
 }

@@ -2,7 +2,7 @@
 
 ## Summary
 
-This build runs remit reader on Cloudflare. The repo holds the infrastructure, a thin wrapper and the data that only Cloudflare needs. Everything shared comes from reader's published packages: the web client, the API contract, the handlers and the storage code. Cloudflare Access signs the user in. Settings live in one shared database, and each user gets their own mail and search databases.
+This build runs remit reader on Cloudflare. The repo holds the infrastructure, a thin wrapper and the data that only Cloudflare needs. Everything shared comes from reader's published packages: the web client, the API contract, the handlers and the storage code. Cloudflare Access signs the user in. Settings live in one shared database, and each user gets their own mail database, which also holds the search index.
 
 Each decision below carries a number. Disagree by number.
 
@@ -14,10 +14,10 @@ Each decision below carries a number. Disagree by number.
 ## Storage
 
 3. One shared D1 database holds reader's app tables and three Cloudflare-only tables: `tenant_account`, `credential` and `tenant_key`.
-4. Each tenant gets one mail Durable Object and one search Durable Object, both on SQLite. The search object holds an FTS5 index. A Durable Object starts on first use, so a new tenant needs no deploy. Search rebuilds from message bodies, so it never commits atomically with mail.
+4. Each tenant gets one mail Durable Object on SQLite. It runs reader's mail repositories and `SearchIndex` from `@remit/drizzle-service` over its own SQLite handle, with `syncBatch` as the write port. The FTS5 table sits in the same database, because reader's index reads the mail rows directly. It is written after each mail write and rebuilds from the mail rows when the counts disagree. A Durable Object starts on first use, so a new tenant needs no deploy.
 5. Message bodies and attachments live in R2, outside the mail database.
 6. No code uses an interactive transaction. A write is an atomic batch or an idempotent step that is safe to repeat. A queue can deliver a message twice. Two tabs can start the same sync.
-7. Every schema is Drizzle sqlite-core. A small TypeSpec here generates the three Cloudflare-only tables. It uses reader's emitter and entity vocabulary. The only raw SQL is the FTS5 statements.
+7. Every schema is Drizzle sqlite-core. The mail database's migrations are generated from reader's mail schema set, plus reader's FTS5 DDL as one custom migration. A small TypeSpec here generates the three Cloudflare-only tables. It uses reader's emitter and entity vocabulary.
 
 ## Credentials
 
@@ -25,8 +25,8 @@ Each decision below carries a number. Disagree by number.
 
 ## Sync and schema updates
 
-9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns: `waitUntil` today, an alarm later. It fetches newest first in small batches, streams raw RFC822 to R2 and sends one queue message per batch. Queue consumers parse from R2 and write to the mail and search objects. They never open IMAP. A message moves to the dead-letter queue after 3 retries.
-10. Each mail and search object applies its own schema migrations when it starts.
+9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns: `waitUntil` today, an alarm later. It fetches newest first in small batches, streams raw RFC822 to R2 and sends one queue message per batch. Queue consumers parse from R2 and write to the mail object. They never open IMAP. A message moves to the dead-letter queue after 3 retries.
+10. Each mail object applies its own schema migrations when it starts.
 
 ## Delivery
 
@@ -41,11 +41,10 @@ Each decision below carries a number. Disagree by number.
 
 ## Interim
 
-1. Handlers for the needed operations live in this repo. They go once `@remit/backend` runs on Workers. A reader PR in flight extracts the logger and removes disk reads at import.
-2. The Durable Objects carry their own repository code. It goes once reader#1425 publishes the batch port and the app, mail and search split.
-3. Three list-wrapper types are hand-written. They go once reader's TypeSpec names them.
-4. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
-5. A sync run takes the newest 200 messages per mailbox. A later backfill fetches the older ones.
+1. Handlers for the needed operations live in this repo and call reader's repositories inside the mail object. `@remit/backend` handlers read one process-wide client and an API Gateway event, which a Worker serving many tenants cannot share. They go once reader injects the repositories per request.
+2. Three list-wrapper types are hand-written. They go once reader's TypeSpec names them.
+3. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
+4. A sync run takes the newest 200 messages per mailbox. A later backfill fetches the older ones.
 
 ## Open risks
 
@@ -57,9 +56,9 @@ A Worker has 128 MB of memory, so bodies stream to R2 and batches stay small. `w
 
 D1 bindings are fixed at deploy time. Durable Objects start on demand, so new tenants arrive without a deploy (decision 4).
 
-### Why split search from mail?
+### Why keep search inside the mail object?
 
-The index rebuilds from bodies, so atomic writes with mail buy nothing (decision 4).
+Reader's index selects from the mail tables when it writes and when it rebuilds, so it needs the same database (decision 4).
 
 ### Why can't queue consumers fetch from IMAP?
 
@@ -83,8 +82,7 @@ Not this build. Another provider gets its own build and its own port adapters.
 | ---------- | --------------------------------------------------------- |
 | Tenant     | One user, keyed by Access identity                        |
 | App DB     | The shared D1 database for app and Cloudflare-only tables |
-| Mail DB    | Per-tenant Durable Object SQLite for IMAP-side state      |
-| Search DB  | Per-tenant Durable Object SQLite holding the FTS5 index   |
+| Mail DB    | Per-tenant Durable Object SQLite: IMAP state and FTS5     |
 | Sync DO    | Per-account Durable Object that owns the IMAP connection  |
 | Port       | A reader interface that a platform adapter implements     |
 | Data key   | Random per-tenant key that encrypts credentials           |

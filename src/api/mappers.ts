@@ -9,8 +9,9 @@ import type {
   OutboxMessageResponse,
   ThreadMessageResponse,
 } from "@remit/api-openapi-types";
+import type { MailboxItem } from "@remit/data-ports";
 import type { AccountConfigRow, AccountRow } from "../db/accounts";
-import { isMuted, senderTrustOf } from "../mail/address-flags";
+import { isMuted, senderTrustOf, storedFlags } from "../mail/address-flags";
 import type { AddressRecord, MailboxRow, OutboxRecord, ThreadRow } from "../mail/types";
 import { optional } from "./respond";
 
@@ -27,9 +28,9 @@ const ROLES: readonly CanonicalMailboxRole[] = [
 
 const SERVICES: readonly AccountService[] = ["Mail", "Calendar"];
 
-const isInbox = (mailbox: MailboxRow): boolean => mailbox.fullPath.toUpperCase() === "INBOX";
+const isInbox = (mailbox: MailboxItem): boolean => mailbox.fullPath.toUpperCase() === "INBOX";
 
-export const inboxesOf = (mailboxes: readonly MailboxRow[]): MailboxRow[] =>
+export const inboxesOf = (mailboxes: readonly MailboxItem[]): MailboxItem[] =>
   mailboxes.filter(isInbox);
 
 const services = (value: unknown): AccountService[] =>
@@ -38,20 +39,22 @@ const services = (value: unknown): AccountService[] =>
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 
-const appointment = (role: CanonicalMailboxRole, mailboxes: readonly MailboxRow[]) => {
+const appointment = (role: CanonicalMailboxRole, mailboxes: readonly MailboxItem[]) => {
   if (role === "Inbox") {
     const inbox = mailboxes.find(isInbox);
     if (inbox !== undefined)
       return { role, source: "Reserved" as const, mailboxId: inbox.mailboxId };
     return { role, source: "None" as const };
   }
-  const flagged = mailboxes.find((mailbox) => mailbox.specialUse.some((use) => use === role));
+  const flagged = mailboxes.find((mailbox) =>
+    (mailbox.specialUse ?? []).some((use) => use === role),
+  );
   if (flagged !== undefined)
     return { role, source: "Flagged" as const, mailboxId: flagged.mailboxId };
   return { role, source: "None" as const };
 };
 
-export const folderAppointments = (mailboxes: readonly MailboxRow[]): FolderAppointment[] =>
+export const folderAppointments = (mailboxes: readonly MailboxItem[]): FolderAppointment[] =>
   ROLES.map((role) => appointment(role, mailboxes));
 
 export const toAccountConfigResponse = (row: AccountConfigRow): AccountConfigResponse => ({
@@ -67,7 +70,7 @@ export const toAccountConfigResponse = (row: AccountConfigRow): AccountConfigRes
 
 export const toAccountResponse = (
   row: AccountRow,
-  mailboxes: readonly MailboxRow[],
+  mailboxes: readonly MailboxItem[],
 ): AccountResponse => ({
   accountId: row.accountId,
   accountConfigId: row.accountConfigId,
@@ -116,7 +119,7 @@ export const toMailboxResponse = (row: MailboxRow): MailboxResponse => ({
   lastMessageSyncAt: row.lastMessageSyncAt,
   syncStatus: row.syncStatus,
   syncFailureReason: row.syncFailureReason,
-  specialUse: [...row.specialUse],
+  specialUse: [...(row.specialUse ?? [])],
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
@@ -151,7 +154,7 @@ export const toThreadMessageResponse = (
   ...optional("accountId", accountIds.get(row.mailboxId)),
 });
 
-export const accountIdsByMailbox = (mailboxes: readonly MailboxRow[]): Map<string, string> =>
+export const accountIdsByMailbox = (mailboxes: readonly MailboxItem[]): Map<string, string> =>
   new Map(mailboxes.map((mailbox) => [mailbox.mailboxId, mailbox.accountId]));
 
 export const toOutboxMessageResponse = (record: OutboxRecord): OutboxMessageResponse => ({
@@ -182,7 +185,7 @@ export const toAddressResponse = (record: AddressRecord): AddressResponse => ({
   localPart: record.localPart,
   domain: record.domain,
   normalizedEmail: record.normalizedEmail,
-  flags: record.flags,
+  flags: storedFlags(record.flags ?? {}, record.addressId),
   inboundCount: record.inboundCount,
   outboundCount: record.outboundCount,
   replyCount: record.replyCount,

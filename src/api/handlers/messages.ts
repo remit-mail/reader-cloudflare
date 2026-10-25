@@ -7,17 +7,17 @@ import type {
   MessageReferenceResponse,
 } from "@remit/api-openapi-types";
 import { BulkUpdateFlagsInputSchema, UpdateFlagsInputSchema } from "@remit/api-zod-schemas";
+import { deriveBodyPartId } from "@remit/data-ports/id";
 import type { Email } from "postal-mime";
 import { z } from "zod";
 import { messageParts } from "../../content/parts";
 import { contentPath } from "../../content/route";
 import { createContentSigner } from "../../content/signature";
-import { type AccountRow, decryptCredential } from "../../db/accounts";
+import { type AccountRow, decryptCredential, toMailAccount } from "../../db/accounts";
 import { openAppDb } from "../../db/client";
 import { log } from "../../log";
 import { senderTrustOf } from "../../mail/address-flags";
 import { pushFlags } from "../../mail/flags";
-import { deriveBodyPartId } from "../../mail/ids";
 import { parseEmail } from "../../mail/parse";
 import { accountCredentials, settle } from "../../mail/send";
 import type {
@@ -28,7 +28,15 @@ import type {
   MessageRecord,
 } from "../../mail/types";
 import { tenantMail } from "../../stubs";
-import { type ApiRequest, accountOf, accountsOf, type Handler, parse } from "../request";
+import {
+  type ApiRequest,
+  accountConfigOf,
+  accountOf,
+  accountsOf,
+  type Handler,
+  mailAccountsOf,
+  parse,
+} from "../request";
 import { apiError, invalid, notFound, ok, optional } from "../respond";
 
 const MAX_BULK = 100;
@@ -70,9 +78,10 @@ const referencesOf = (email: Email | null): MessageReferenceResponse[] => {
 };
 
 const loadEmail = async (request: ApiRequest, record: MessageRecord): Promise<Email | null> => {
-  if (record.bodyStorageKey === null) return null;
-  const object = await request.env.MAIL.get(record.bodyStorageKey);
-  if (object === null) throw new Error(`body object ${record.bodyStorageKey} is missing`);
+  const key = record.message.bodyStorageKey;
+  if (key === undefined) return null;
+  const object = await request.env.MAIL.get(key);
+  if (object === null) throw new Error(`body object ${key} is missing`);
   return parseEmail(object.body);
 };
 
@@ -89,12 +98,12 @@ const bodyPartsOf = async (
       const path = contentPath(
         account.accountConfigId,
         account.accountId,
-        record.messageId,
+        record.message.messageId,
         part.partPath,
       );
       const { exp, sig } = await sign(path);
       return {
-        bodyPartId: await deriveBodyPartId(record.messageId, part.partPath),
+        bodyPartId: deriveBodyPartId(record.message.messageId, part.partPath),
         partPath: part.partPath,
         mediaType: part.mediaType,
         mediaSubtype: part.mediaSubtype,
@@ -112,27 +121,31 @@ const bodyPartsOf = async (
 const describeMessage: Handler = async (context, request) => {
   const params = parse(messageParams, context.request.params, "path");
   if (!params.ok) return params.response;
+  const accountConfigId = accountConfigOf(await mailAccountsOf(request));
+  if (accountConfigId === null) return notFound("Message");
   const record = await tenantMail(request.env, request.tenant.tenantId).describeMessage(
+    accountConfigId,
     params.value.messageId,
   );
   if (record === null) return notFound("Message");
   const account = await accountOf(request, record.accountId);
   if (account === undefined) return notFound("Message");
   const email = await loadEmail(request, record);
+  const { message } = record;
   const body: DescribeMessageResponse = {
     message: {
-      messageId: record.messageId,
-      mailboxId: record.mailboxId,
-      uid: record.uid,
-      rfc822Size: record.rfc822Size,
-      internalDate: record.internalDate,
-      ...optional("messageIdHeader", record.messageIdHeader),
-      status: record.status,
-      syncStatus: record.syncStatus,
-      abandonedMutation: record.abandonedMutation,
+      messageId: message.messageId,
+      mailboxId: message.mailboxId,
+      uid: message.uid,
+      rfc822Size: message.rfc822Size,
+      internalDate: message.internalDate,
+      ...optional("messageIdHeader", record.messageIdValue),
+      status: message.status,
+      syncStatus: message.syncStatus,
+      abandonedMutation: message.abandonedMutation,
     },
     envelope: {
-      messageId: record.messageId,
+      messageId: message.messageId,
       date: record.date,
       ...optional("subject", record.subject),
       ...optional("messageIdValue", record.messageIdValue),
@@ -141,7 +154,7 @@ const describeMessage: Handler = async (context, request) => {
       cc: addressesFor(record.addresses, "cc"),
       bcc: addressesFor(record.addresses, "bcc"),
       replyTo: addressesFor(record.addresses, "reply_to"),
-      category: record.category,
+      category: message.category,
       senderTrust: senderTrustOf(
         record.addresses.find((address) => address.role === "from")?.flags ?? {},
       ),
@@ -210,7 +223,12 @@ const applyFlagChange = async (
   );
   const pushed = results.flatMap((result) => (result.ok ? result.messageIds : []));
   const failures = results.flatMap((result) => (result.ok ? [] : [result.reason]));
-  if (pushed.length > 0) await mail.setFlags(pushed, change);
+  const accountConfigId = accountConfigOf(
+    [...accounts.values()].map((account) => toMailAccount(request.tenant.tenantId, account)),
+  );
+  if (pushed.length > 0 && accountConfigId !== null) {
+    await mail.setFlags(accountConfigId, pushed, change);
+  }
   if (failures.length === 0) return { pushed, failure: null };
   log.error("flag push failed", { tenantId: request.tenant.tenantId, reasons: failures });
   return {
@@ -254,7 +272,12 @@ const updateMessageFlags: Handler = async (context, request) => {
   });
   if (outcome.failure !== null) return outcome.failure;
   if (outcome.pushed.length === 0) return notFound("Message");
-  const state = await tenantMail(request.env, request.tenant.tenantId).flagState(messageId);
+  const accountConfigId = accountConfigOf(await mailAccountsOf(request));
+  if (accountConfigId === null) return notFound("Message");
+  const state = await tenantMail(request.env, request.tenant.tenantId).flagState(
+    accountConfigId,
+    messageId,
+  );
   if (state === null) return notFound("Message");
   const body: MessageOperationsUpdateMessageFlagsResponse = { ...state };
   return ok(body);

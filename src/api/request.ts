@@ -1,9 +1,10 @@
 import type { Context } from "openapi-backend";
 import { z } from "zod";
 import type { Tenant } from "../access";
-import { type AccountRow, getAccount, listAccounts } from "../db/accounts";
+import { type AccountRow, getAccount, listAccounts, toMailAccount } from "../db/accounts";
 import { openAppDb } from "../db/client";
 import type { Env } from "../env";
+import type { MailAccount } from "../mail/types";
 import { invalid } from "./respond";
 
 export interface ApiRequest {
@@ -51,3 +52,20 @@ export const accountOf = (
   accountId: string,
 ): Promise<AccountRow | undefined> =>
   getAccount(openAppDb(request.env.DB), request.tenant.tenantId, accountId);
+
+export const mailAccountsOf = async (request: ApiRequest): Promise<MailAccount[]> =>
+  (await accountsOf(request)).map((account) => toMailAccount(request.tenant.tenantId, account));
+
+export const mailAccountOf = async (
+  request: ApiRequest,
+  accountId: string,
+): Promise<MailAccount | undefined> => {
+  const account = await accountOf(request, accountId);
+  return account === undefined ? undefined : toMailAccount(request.tenant.tenantId, account);
+};
+
+export const accountConfigOf = (accounts: readonly MailAccount[]): string | null => {
+  const configs = [...new Set(accounts.map((account) => account.accountConfigId))];
+  if (configs.length > 1) throw new Error(`tenant accounts span ${configs.length} account configs`);
+  return configs[0] ?? null;
+};

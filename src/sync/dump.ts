@@ -1,8 +1,9 @@
+import type { MailboxItem } from "@remit/data-ports";
 import type { ImapFlow, ListResponse } from "imapflow";
 import type { Env } from "../env";
 import { currentCorrelationId, log } from "../log";
-import type { MailAccount, MailboxInput, MailboxView, SpecialUse } from "../mail/types";
-import { tenantMail, tenantSearch } from "../stubs";
+import type { MailAccount, MailboxInput, SpecialUse } from "../mail/types";
+import { tenantMail } from "../stubs";
 import { messageKey, toCustomMetadata } from "./messages";
 import type { MailboxMark } from "./state";
 
@@ -147,12 +148,11 @@ const resetIfInvalidated = async (
   env: Env,
   account: MailAccount,
   mailbox: ServerMailbox,
-  stored: MailboxView | undefined,
+  stored: MailboxItem | undefined,
 ): Promise<boolean> => {
   if (stored === undefined || stored.uidValidity === mailbox.uidValidity) return false;
   const result = await tenantMail(env, account.tenantId).resetMailbox(account, mailbox.mailboxId);
   if (!result.ok) throw new Error(`reset ${mailbox.entry.path}: ${result.reason}`);
-  await tenantSearch(env, account.tenantId).removeMessages(account, result.value);
   return true;
 };
 
@@ -317,7 +317,7 @@ export const syncMailbox = async (
   client: ImapFlow,
   account: MailAccount,
   mailbox: ServerMailbox,
-  stored: MailboxView | undefined,
+  stored: MailboxItem | undefined,
   mark: MailboxMark | undefined,
   onBatch: BatchQueued,
 ): Promise<MailboxPass> => {
@@ -342,7 +342,6 @@ export const syncMailbox = async (
     account,
     mailbox.mailboxId,
     work.cursor,
-    work.remaining === 0 ? "synced" : "pending",
   );
   if (!recorded.ok) throw new Error(`pass ${mailbox.entry.path}: ${recorded.reason}`);
   if (work.remaining > 0) {

@@ -199,7 +199,9 @@ export class AccountSync extends DurableObject<Env> {
 
   private async visitMailboxes(client: ImapFlow, account: MailAccount): Promise<PassOutcome> {
     const started = Date.now();
-    const stored = await tenantMail(this.env, account.tenantId).listMailboxes(account);
+    const stored = await tenantMail(this.env, account.tenantId).listMailboxItems([
+      account.accountId,
+    ]);
     const previous = new Map(stored.map((mailbox) => [mailbox.mailboxId, mailbox]));
     const mailboxes = await listServerMailboxes(this.env, client, account);
     const marks = await this.loadMarks();

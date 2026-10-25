@@ -24,7 +24,9 @@ const phaseOf = (state: SyncState): SyncPhase => {
 
 const mailboxPhase = (state: SyncState, mailbox: MailboxRow): string => {
   if (state.status === "Running" && state.currentMailbox === mailbox.fullPath) return "syncing";
-  if (mailbox.lastMessageSyncAt === 0 || mailbox.syncStatus === "pending") return "pending";
+  if (mailbox.lastMessageSyncAt === 0 || mailbox.storedMessages < mailbox.messageCount) {
+    return "pending";
+  }
   return "complete";
 };
 
@@ -62,7 +64,9 @@ const getSyncStatus: Handler = async (context, request) => {
   const account = await accountOf(request, params.value.accountId);
   if (account === undefined) return notFound("Account");
   const state = await accountSync(request.env, tenantId, account.accountId).status();
-  const mailboxes = await tenantMail(request.env, tenantId).listMailboxRows([account.accountId]);
+  const mailboxes = await tenantMail(request.env, tenantId).listMailboxes([
+    toMailAccount(tenantId, account),
+  ]);
   const running = state.status === "Running";
   const body: AccountSyncStatusResponse = {
     accountId: account.accountId,

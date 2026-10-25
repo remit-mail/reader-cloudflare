@@ -31,8 +31,13 @@ export const serveContent = async (
 ): Promise<Response> => {
   const url = new URL(request.url);
   const match = CONTENT_PATH.exec(url.pathname);
-  const [, , accountId, messageId, partPath] = match ?? [];
-  if (accountId === undefined || messageId === undefined || partPath === undefined) {
+  const [, accountConfigId, accountId, messageId, partPath] = match ?? [];
+  if (
+    accountConfigId === undefined ||
+    accountId === undefined ||
+    messageId === undefined ||
+    partPath === undefined
+  ) {
     return notFound("Content");
   }
   const check = await verifyContentSignature(
@@ -45,11 +50,12 @@ export const serveContent = async (
     log.warn("content signature rejected", { tenantId: tenant.tenantId, reason: check.reason });
     return apiError(403, "ContentSignature", `Content URL signature is ${check.reason}`);
   }
-  const record = await tenantMail(env, tenant.tenantId).describeMessage(messageId);
+  const record = await tenantMail(env, tenant.tenantId).describeMessage(accountConfigId, messageId);
   if (record === null || record.accountId !== accountId) return notFound("Message");
-  if (record.bodyStorageKey === null) return notReady();
-  const object = await env.MAIL.get(record.bodyStorageKey);
-  if (object === null) throw new Error(`body object ${record.bodyStorageKey} is missing`);
+  const key = record.message.bodyStorageKey;
+  if (key === undefined) return notReady();
+  const object = await env.MAIL.get(key);
+  if (object === null) throw new Error(`body object ${key} is missing`);
   const part = messageParts(await parseEmail(object.body)).find(
     (candidate) => candidate.partPath === partPath,
   );

@@ -1,10 +1,9 @@
 import type { Email } from "postal-mime";
 import type { Env } from "../env";
 import { log } from "../log";
-import { parseEmail, toAddressInputs, toDisplay } from "../mail/parse";
+import { parseEmail, toAddressInputs } from "../mail/parse";
 import type { MailAccount, MessageInput, SkippedMessage } from "../mail/types";
-import type { SearchDocument } from "../search/types";
-import { tenantMail, tenantSearch } from "../stubs";
+import { tenantMail } from "../stubs";
 import {
   type ObjectMetadata,
   objectMetadataSchema,
@@ -19,15 +18,10 @@ export const SYNC_DLQ = "reader-cloudflare-sync-dlq";
 
 const REDRIVE_CHUNK = 5;
 
-interface ProcessedMessage {
-  readonly input: MessageInput;
-  readonly search: Omit<SearchDocument, "messageId" | "mailboxId">;
-}
-
 type ParseOutcome =
   | {
       readonly ok: true;
-      readonly message: ProcessedMessage;
+      readonly message: MessageInput;
       readonly parseMs: number;
       readonly bytes: number;
     }
@@ -50,38 +44,30 @@ const sentDate = (date: string | undefined, fallback: number): number => {
   return Number.isNaN(time) ? fallback : time;
 };
 
-const toProcessed = (key: string, metadata: ObjectMetadata, email: Email): ProcessedMessage => {
+const toMessageInput = (key: string, metadata: ObjectMetadata, email: Email): MessageInput => {
   const text = email.text ?? "";
   return {
-    input: {
-      uid: metadata.uid,
-      sequenceNumber: metadata.sequenceNumber,
-      rfc822Size: metadata.rfc822Size,
-      internalDate: metadata.internalDate,
-      envelope: {
-        date: sentDate(email.date, metadata.internalDate),
-        dateRaw: headerValue(email.headers, "date"),
-        subject: email.subject ?? null,
-        messageId: email.messageId ?? null,
-        inReplyTo: email.inReplyTo ?? null,
-        from: toAddressInputs(email.from === undefined ? [] : [email.from]),
-        sender: toAddressInputs(email.sender === undefined ? [] : [email.sender]),
-        replyTo: toAddressInputs(email.replyTo),
-        to: toAddressInputs(email.to),
-        cc: toAddressInputs(email.cc),
-        bcc: toAddressInputs(email.bcc),
-      },
-      flags: metadata.flags,
-      hasAttachment: email.attachments.length > 0,
-      snippet: text.replace(/\s+/g, " ").trim().slice(0, SNIPPET_LENGTH),
-      bodyStorageKey: key,
+    uid: metadata.uid,
+    sequenceNumber: metadata.sequenceNumber,
+    rfc822Size: metadata.rfc822Size,
+    internalDate: metadata.internalDate,
+    envelope: {
+      date: sentDate(email.date, metadata.internalDate),
+      dateRaw: headerValue(email.headers, "date"),
+      subject: email.subject ?? null,
+      messageId: email.messageId ?? null,
+      inReplyTo: email.inReplyTo ?? null,
+      from: toAddressInputs(email.from === undefined ? [] : [email.from]),
+      sender: toAddressInputs(email.sender === undefined ? [] : [email.sender]),
+      replyTo: toAddressInputs(email.replyTo),
+      to: toAddressInputs(email.to),
+      cc: toAddressInputs(email.cc),
+      bcc: toAddressInputs(email.bcc),
     },
-    search: {
-      subject: email.subject ?? "",
-      from: toDisplay(email.from === undefined ? [] : [email.from]),
-      to: toDisplay(email.to),
-      bodyText: text,
-    },
+    flags: metadata.flags,
+    hasAttachment: email.attachments.length > 0,
+    snippet: text.replace(/\s+/g, " ").trim().slice(0, SNIPPET_LENGTH),
+    bodyStorageKey: key,
   };
 };
 
@@ -93,7 +79,7 @@ const parseObject = async (env: Env, key: string): Promise<ParseOutcome> => {
   return parseEmail(object.body).then(
     (email): ParseOutcome => ({
       ok: true,
-      message: toProcessed(key, metadata, email),
+      message: toMessageInput(key, metadata, email),
       parseMs: Date.now() - started,
       bytes: object.size,
     }),
@@ -110,16 +96,12 @@ const storeMessage = async (
   env: Env,
   account: MailAccount,
   mailboxId: string,
-  message: ProcessedMessage,
+  message: MessageInput,
 ): Promise<void> => {
   const upserted = await tenantMail(env, account.tenantId).upsertMessages(account, mailboxId, [
-    message.input,
+    message,
   ]);
   if (!upserted.ok) throw new Error(`upsert ${mailboxId}: ${upserted.reason}`);
-  const docs = upserted.value.map(
-    (stored): SearchDocument => ({ ...message.search, messageId: stored.messageId, mailboxId }),
-  );
-  await tenantSearch(env, account.tenantId).indexMessages(account, docs);
 };
 
 const processBatch = async (env: Env, body: ProcessBatch): Promise<void> => {
@@ -156,6 +138,7 @@ const processBatch = async (env: Env, body: ProcessBatch): Promise<void> => {
     const recorded = await tenantMail(env, account.tenantId).recordSkippedMessages(
       account,
       body.mailboxId,
+      body.uidValidity,
       skipped,
     );
     if (!recorded.ok) throw new Error(`skips ${body.mailboxId}: ${recorded.reason}`);

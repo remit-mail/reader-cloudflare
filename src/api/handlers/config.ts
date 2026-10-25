@@ -214,7 +214,7 @@ const updateAccountHandler: Handler = async (context, request) => {
     accountId: account.accountId,
     password: input.password !== undefined,
   });
-  const mailboxes = await tenantMail(request.env, tenantId).listMailboxRows([account.accountId]);
+  const mailboxes = await tenantMail(request.env, tenantId).listMailboxItems([account.accountId]);
   return ok(toAccountResponse(updated, mailboxes));
 };
 
@@ -222,7 +222,7 @@ const getConfig: Handler = async (_context, request) => {
   const db = openAppDb(request.env.DB);
   const config = await ensureAccountConfig(db, request.tenant);
   const accounts = await accountsOf(request);
-  const mailboxes = await tenantMail(request.env, request.tenant.tenantId).listMailboxRows(
+  const mailboxes = await tenantMail(request.env, request.tenant.tenantId).listMailboxItems(
     accounts.map((account) => account.accountId),
   );
   const body: ConfigDescriptionResponse = {

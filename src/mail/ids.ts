@@ -27,38 +27,11 @@ const uuidV5Base36 = async (name: string): Promise<string> => {
 
 export const deriveUserId = (tenantId: string): Promise<string> => uuidV5Base36(`user:${tenantId}`);
 
-export const deriveMailboxId = (accountId: string, path: string): Promise<string> =>
-  uuidV5Base36(`mailbox:${accountId}:${path}`);
-
-export const deriveSpecialUseId = (mailboxId: string, specialUse: string): Promise<string> =>
-  uuidV5Base36(`mailboxspecialuse:${mailboxId}:${specialUse}`);
-
 export const deriveMessageId = (
   accountId: string,
   mailboxId: string,
   uid: number,
 ): Promise<string> => uuidV5Base36(`mailboxmessage:${accountId}:${mailboxId}:${uid}`);
-
-export const deriveEnvelopeId = (messageId: string): Promise<string> =>
-  uuidV5Base36(`envelope:${messageId}`);
-
-export const deriveThreadMessageId = (messageId: string): Promise<string> =>
-  uuidV5Base36(`threadmessage:${messageId}`);
-
-export const deriveFlagId = (messageId: string, flag: string): Promise<string> =>
-  uuidV5Base36(`messageflag:${messageId}:${flag}`);
-
-export const deriveAddressId = (accountConfigId: string, email: string): Promise<string> =>
-  uuidV5Base36(`address:${accountConfigId}:${email.toLowerCase()}`);
-
-export const deriveEnvelopeAddressId = (
-  messageId: string,
-  role: string,
-  order: number,
-): Promise<string> => uuidV5Base36(`envelopeaddress:${messageId}:${role}:${order}`);
-
-export const deriveBodyPartId = (messageId: string, partPath: string): Promise<string> =>
-  uuidV5Base36(`bodypart:${messageId}:${partPath}`);
 
 export const deriveAccountSettingId = (accountConfigId: string, name: string): Promise<string> =>
   uuidV5Base36(`accountsetting:${accountConfigId}:${name}`);

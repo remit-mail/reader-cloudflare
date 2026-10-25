@@ -59,7 +59,6 @@ const ADDRESS_PAGE = 1000;
 const NO_ACTION = "None";
 
 const RULE_FIELDS = [
-  "hasAnchor",
   "matchOperator",
   "literalClauses",
   "actionLabelId",
@@ -69,7 +68,6 @@ const RULE_FIELDS = [
 ] as const satisfies readonly (keyof UpdateFilterInput)[];
 
 const ACTION_FIELDS = [
-  "hasAnchor",
   "matchOperator",
   "literalClauses",
   "actionLabelId",
@@ -148,7 +146,6 @@ const filterPatch = (input: UpdateFilterInput): Partial<FilterRow> => {
     ...optional("ttl", input.ttl),
     ...optional("state", input.state),
     ...optional("disabledReason", input.disabledReason),
-    ...optional("hasAnchor", input.hasAnchor),
     ...optional("matchOperator", input.matchOperator),
     ...optional("literalClauses", input.literalClauses),
     ...optional("actionLabelId", input.actionLabelId),
@@ -319,7 +316,7 @@ export const openConfigStore = (
     },
     mailbox: {
       listAllByAccount: async (accountId) => {
-        const rows = await mail.listMailboxEntities([accountId]);
+        const rows = await mail.listMailboxItems([accountId]);
         return rows.map((row) => itemOf(MailboxSchema, row));
       },
     },
@@ -393,7 +390,6 @@ export const openConfigStore = (
           ttl: input.ttl ?? null,
           state: input.state ?? "Active",
           disabledReason: input.disabledReason ?? "None",
-          hasAnchor: input.hasAnchor ?? false,
           ruleChangedAt: changedAt,
           actionChangedAt: changedAt,
           matchOperator: input.matchOperator ?? "And",

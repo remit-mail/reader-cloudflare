@@ -22,6 +22,13 @@
       "when": 1792875679696,
       "tag": "0002_config_import",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792927329183,
+      "tag": "0003_drop_filter_anchor",
+      "breakpoints": true
     }
   ]
 }
