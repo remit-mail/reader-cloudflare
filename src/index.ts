@@ -13,8 +13,8 @@ import {
   SYNC_DLQ,
 } from "./sync/process";
 
-export { TenantMail as TenantMailV2 } from "./mail/tenant-mail";
-export { AccountSync as AccountSyncV2 } from "./sync/account-sync";
+export { TenantMail as TenantMailV2, TenantMail } from "./mail/tenant-mail";
+export { AccountSync as AccountSyncV2, AccountSync } from "./sync/account-sync";
 
 const CORRELATION_HEADER = "x-correlation-id";
 const INBOUND_CORRELATION = /^[A-Za-z0-9._:-]{1,128}$/;
