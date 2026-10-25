@@ -135,7 +135,7 @@ export class AccountSync extends DurableObject<Env> {
       log.error("sync failed", {
         event: "sync.failed",
         ...fields,
-        ...this.progress,
+        ...this.progressFields(),
         errorKind: outcome.errorKind,
         reason: outcome.reason,
         durationMs: Date.now() - started,
@@ -172,7 +172,7 @@ export class AccountSync extends DurableObject<Env> {
     log.info("sync finished", {
       event: "sync.complete",
       ...fields,
-      ...this.progress,
+      ...this.progressFields(),
       messagesQueued: this.progress.dumped,
       durationMs: this.progress.finishedAt - this.progress.startedAt,
       lastMessageSyncAt: new Date(this.progress.finishedAt).toISOString(),
@@ -248,6 +248,11 @@ export class AccountSync extends DurableObject<Env> {
       },
       { mailboxesDone: 0, remaining: 0 },
     );
+  }
+
+  private progressFields(): Record<string, unknown> {
+    const { status, ...progress } = this.progress;
+    return { ...progress, syncStatus: status };
   }
 
   private async advance(change: Partial<SyncState>): Promise<void> {

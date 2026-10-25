@@ -53,6 +53,7 @@ Every line is one JSON object from `log` in `src/log.ts`. Lines that feed a dash
 | `lastMessageSyncAt` | string | `sync.complete`                                                    | ISO time the run finished                                                                                                                            |
 | `action`, `reason`  | string | `sync.dlq`                                                         | `Redriven` or `Dropped`, and why                                                                                                                     |
 | `sendStatus`        | string | `smtp.send`                                                        | `Sent`, `Unfiled`, `Failed`, `CredentialUnavailable`                                                                                                 |
+| `syncStatus`        | string | `sync.complete`, `sync.failed`                                     | Sync run state: `Idle`, `Running`, `Failed`                                                                                                          |
 
 The Worker has no CPU clock, so per-batch CPU is read from `$workers.cpuTimeMs` on the invocation.
 
@@ -64,7 +65,7 @@ The Worker has no CPU clock, so per-batch CPU is read from `$workers.cpuTimeMs` 
 | --------------------------- | ---------------------------------------- | ----------------------------------------------- | ------------------------ |
 | requests by status class    | `event = http.response`                  | Count                                           | `statusClass`            |
 | 4xx and 5xx by route        | `event = http.response`, `status >= 400` | Count, top 20                                   | `route`, `statusClass`   |
-| latency by route            | `event = http.response`                  | P50, P95 `durationMs`, Count                    | `route`, top 20          |
+| latency by route            | `event = http.response`                  | Median, P95 `durationMs`, Count                 | `route`, top 20          |
 | messages stored per account | `event = sync.batch`                     | Sum `messagesStored`, `messagesFailed`, `bytes` | `accountId`              |
 | sync failures per account   | `event = sync.failed`                    | Count                                           | `accountId`, `errorKind` |
 | queue batches and dlq       | `event in sync.batch, sync.dlq`          | Count, P95 `durationMs`                         | `event`, `action`        |

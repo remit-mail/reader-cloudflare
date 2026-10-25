@@ -37,9 +37,9 @@ const queries = [
   },
   {
     name: "latency by route",
-    description: "p50 and p95 of durationMs per route.",
+    description: "median and p95 of durationMs per route.",
     filters: [eq("event", "http.response")],
-    calculations: [of("p50", "durationMs"), of("p95", "durationMs"), count],
+    calculations: [of("median", "durationMs"), of("p95", "durationMs"), count],
     groupBys: ["route"],
     orderBy: "p95_durationMs",
     limit: 20,
@@ -111,7 +111,7 @@ const toBody = (query) => ({
   },
 });
 
-const existing = await api("GET", "queries?perPage=100");
+const existing = await api("GET", "queries?perPage=50");
 const byName = new Map(existing.map((saved) => [saved.name, saved]));
 for (const query of queries) {
   const body = toBody(query);
@@ -119,7 +119,7 @@ for (const query of queries) {
   const result =
     saved === undefined
       ? await api("POST", "queries", body)
-      : await api("PUT", `queries/${saved.id}`, body);
+      : await api("PATCH", `queries/${saved.id}`, body);
   console.log(`${saved === undefined ? "created" : "updated"} ${result.id} ${body.name}`);
 }
 console.log(`https://dash.cloudflare.com/${account}/workers-and-pages/observability`);
