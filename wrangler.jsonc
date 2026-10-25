@@ -55,8 +55,7 @@
     { "tag": "v2", "new_sqlite_classes": ["TenantSearch"] },
     { "tag": "v3", "new_sqlite_classes": ["AccountSync"] },
     { "tag": "v4", "deleted_classes": ["TenantSearch"] },
-    { "tag": "v5", "new_sqlite_classes": ["TenantMailV2", "AccountSyncV2"] },
-    { "tag": "v6", "deleted_classes": ["TenantMail", "AccountSync"] }
+    { "tag": "v5", "new_sqlite_classes": ["TenantMailV2", "AccountSyncV2"] }
   ],
   "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
   "secrets_store_secrets": [
