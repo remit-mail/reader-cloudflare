@@ -118,6 +118,20 @@ const importConfigHandler: Handler = async (_context, request) => {
     return conflict(outcome.conflict.code, outcome.conflict.message, outcome.conflict.details);
   }
   const { report } = outcome;
+  const writeFailure = report.errors.find((error) => error.code === "import_write_failed");
+  if (writeFailure !== undefined) {
+    const response = apiError(500, "InternalServerError", writeFailure.message);
+    log.error("config import write failed", {
+      event: "http.error",
+      tenantId,
+      mode,
+      status: response.status,
+      correlationId: currentCorrelationId(),
+      error: writeFailure.message,
+      ...writeFailure.details,
+    });
+    return response;
+  }
   log.info("config import", {
     tenantId,
     mode,

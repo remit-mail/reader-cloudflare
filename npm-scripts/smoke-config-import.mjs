@@ -27,7 +27,7 @@ const base64Url = (value) => Buffer.from(value).toString("base64url");
 const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
 const claims = base64Url(
   JSON.stringify({
-    sub: "smoke-tenant",
+    sub: "smoke0tenant0000000000001",
     email: "smoke@example.com",
     iss: `https://${teamDomain}`,
     aud: audience,
