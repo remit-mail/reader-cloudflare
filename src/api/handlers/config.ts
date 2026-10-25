@@ -70,7 +70,7 @@ const folderRoleWriter =
 const exportConfig: Handler = async (_context, request) => {
   const { tenantId } = request.tenant;
   const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, tenantId);
+  const config = await ensureAccountConfig(db, request.tenant);
   const store = openConfigStore(request.env, db, tenantId, config.accountConfigId);
   const document = await readConfigForExport(store.repositories, config.accountConfigId, {
     app: "reader",
@@ -96,7 +96,7 @@ const importConfigHandler: Handler = async (_context, request) => {
   const { tenantId } = request.tenant;
   const mode = parsed.value.mode ?? "validate";
   const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, tenantId);
+  const config = await ensureAccountConfig(db, request.tenant);
   const store = openConfigStore(request.env, db, tenantId, config.accountConfigId);
   const run = () =>
     importConfig(
@@ -106,7 +106,7 @@ const importConfigHandler: Handler = async (_context, request) => {
       },
       {
         accountConfigId: config.accountConfigId,
-        userId: tenantId,
+        userId: request.tenant.userId,
         document: parsed.value.document,
         mode,
         onExisting: parsed.value.onExisting ?? "abort",
@@ -220,7 +220,7 @@ const updateAccountHandler: Handler = async (context, request) => {
 
 const getConfig: Handler = async (_context, request) => {
   const db = openAppDb(request.env.DB);
-  const config = await ensureAccountConfig(db, request.tenant.tenantId);
+  const config = await ensureAccountConfig(db, request.tenant);
   const accounts = await accountsOf(request);
   const mailboxes = await tenantMail(request.env, request.tenant.tenantId).listMailboxRows(
     accounts.map((account) => account.accountId),
@@ -244,7 +244,7 @@ const createAccountHandler: Handler = async (_context, request) => {
     return invalid("A password is required");
   }
   const db = openAppDb(request.env.DB);
-  const account = await createAccount(request.env, db, request.tenant.tenantId, {
+  const account = await createAccount(request.env, db, request.tenant, {
     input,
     password: input.password,
   });

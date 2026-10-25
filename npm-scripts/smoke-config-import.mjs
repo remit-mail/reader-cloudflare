@@ -25,9 +25,11 @@ const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "s
 
 const base64Url = (value) => Buffer.from(value).toString("base64url");
 const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
+const sub = "5f3c8e2a-9b1d-4e7f-a6c4-2d8b0e9f1a37";
+const legacyAccountConfigId = "0legacy0config00000000001";
 const claims = base64Url(
   JSON.stringify({
-    sub: "smoke0tenant0000000000001",
+    sub,
     email: "smoke@example.com",
     iss: `https://${teamDomain}`,
     aud: audience,
@@ -77,6 +79,13 @@ for (const file of readdirSync(`${root}migrations`).filter((name) => name.endsWi
     if (statement.trim() !== "") await db.prepare(statement).run();
   }
 }
+
+await db
+  .prepare(
+    "insert into account_config (account_config_id, user_id, created_at, updated_at) values (?, ?, 0, 0)",
+  )
+  .bind(legacyAccountConfigId, sub)
+  .run();
 
 const call = async (method, path, body) => {
   const response = await mf.dispatchFetch(`https://smoke.test${path}`, {
@@ -142,6 +151,9 @@ const config = await call("GET", "/api/config");
 console.log(
   JSON.stringify({
     step: "accounts",
+    status: config.status,
+    userId: config.body.accountConfig?.userId,
+    rekeyed: config.body.accountConfig?.accountConfigId === legacyAccountConfigId,
     accounts: config.body.accounts.map((account) => ({
       email: account.email,
       connectionState: account.connectionState,

@@ -1,7 +1,9 @@
 import type { Env } from "./env";
+import { deriveUserId } from "./mail/ids";
 
 export interface Tenant {
   readonly tenantId: string;
+  readonly userId: string;
   readonly email: string;
 }
 
@@ -142,6 +144,11 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
 
 const denied = (reason: string): TenantResult => ({ ok: false, reason });
 
+const admitted = async (tenantId: string, email: string): Promise<TenantResult> => ({
+  ok: true,
+  tenant: { tenantId, userId: await deriveUserId(tenantId), email },
+});
+
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 const toHex = (bytes: ArrayBuffer): string =>
@@ -152,7 +159,7 @@ const devTenant = async (request: Request, email: string): Promise<TenantResult>
     return denied("dev identity is only accepted on loopback");
   }
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
-  return { ok: true, tenant: { tenantId: `dev-${toHex(digest).slice(0, 32)}`, email } };
+  return admitted(`dev-${toHex(digest).slice(0, 32)}`, email);
 };
 
 export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
@@ -192,5 +199,5 @@ export const requireTenant = async (request: Request, env: Env): Promise<TenantR
   if (claims.nbf !== undefined && claims.nbf - CLOCK_SKEW_S > now) {
     return denied("Access token not yet valid");
   }
-  return { ok: true, tenant: { tenantId: claims.sub, email: claims.email } };
+  return admitted(claims.sub, claims.email);
 };

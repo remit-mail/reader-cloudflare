@@ -1,7 +1,8 @@
 import type { CreateAccountInputSchema } from "@remit/api-zod-schemas";
 import { generateBase36Id } from "@remit/drizzle-sqlite-schema";
-import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, type SQL } from "drizzle-orm";
 import type { z } from "zod";
+import type { Tenant } from "../access";
 import { type DecryptResult, decryptSecret, encryptSecret } from "../crypto/envelope";
 import type { Env } from "../env";
 import { log } from "../log";
@@ -46,23 +47,36 @@ export const toMailAccount = (tenantId: string, account: AccountRow): MailAccoun
   accountConfigId: account.accountConfigId,
 });
 
-export const ensureAccountConfig = async (
+const rekeyAccountConfigs = async (
   db: AppDb,
-  tenantId: string,
+  { tenantId, userId }: Tenant,
+  legacy: AccountConfigRow,
 ): Promise<AccountConfigRow> => {
+  const updatedAt = Date.now();
+  await db
+    .update(accountConfigs)
+    .set({ userId, updatedAt })
+    .where(eq(accountConfigs.userId, tenantId));
+  log.info("account config rekeyed", { tenantId, accountConfigId: legacy.accountConfigId });
+  return { ...legacy, userId, updatedAt };
+};
+
+export const ensureAccountConfig = async (db: AppDb, tenant: Tenant): Promise<AccountConfigRow> => {
+  const { tenantId, userId } = tenant;
   const [existing] = await db
     .select()
     .from(accountConfigs)
-    .where(eq(accountConfigs.userId, tenantId))
+    .where(inArray(accountConfigs.userId, [userId, tenantId]))
     .orderBy(asc(accountConfigs.createdAt))
     .limit(1);
+  if (existing?.userId === tenantId) return rekeyAccountConfigs(db, tenant, existing);
   if (existing !== undefined) return existing;
   const now = Date.now();
   const [created] = await db
     .insert(accountConfigs)
     .values({
       accountConfigId: generateBase36Id(),
-      userId: tenantId,
+      userId,
       createdAt: now,
       updatedAt: now,
     })
@@ -75,11 +89,12 @@ export const ensureAccountConfig = async (
 export const createAccount = async (
   env: Env,
   db: AppDb,
-  tenantId: string,
+  tenant: Tenant,
   { input, password }: NewAccount,
 ): Promise<AccountRow> => {
+  const { tenantId } = tenant;
   const now = Date.now();
-  const config = await ensureAccountConfig(db, tenantId);
+  const config = await ensureAccountConfig(db, tenant);
   const accountId = generateBase36Id();
   const username = input.username ?? input.email;
   const smtpHost = input.smtpHost ?? "";
