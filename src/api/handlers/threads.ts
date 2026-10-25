@@ -152,9 +152,9 @@ const scopeMailboxes = (
 const listAllThreads: Handler = async (context, request) => {
   const query = parse(allThreadsQuery, context.request.query, "query");
   if (!query.ok) return query.response;
-  const everyAccount = query.value.accountId === undefined;
-  const accounts = (await mailAccountsOf(request)).filter(
-    (account) => everyAccount || account.accountId === query.value.accountId,
+  const tenantAccounts = await mailAccountsOf(request);
+  const accounts = tenantAccounts.filter(
+    (account) => query.value.accountId === undefined || account.accountId === query.value.accountId,
   );
   const mailboxes = await tenantMail(request.env, request.tenant.tenantId).listMailboxItems(
     accounts.map((account) => account.accountId),
@@ -162,7 +162,7 @@ const listAllThreads: Handler = async (context, request) => {
   return respondThreads(
     request,
     accounts,
-    scopeMailboxes(mailboxes, query.value, everyAccount),
+    scopeMailboxes(mailboxes, query.value, accounts.length === tenantAccounts.length),
     query.value,
   );
 };
