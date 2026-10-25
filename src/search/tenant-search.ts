@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import { and, asc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
-import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import migrations from "../../migrations/search/migrations";
+import { migrateDurableObject } from "../db/durable-migrate";
 import { inList } from "../db/in-list";
 import type { Env } from "../env";
 import { log } from "../log";
@@ -78,7 +78,7 @@ export class TenantSearch extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.db = drizzle(ctx.storage, { schema });
-    void ctx.blockConcurrencyWhile(() => migrate(this.db, migrations));
+    void ctx.blockConcurrencyWhile(() => migrateDurableObject(this.db, migrations));
   }
 
   indexMessages(account: MailAccount, docs: readonly SearchDocument[]): number {

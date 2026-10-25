@@ -15,8 +15,8 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
-import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import migrations from "../../migrations/mail/migrations";
+import { migrateDurableObject } from "../db/durable-migrate";
 import { inList } from "../db/in-list";
 import type { Env } from "../env";
 import { log } from "../log";
@@ -520,7 +520,7 @@ export class TenantMail extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.db = drizzle(ctx.storage, { schema });
-    void ctx.blockConcurrencyWhile(() => migrate(this.db, migrations));
+    void ctx.blockConcurrencyWhile(() => migrateDurableObject(this.db, migrations));
   }
 
   async upsertMailboxes(
