@@ -11,6 +11,16 @@ export const apiError = (status: number, code: string, message: string): Respons
   return Response.json(body, { status });
 };
 
+export const quotaExceeded = (reason: string): Response => {
+  const response = apiError(
+    429,
+    "request_refused",
+    `This account hit a Cloudflare storage or request limit; try again later. ${reason}`,
+  );
+  annotateLog({ errorKind: "quota" });
+  return response;
+};
+
 export const notFound = (what: string): Response => apiError(404, "NotFound", `${what} not found`);
 
 export const unauthorized = (reason: string): Response =>

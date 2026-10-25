@@ -23,13 +23,14 @@ import { commit } from "../../commit";
 import { decryptCredential, storeCredential } from "../../db/accounts";
 import { openAppStore } from "../../db/client";
 import { ensureAccountConfig, type SettingsRepositories, toMailAccount } from "../../db/settings";
+import { errorKindOf } from "../../error-kind";
 import { currentCorrelationId, log } from "../../log";
 import type { ImapCredential } from "../../mail/imap-connect";
 import { settle, verifyImap, verifySmtp } from "../../mail/send";
 import { accountSync, tenantMail } from "../../stubs";
 import { toAccountConfigResponse, toAccountResponse } from "../mappers";
 import { type ApiRequest, accountOf, accountsOf, type Handler, parse } from "../request";
-import { apiError, conflict, invalid, notFound, ok, optional } from "../respond";
+import { apiError, conflict, invalid, notFound, ok, optional, quotaExceeded } from "../respond";
 
 const accountParams = z.object({ accountId: z.string().min(1) });
 
@@ -109,7 +110,10 @@ const importConfigHandler: Handler = async (_context, request) => {
   const { report } = outcome;
   const writeFailure = report.errors.find((error) => error.code === "import_write_failed");
   if (writeFailure !== undefined) {
-    const response = apiError(500, "InternalServerError", writeFailure.message);
+    const response =
+      errorKindOf(writeFailure.message) === "quota"
+        ? quotaExceeded(writeFailure.message)
+        : apiError(500, "InternalServerError", writeFailure.message);
     log.error("config import write failed", {
       event: "http.error",
       tenantId,

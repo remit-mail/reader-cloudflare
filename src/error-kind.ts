@@ -30,7 +30,10 @@ const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
 };
 
 const MESSAGE_KINDS: readonly (readonly [RegExp, ErrorKind])[] = [
-  [/exceeded allowed|exceeded .*limit|quota|too many requests|rate limit/i, "quota"],
+  [
+    /exceeded allowed|exceeded maximum|exceeded .*limit|quota|too many (?:requests|subrequests)|rate limit|overloaded|concurrent request rate|SQLITE_FULL|disk is full/i,
+    "quota",
+  ],
   [/smtp/i, "smtp"],
   [/imap|mailbox lock|command failed|authenticationfailed|connection not available/i, "imap"],
   [/D1_|SQLITE|durable object|storage|R2|object .* not found/i, "storage"],

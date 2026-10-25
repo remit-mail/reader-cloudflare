@@ -1,5 +1,5 @@
 import { requireTenant } from "./access";
-import { apiError, unauthorized } from "./api/respond";
+import { apiError, quotaExceeded, unauthorized } from "./api/respond";
 import { handleApi, operationOf } from "./api/router";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
@@ -31,8 +31,12 @@ const errorMessage = (error: unknown): string =>
 const failed =
   (method: string, path: string) =>
   (error: unknown): Response => {
-    const response = apiError(500, "InternalServerError", errorMessage(error));
-    annotateLog({ errorKind: errorKindOf(error) });
+    const kind = errorKindOf(error);
+    const response =
+      kind === "quota"
+        ? quotaExceeded(errorMessage(error))
+        : apiError(500, "InternalServerError", errorMessage(error));
+    annotateLog({ errorKind: kind });
     log.error("request failed", {
       event: "http.error",
       method,
