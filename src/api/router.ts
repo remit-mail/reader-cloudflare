@@ -37,8 +37,6 @@ const emptied = (mock: unknown): unknown => {
   );
 };
 
-const systemUpdate: Handler = async () => notFound("System update");
-
 const handlers: Record<string, Handler> = {
   ...addressHandlers,
   ...configHandlers,
@@ -46,7 +44,6 @@ const handlers: Record<string, Handler> = {
   ...messageHandlers,
   ...outboxHandlers,
   ...syncHandlers,
-  SystemOperations_getSystemUpdate: systemUpdate,
 };
 
 const api = new OpenAPIBackend({

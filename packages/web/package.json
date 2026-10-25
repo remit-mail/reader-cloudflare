@@ -9,7 +9,7 @@
   "dependencies": {
     "@remit/api-http-client": "^0.0.78",
     "@remit/ui": "^0.0.223",
-    "@remit/web-client": "^0.0.323",
+    "@remit/web-client": "^0.0.324",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
