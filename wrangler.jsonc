@@ -46,15 +46,17 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "TENANT_MAIL", "class_name": "TenantMail" },
-      { "name": "ACCOUNT_SYNC", "class_name": "AccountSync" }
+      { "name": "TENANT_MAIL", "class_name": "TenantMailV2" },
+      { "name": "ACCOUNT_SYNC", "class_name": "AccountSyncV2" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["TenantMail"] },
     { "tag": "v2", "new_sqlite_classes": ["TenantSearch"] },
     { "tag": "v3", "new_sqlite_classes": ["AccountSync"] },
-    { "tag": "v4", "deleted_classes": ["TenantSearch"] }
+    { "tag": "v4", "deleted_classes": ["TenantSearch"] },
+    { "tag": "v5", "new_sqlite_classes": ["TenantMailV2", "AccountSyncV2"] },
+    { "tag": "v6", "deleted_classes": ["TenantMail", "AccountSync"] }
   ],
   "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
   "secrets_store_secrets": [
@@ -100,8 +102,8 @@
       },
       "durable_objects": {
         "bindings": [
-          { "name": "TENANT_MAIL", "class_name": "TenantMail" },
-          { "name": "ACCOUNT_SYNC", "class_name": "AccountSync" }
+          { "name": "TENANT_MAIL", "class_name": "TenantMailV2" },
+          { "name": "ACCOUNT_SYNC", "class_name": "AccountSyncV2" }
         ]
       },
       "secrets_store_secrets": [

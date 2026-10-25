@@ -18,7 +18,6 @@ import type { Env } from "../env";
 import { log } from "../log";
 import { type AddressFlagsPatch, mergeAddressFlags, storedFlags } from "./address-flags";
 import { deriveMessageId } from "./ids";
-import { rekeyMail } from "./rekey";
 import { composeMailRepositories, type MailRepositories } from "./repositories";
 import type {
   AddressInput,
@@ -115,10 +114,7 @@ export class TenantMail extends DurableObject<Env> {
     super(ctx, env);
     const db = drizzle(ctx.storage);
     this.mail = composeMailRepositories(syncStore(db));
-    void ctx.blockConcurrencyWhile(async () => {
-      await migrateDurableObject(db, migrations);
-      await rekeyMail(ctx.storage, db, this.mail.searchIndex, ctx.id.toString());
-    });
+    void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }
 
   async upsertMailboxes(

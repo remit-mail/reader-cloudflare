@@ -3,7 +3,6 @@ import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Miniflare, Response } from "miniflare";
-import { rekeyAppDb } from "./rekey-app-db.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const bundle = `${root}.tmp/smoke-bundle`;
@@ -27,7 +26,6 @@ const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "s
 const base64Url = (value) => Buffer.from(value).toString("base64url");
 const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
 const sub = "5f3c8e2a-9b1d-4e7f-a6c4-2d8b0e9f1a37";
-const legacyAccountConfigId = "0legacy0config00000000001";
 const claims = base64Url(
   JSON.stringify({
     sub,
@@ -59,8 +57,8 @@ const mf = new Miniflare({
       r2Buckets: ["MAIL"],
       queueProducers: { SYNC: { queueName: "smoke-sync" } },
       durableObjects: {
-        TENANT_MAIL: { className: "TenantMail", useSQLite: true },
-        ACCOUNT_SYNC: { className: "AccountSync", useSQLite: true },
+        TENANT_MAIL: { className: "TenantMailV2", useSQLite: true },
+        ACCOUNT_SYNC: { className: "AccountSyncV2", useSQLite: true },
       },
       outboundService: (request) => {
         if (new URL(request.url).hostname === teamDomain) {
@@ -79,14 +77,6 @@ for (const file of readdirSync(`${root}migrations`).filter((name) => name.endsWi
     if (statement.trim() !== "") await db.prepare(statement).run();
   }
 }
-
-await db
-  .prepare(
-    "insert into account_config (account_config_id, user_id, created_at, updated_at) values (?, ?, 0, 0)",
-  )
-  .bind(legacyAccountConfigId, sub)
-  .run();
-await rekeyAppDb(async (sql) => (await db.prepare(sql).all()).results);
 
 const call = async (method, path, body) => {
   const response = await mf.dispatchFetch(`https://smoke.test${path}`, {
@@ -147,7 +137,6 @@ console.log(
     step: "accounts",
     status: config.status,
     userId: config.body.accountConfig?.userId,
-    rekeyed: config.body.accountConfig?.accountConfigId === legacyAccountConfigId,
     accounts: config.body.accounts.map((account) => ({
       email: account.email,
       connectionState: account.connectionState,
