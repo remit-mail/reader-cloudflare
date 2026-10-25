@@ -11,7 +11,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 - Push straight to `main` until the prototype runs end to end.
 - CI is one fast job: `npm ci`, `npm run check`, `npm run typecheck`.
 - The Worker logs one JSON object per line through `log` in `src/log.ts`. Workers Observability is on in `wrangler.jsonc`.
-- `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `wrangler.jsonc` runs it and then `npm run build` as the build command, so `dev` and `deploy` ship fresh assets; `typecheck` runs it first. The Worker answers `/api/version` with `{ commit }` and an `x-reader-commit` header, so a deploy matches a commit.
+- `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `wrangler.jsonc` runs it and then `npm run build` as the build command, so `dev` and `deploy` ship fresh assets; `typecheck` runs it first. `GET /api/config` carries it as `buildCommit`, so a deploy matches a commit; the stale-build reload in `packages/web/src/stale-build.ts` compares it against the loaded bundle.
 
 ## Scripts
 

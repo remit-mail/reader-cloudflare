@@ -1,17 +1,8 @@
-const VERSION_URL = "/api/version";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const commitOf = (body: unknown): string => {
-  if (isRecord(body) && typeof body.commit === "string") return body.commit;
-  throw new Error(`GET ${VERSION_URL} answered without a commit`);
-};
+import { configOperationsGetConfig } from "@remit/api-http-client/sdk.gen.ts";
 
 const deployedCommit = async (): Promise<string> => {
-  const response = await fetch(VERSION_URL, { credentials: "same-origin", cache: "no-store" });
-  if (!response.ok) throw new Error(`GET ${VERSION_URL} returned ${response.status}`);
-  return commitOf(await response.json());
+  const { data } = await configOperationsGetConfig({ throwOnError: true, cache: "no-store" });
+  return data.buildCommit;
 };
 
 const reloadWhenSuperseded = async (): Promise<void> => {

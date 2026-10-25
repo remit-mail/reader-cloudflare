@@ -1,7 +1,6 @@
 import { requireTenant } from "./access";
 import { apiError, unauthorized } from "./api/respond";
 import { handleApi, operationOf } from "./api/router";
-import { commit } from "./commit";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
 import { errorKindOf } from "./error-kind";
@@ -18,7 +17,6 @@ export { TenantMail } from "./mail/tenant-mail";
 export { TenantSearch } from "./search/tenant-search";
 export { AccountSync } from "./sync/account-sync";
 
-const COMMIT_HEADER = "x-reader-commit";
 const CORRELATION_HEADER = "x-correlation-id";
 const INBOUND_CORRELATION = /^[A-Za-z0-9._:-]{1,128}$/;
 
@@ -63,9 +61,6 @@ const authenticated = async (
 };
 
 const route = (request: Request, env: Env, url: URL): Promise<Response> => {
-  if (url.pathname === "/api/version") {
-    return Promise.resolve(Response.json({ commit }, { headers: { [COMMIT_HEADER]: commit } }));
-  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, handleApi);
   }
@@ -76,7 +71,6 @@ const route = (request: Request, env: Env, url: URL): Promise<Response> => {
 };
 
 const routeOf = (method: string, url: URL): Promise<string> => {
-  if (url.pathname === "/api/version") return Promise.resolve("version");
   if (url.pathname.startsWith("/api/")) return operationOf(method, url);
   if (isContentPath(url.pathname)) return Promise.resolve("content");
   return Promise.resolve("assets");

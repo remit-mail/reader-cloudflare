@@ -80,10 +80,11 @@ const openInbox = async (page: Page): Promise<void> => {
 test.describe.configure({ mode: "serial" });
 
 test.describe("reader on a local Worker", () => {
-  test("GET /api/version answers the local commit", async ({ request }) => {
-    const response = await request.get("/api/version");
-    expect(response.status()).toBe(200);
-    expect(await response.json()).toEqual({ commit: process.env.E2E_COMMIT });
+  test("GET /config carries the local commit as buildCommit", async () => {
+    const response = await api.request("GET", "/config");
+    expect(response.status).toBe(200);
+    const body: unknown = await response.json();
+    expect(isRecord(body) && body.buildCommit).toBe(process.env.E2E_COMMIT);
   });
 
   test("the onboarding wizard adds the synthetic account and syncs it", async ({ page }) => {

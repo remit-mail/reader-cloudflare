@@ -221,7 +221,7 @@ const main = async () => {
     wrangler = spawn(command, args, { cwd: root, env, detached: true, stdio: "pipe" });
     wrangler.stdout.pipe(log);
     wrangler.stderr.pipe(log);
-    await waitForReady(`${env.E2E_BASE_URL}/api/version`, wrangler);
+    await waitForReady(`${env.E2E_BASE_URL}/`, wrangler);
     run(
       ...withCap(bin("playwright"), [
         "test",
