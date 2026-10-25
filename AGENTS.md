@@ -20,6 +20,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run dev`                        | `wrangler dev` on port 8790, bound to `0.0.0.0`                                           |
 | `npm run deploy -- --bootstrap`      | `wrangler deploy` from this machine, before Workers Builds runs; refuses without the flag |
 | `npm run build`                      | Vite builds the web client into `packages/web/dist`                                       |
+| `npm run dashboards`                 | Create or update the Observability saved queries in `npm-scripts/dashboards.mjs`          |
 | `npm run tail`                       | `wrangler tail --format pretty` on the deployed Worker                                    |
 | `npm run logs -- <minutes> [text]`   | Workers Observability events from the last minutes, one JSON line each                    |
 | `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                           |

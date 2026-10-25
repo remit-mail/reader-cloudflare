@@ -25,8 +25,18 @@ interface ProcessedMessage {
 }
 
 type ParseOutcome =
-  | { readonly ok: true; readonly message: ProcessedMessage; readonly parseMs: number }
-  | { readonly ok: false; readonly skipped: SkippedMessage; readonly parseMs: number };
+  | {
+      readonly ok: true;
+      readonly message: ProcessedMessage;
+      readonly parseMs: number;
+      readonly bytes: number;
+    }
+  | {
+      readonly ok: false;
+      readonly skipped: SkippedMessage;
+      readonly parseMs: number;
+      readonly bytes: number;
+    };
 
 const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -85,11 +95,13 @@ const parseObject = async (env: Env, key: string): Promise<ParseOutcome> => {
       ok: true,
       message: toProcessed(key, metadata, email),
       parseMs: Date.now() - started,
+      bytes: object.size,
     }),
     (error: unknown): ParseOutcome => ({
       ok: false,
       skipped: { uid: metadata.uid, key, reason: reasonOf(error) },
       parseMs: Date.now() - started,
+      bytes: object.size,
     }),
   );
 };
@@ -119,10 +131,12 @@ const processBatch = async (env: Env, body: ProcessBatch): Promise<void> => {
   };
   const skipped: SkippedMessage[] = [];
   let parseMs = 0;
+  let bytes = 0;
   let stored = 0;
   for (const key of body.keys) {
     const outcome = await parseObject(env, key);
     parseMs += outcome.parseMs;
+    bytes += outcome.bytes;
     if (!outcome.ok) {
       log.warn("message skipped", {
         tenantId: account.tenantId,
@@ -149,12 +163,14 @@ const processBatch = async (env: Env, body: ProcessBatch): Promise<void> => {
   const durationMs = Date.now() - started;
   const count = body.keys.length;
   log.info("batch processed", {
+    event: "sync.batch",
     tenantId: account.tenantId,
     accountId: account.accountId,
     mailboxId: body.mailboxId,
-    count,
-    stored,
-    skipped: skipped.length,
+    messagesFetched: count,
+    messagesStored: stored,
+    messagesFailed: skipped.length,
+    bytes,
     redrive: body.redrive,
     split: body.split,
     durationMs,
@@ -213,15 +229,26 @@ export const handleDeadLetter = async (
   raw: unknown,
 ): Promise<void> => {
   if (body === null) {
-    log.error("dlq dropped", { reason: "unreadable message", attempts, body: raw });
+    log.error("dlq dropped", {
+      event: "sync.dlq",
+      action: "Dropped",
+      reason: "unreadable message",
+      attempts,
+      body: raw,
+    });
     return;
   }
-  log.error("dlq message", { ...batchFields(body), keyList: body.keys, attempts });
+  const fields = { event: "sync.dlq", ...batchFields(body), keyList: body.keys, attempts };
   if (body.redrive) {
-    log.error("dlq dropped", { ...batchFields(body), keyList: body.keys, attempts });
+    log.error("dlq dropped", { ...fields, action: "Dropped", reason: "redrive exhausted" });
     return;
   }
   const redrives = toRedrives(body);
   await env.SYNC.sendBatch(redrives);
-  log.warn("dlq redriven", { ...batchFields(body), messages: redrives.length });
+  log.warn("dlq redriven", {
+    ...fields,
+    action: "Redriven",
+    reason: "retries exhausted",
+    messages: redrives.length,
+  });
 };

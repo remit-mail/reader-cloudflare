@@ -86,6 +86,17 @@ const queryOf = (url: URL): Record<string, string | string[]> => {
   return query;
 };
 
+export const operationOf = async (method: string, url: URL): Promise<string> => {
+  await ready;
+  const operation = api.matchOperation({
+    method,
+    path: url.pathname,
+    headers: {},
+    query: queryOf(url),
+  });
+  return operation?.operationId ?? "unmatched";
+};
+
 type Body = { readonly ok: true; readonly value: unknown } | { readonly ok: false };
 
 const readBody = async (request: Request): Promise<Body> => {

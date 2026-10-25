@@ -3,6 +3,7 @@ import type { ImapFlow } from "imapflow";
 import { decryptCredential, getAccount, recordSyncOutcome } from "../db/accounts";
 import { openAppDb } from "../db/client";
 import type { Env } from "../env";
+import { errorKindOf } from "../error-kind";
 import { log, withLogContext } from "../log";
 import { type ImapCredential, openImap } from "../mail/imap-connect";
 import { accountCredentials } from "../mail/send";
@@ -67,6 +68,8 @@ export class AccountSync extends DurableObject<Env> {
       error: LOST_RUN,
     };
     log.error("sync lost", {
+      event: "sync.failed",
+      errorKind: "interrupted",
       correlationId: stored.correlationId,
       startedAt: stored.startedAt,
       updatedAt: stored.updatedAt,
@@ -99,7 +102,12 @@ export class AccountSync extends DurableObject<Env> {
     this.progress = state;
     const account: unknown = await this.ctx.storage.get(ACCOUNT_KEY);
     if (!isMailAccount(account)) {
-      log.error("sync failed", { correlationId: state.correlationId, reason: "account missing" });
+      log.error("sync failed", {
+        event: "sync.failed",
+        errorKind: "storage",
+        correlationId: state.correlationId,
+        reason: "account missing",
+      });
       await this.advance({ status: "Failed", finishedAt: Date.now(), error: "account missing" });
       return;
     }
@@ -117,10 +125,21 @@ export class AccountSync extends DurableObject<Env> {
     await this.advance({ passes: this.progress.passes + 1 });
     const outcome = await this.passOver(account).then(
       (value) => ({ ok: true as const, value }),
-      (error: unknown) => ({ ok: false as const, reason: reasonOf(error) }),
+      (error: unknown) => ({
+        ok: false as const,
+        reason: reasonOf(error),
+        errorKind: errorKindOf(error),
+      }),
     );
     if (!outcome.ok) {
-      log.error("sync failed", { ...fields, ...this.progress, reason: outcome.reason });
+      log.error("sync failed", {
+        event: "sync.failed",
+        ...fields,
+        ...this.progress,
+        errorKind: outcome.errorKind,
+        reason: outcome.reason,
+        durationMs: Date.now() - started,
+      });
       await this.advance({ status: "Failed", finishedAt: Date.now(), error: outcome.reason });
       await recordSyncOutcome(openAppDb(this.env.DB), account.accountId, {
         ok: false,
@@ -132,6 +151,7 @@ export class AccountSync extends DurableObject<Env> {
       await this.advance({ currentMailbox: "" });
       await this.ctx.storage.setAlarm(Date.now() + PASS_DELAY_MS);
       log.info("pass scheduled", {
+        event: "sync.pass",
         ...fields,
         pass: this.progress.passes,
         mailboxesDone: this.progress.mailboxesDone,
@@ -139,7 +159,7 @@ export class AccountSync extends DurableObject<Env> {
         remaining: this.progress.remaining,
         dumped: this.progress.dumped,
         resumeAt: this.progress.resumeAt,
-        passMs: Date.now() - started,
+        durationMs: Date.now() - started,
         delayMs: PASS_DELAY_MS,
       });
       return;
@@ -150,9 +170,12 @@ export class AccountSync extends DurableObject<Env> {
       mailboxes: this.progress.mailboxesTotal,
     });
     log.info("sync finished", {
+      event: "sync.complete",
       ...fields,
       ...this.progress,
+      messagesQueued: this.progress.dumped,
       durationMs: this.progress.finishedAt - this.progress.startedAt,
+      lastMessageSyncAt: new Date(this.progress.finishedAt).toISOString(),
     });
   }
 

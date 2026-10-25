@@ -6,7 +6,13 @@ type Fields = Record<string, unknown>;
 
 const context = new AsyncLocalStorage<Fields>();
 
-export const withLogContext = <T>(fields: Fields, run: () => T): T => context.run(fields, run);
+export const withLogContext = <T>(fields: Fields, run: () => T): T =>
+  context.run({ ...fields }, run);
+
+export const annotateLog = (fields: Fields): void => {
+  const store = context.getStore();
+  if (store !== undefined) Object.assign(store, fields);
+};
 
 const write = (level: Level, message: string, fields: Fields): void => {
   console[level](

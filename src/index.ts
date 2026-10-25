@@ -1,10 +1,11 @@
 import { requireTenant } from "./access";
 import { apiError, unauthorized } from "./api/respond";
-import { handleApi } from "./api/router";
+import { handleApi, operationOf } from "./api/router";
 import { commit } from "./commit";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
-import { log, withLogContext } from "./log";
+import { errorKindOf } from "./error-kind";
+import { annotateLog, log, withLogContext } from "./log";
 import {
   describeSyncMessage,
   handleDeadLetter,
@@ -33,13 +34,17 @@ const errorMessage = (error: unknown): string =>
 const failed =
   (method: string, path: string) =>
   (error: unknown): Response => {
+    const response = apiError(500, "InternalServerError", errorMessage(error));
+    annotateLog({ errorKind: errorKindOf(error) });
     log.error("request failed", {
+      event: "http.error",
       method,
       path,
+      status: response.status,
       error: errorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    return apiError(500, "InternalServerError", errorMessage(error));
+    return response;
   };
 
 const authenticated = async (
@@ -53,6 +58,7 @@ const authenticated = async (
     log.warn("access denied", { path, reason: result.reason });
     return unauthorized(result.reason);
   }
+  annotateLog({ tenantId: result.tenant.tenantId });
   return serve(request, env, result.tenant);
 };
 
@@ -69,6 +75,15 @@ const route = (request: Request, env: Env, url: URL): Promise<Response> => {
   return env.ASSETS.fetch(request);
 };
 
+const routeOf = (method: string, url: URL): Promise<string> => {
+  if (url.pathname === "/api/version") return Promise.resolve("version");
+  if (url.pathname.startsWith("/api/")) return operationOf(method, url);
+  if (isContentPath(url.pathname)) return Promise.resolve("content");
+  return Promise.resolve("assets");
+};
+
+const statusClassOf = (status: number): string => `${Math.floor(status / 100)}xx`;
+
 const tagged = (response: Response, correlationId: string): Response => {
   const copy = new Response(response.body, response);
   copy.headers.set(CORRELATION_HEADER, correlationId);
@@ -80,15 +95,18 @@ export default {
     const correlationId = correlationIdOf(request);
     return withLogContext({ correlationId }, async () => {
       const url = new URL(request.url);
+      annotateLog({ route: await routeOf(request.method, url) });
       log.info("request", { method: request.method, path: url.pathname });
       const started = Date.now();
       const response = await Promise.resolve()
         .then(() => route(request, env, url))
         .catch(failed(request.method, url.pathname));
       log.info("response", {
+        event: "http.response",
         method: request.method,
         path: url.pathname,
         status: response.status,
+        statusClass: statusClassOf(response.status),
         durationMs: Date.now() - started,
       });
       return tagged(response, correlationId);

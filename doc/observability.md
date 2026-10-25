@@ -19,53 +19,60 @@ Account `f496802dcadb597e5939f6449c759a43`, Worker `reader-cloudflare`.
 | Error rate alert (not in OpenTofu, [#7259](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7259))             | Workers & Pages / reader-cloudflare / Observability / Alerts                            |
 | GraphQL explorer                                                                                                                 | https://graphql.cloudflare.com/explorer                                                 |
 
-## Queries
+## Bookmarks
 
-Queries 1 to 4 go into the Observability query builder; save each with Save Query. Queries 5 and 6 go into the GraphQL explorer with variables `{"accountTag": "f496802dcadb597e5939f6449c759a43", "since": "2026-10-01T00:00:00Z", "until": "2026-11-01T00:00:00Z"}`.
+| What                            | URL                                                                                                                     |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Worker metrics                  | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/services/view/reader-cloudflare/production/metrics |
+| Observability and saved queries | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers-and-pages/observability                            |
+| Durable Objects                 | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/durable-objects                                    |
+| Queues                          | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/queues                                             |
 
-### 1. Request duration by path
+## Log fields
 
-```text
-Visualize: P50($workers.wallTimeMs), P99($workers.wallTimeMs), P99($workers.cpuTimeMs), Count
-Filter:    $workers.eventType = fetch
-Group by:  $workers.event.request.path
-Order by:  P99($workers.wallTimeMs) desc
-```
+Every line is one JSON object from `log` in `src/log.ts`. Lines that feed a dashboard carry an `event`.
 
-### 2. 5xx by path
+| Field               | Type   | On                                                                 | Meaning                                                                                                                                              |
+| ------------------- | ------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event`             | string | all below                                                          | `http.response`, `http.error`, `sync.batch`, `sync.pass`, `sync.complete`, `sync.failed`, `sync.dlq`, `smtp.send`                                    |
+| `correlationId`     | string | every line                                                         | One request, queue message or sync run                                                                                                               |
+| `route`             | string | every line of a request                                            | OpenAPI operationId, or `version`, `content`, `assets`, `unmatched`                                                                                  |
+| `tenantId`          | string | authenticated request lines, sync, send                            | Stable tenant id, never an email                                                                                                                     |
+| `method`, `path`    | string | `http.response`, `http.error`                                      | Request method and concrete path                                                                                                                     |
+| `status`            | number | `http.response`, `http.error`                                      | HTTP status                                                                                                                                          |
+| `statusClass`       | string | `http.response`                                                    | `2xx`, `3xx`, `4xx`, `5xx`                                                                                                                           |
+| `durationMs`        | number | `http.*`, `sync.*`, `smtp.send`                                    | Wall time of the request, batch, pass, run or send                                                                                                   |
+| `errorKind`         | string | 4xx/5xx responses, `http.error`, `sync.failed`, failed `smtp.send` | `quota`, `validation`, `auth`, `notFound`, `conflict`, `notImplemented`, `imap`, `smtp`, `storage`, `credential`, `interrupted`, `client`, `unknown` |
+| `accountId`         | string | `sync.*`, `smtp.send`                                              | Mail account                                                                                                                                         |
+| `mailboxId`         | string | `sync.batch`, `sync.dlq`                                           | Mailbox                                                                                                                                              |
+| `messagesFetched`   | number | `sync.batch`                                                       | R2 objects read in the batch                                                                                                                         |
+| `messagesStored`    | number | `sync.batch`                                                       | Messages written to TenantMail                                                                                                                       |
+| `messagesFailed`    | number | `sync.batch`                                                       | Messages skipped as unparseable                                                                                                                      |
+| `bytes`             | number | `sync.batch`                                                       | Raw message bytes read from R2                                                                                                                       |
+| `messagesQueued`    | number | `sync.complete`                                                    | Messages dumped to R2 and queued in the run                                                                                                          |
+| `lastMessageSyncAt` | string | `sync.complete`                                                    | ISO time the run finished                                                                                                                            |
+| `action`, `reason`  | string | `sync.dlq`                                                         | `Redriven` or `Dropped`, and why                                                                                                                     |
+| `sendStatus`        | string | `smtp.send`                                                        | `Sent`, `Unfiled`, `Failed`, `CredentialUnavailable`                                                                                                 |
 
-```text
-Visualize: Count
-Filter:    $workers.event.response.status >= 500
-Group by:  $workers.event.request.path, $workers.event.response.status
-Order by:  Count desc
-```
+The Worker has no CPU clock, so per-batch CPU is read from `$workers.cpuTimeMs` on the invocation.
 
-### 3. Sync durations
+## Saved queries
 
-```text
-Visualize: Count, P50(durationMs), P99(durationMs), Max(durationMs)
-Filter:    $metadata.message = sync finished
-Group by:  accountId
-```
+`npm run dashboards` creates or updates these saved queries in Observability / Queries, each filtered on `$metadata.service = reader-cloudflare` and named `reader-cloudflare: ...`. The definitions live in `npm-scripts/dashboards.mjs`. The Observability API has saved queries but no dashboards; each saved query renders its own charts over time.
 
-Per mailbox: the same with `$metadata.message = mailbox synced` and group by `accountId, mailboxId`. Failures: `$metadata.message = sync failed`, Count, group by `reason`.
+| Saved query                 | Filter                                   | Visualize                                       | Group by                 |
+| --------------------------- | ---------------------------------------- | ----------------------------------------------- | ------------------------ |
+| requests by status class    | `event = http.response`                  | Count                                           | `statusClass`            |
+| 4xx and 5xx by route        | `event = http.response`, `status >= 400` | Count, top 20                                   | `route`, `statusClass`   |
+| latency by route            | `event = http.response`                  | P50, P95 `durationMs`, Count                    | `route`, top 20          |
+| messages stored per account | `event = sync.batch`                     | Sum `messagesStored`, `messagesFailed`, `bytes` | `accountId`              |
+| sync failures per account   | `event = sync.failed`                    | Count                                           | `accountId`, `errorKind` |
+| queue batches and dlq       | `event in sync.batch, sync.dlq`          | Count, P95 `durationMs`                         | `event`, `action`        |
+| errors by kind              | `errorKind exists`                       | Count                                           | `errorKind`, `event`     |
 
-### 4. Queue batch durations and retries
+## GraphQL
 
-```text
-Visualize: Count, Sum(count), P50(durationMs), P99(durationMs)
-Filter:    $metadata.message = batch processed
-Group by:  accountId
-```
-
-Retries:
-
-```text
-Visualize: Count, Max(attempts)
-Filter:    $metadata.message = queue message AND attempts > 1
-Group by:  queue
-```
+Queries 5 and 6 go into the GraphQL explorer with variables `{"accountTag": "f496802dcadb597e5939f6449c759a43", "since": "2026-10-01T00:00:00Z", "until": "2026-11-01T00:00:00Z"}`.
 
 ### 5. Durable Object requests
 

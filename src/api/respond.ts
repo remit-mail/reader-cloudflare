@@ -1,9 +1,12 @@
 import type { ApiError, ValidationError } from "@remit/api-openapi-types";
 import type { ZodIssue } from "zod";
+import { errorKindOfCode } from "../error-kind";
+import { annotateLog } from "../log";
 
 export const ok = <T>(body: T): Response => Response.json(body);
 
 export const apiError = (status: number, code: string, message: string): Response => {
+  annotateLog({ errorKind: errorKindOfCode(status, code) });
   const body: ApiError = { code, message };
   return Response.json(body, { status });
 };
@@ -14,6 +17,7 @@ export const unauthorized = (reason: string): Response =>
   apiError(401, "Unauthorized", `Sign in again: ${reason}`);
 
 export const invalid = (message: string, issues: readonly ZodIssue[] = []): Response => {
+  annotateLog({ errorKind: "validation" });
   const body: ValidationError = {
     statusCode: 400,
     code: "ValidationError",
@@ -42,6 +46,7 @@ export const conflict = (
   message: string,
   details: Readonly<Record<string, string>>,
 ): Response => {
+  annotateLog({ errorKind: errorKindOfCode(409, code) });
   const body: ApiError = { code, message, details: { ...details } };
   return Response.json(body, { status: 409 });
 };

@@ -26,6 +26,7 @@ const send = async (
   const claimed = await mail.claimOutbox(outboxMessageId);
   if (!claimed.ok) return apiError(409, "OutboxNotSendable", claimed.reason);
   const fields = {
+    event: "smtp.send",
     tenantId: request.tenant.tenantId,
     accountId: account.accountId,
     outboxMessageId,
@@ -42,7 +43,13 @@ const send = async (
       lastError: secret.reason,
       sentAt: null,
     });
-    log.error("send failed", { ...fields, reason: secret.reason });
+    log.error("send failed", {
+      ...fields,
+      sendStatus: "CredentialUnavailable",
+      errorKind: "credential",
+      durationMs: 0,
+      reason: secret.reason,
+    });
     return apiError(500, "CredentialUnavailable", secret.reason);
   }
   const started = Date.now();
@@ -54,7 +61,13 @@ const send = async (
       lastError: delivery.reason,
       sentAt: null,
     });
-    log.error("send failed", { ...fields, durationMs, reason: delivery.reason });
+    log.error("send failed", {
+      ...fields,
+      sendStatus: "Failed",
+      errorKind: "smtp",
+      durationMs,
+      reason: delivery.reason,
+    });
     return apiError(
       502,
       "SmtpSendFailed",
@@ -63,7 +76,13 @@ const send = async (
   }
   const sentAt = Date.now();
   if (delivery.kind === "Unfiled") {
-    log.error("sent copy not appended", { ...fields, durationMs, reason: delivery.reason });
+    log.error("sent copy not appended", {
+      ...fields,
+      sendStatus: "Unfiled",
+      errorKind: "imap",
+      durationMs,
+      reason: delivery.reason,
+    });
     const unfiled = await mail.settleOutbox(outboxMessageId, {
       status: "unfiled",
       lastError: delivery.reason,
@@ -71,7 +90,12 @@ const send = async (
     });
     return ok(toOutboxMessageResponse(unfiled));
   }
-  log.info("message sent", { ...fields, durationMs, sentMailbox: delivery.sentMailbox });
+  log.info("message sent", {
+    ...fields,
+    sendStatus: "Sent",
+    durationMs,
+    sentMailbox: delivery.sentMailbox,
+  });
   const sent = await mail.settleOutbox(outboxMessageId, {
     status: "sent",
     lastError: null,

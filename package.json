@@ -32,7 +32,8 @@
     "build:vendor-types": "tsc -p tsconfig.vendor.json",
     "smoke:config-import": "node npm-scripts/smoke-config-import.mjs",
     "logs": "node npm-scripts/logs.mjs",
-    "e2e": "node npm-scripts/e2e.mjs"
+    "e2e": "node npm-scripts/e2e.mjs",
+    "dashboards": "node npm-scripts/dashboards.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
