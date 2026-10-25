@@ -38,5 +38,3 @@ export const senderTrustOf = (flags: AddressFlags): SenderTrust => {
   if (flags.wellknown?.value === true) return "wellknown";
   return "unknown";
 };
-
-export const isMuted = (flags: AddressFlags): boolean => flags.muted?.value === true;

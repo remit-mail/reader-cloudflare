@@ -1,4 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  type LogBindings,
+  type Logger,
+  logContext,
+  normalizeLogArguments,
+  setLogger,
+} from "@remit/logger";
 
 type Level = "debug" | "info" | "warn" | "error";
 
@@ -37,3 +44,27 @@ export const currentCorrelationId = (): string => {
   const correlationId = context.getStore()?.correlationId;
   return typeof correlationId === "string" ? correlationId : crypto.randomUUID();
 };
+
+const remitLogger = (bindings: Fields): Logger => {
+  let own: Fields = { ...bindings };
+  const at =
+    (level: Level) =>
+    (first: LogBindings | string, second?: LogBindings | string): void => {
+      const [fields, message] = normalizeLogArguments(first, second);
+      write(level, message, { ...own, ...logContext(), ...fields });
+    };
+  return {
+    trace: at("debug"),
+    debug: at("debug"),
+    info: at("info"),
+    warn: at("warn"),
+    error: at("error"),
+    fatal: at("error"),
+    child: (more) => remitLogger({ ...own, ...more }),
+    setBindings: (more) => {
+      own = { ...own, ...more };
+    },
+  };
+};
+
+export const installRemitLogger = (): void => setLogger(remitLogger({}));

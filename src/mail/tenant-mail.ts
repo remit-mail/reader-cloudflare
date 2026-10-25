@@ -1,53 +1,47 @@
 import { DurableObject } from "cloudflare:workers";
-import type { AddressFlags } from "@remit/api-openapi-types";
+import type { RemitClient } from "@remit/backend/client";
+import { createRemitCore } from "@remit/backend/create-remit-client";
+import type { UserIdentity } from "@remit/backend/serve";
 import type {
   AddressItem,
   CreateAddressInput,
   FlagsMergePatch,
   MailboxItem,
   ResultList,
-  ThreadMessageItem,
 } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId, deriveEnvelopeId } from "@remit/data-ports/id";
-import { syncStore } from "@remit/drizzle-service";
+import {
+  asyncBatch,
+  composeSqliteRepositories,
+  type SqliteRepositories,
+  syncStore,
+} from "@remit/drizzle-service";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
+import { serveTenantApi } from "../api/serve";
+import { r2Storage } from "../api/storage";
+import { tenantSecrets } from "../crypto/envelope";
+import { openAppDb } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
-import { log } from "../log";
-import { type AddressFlagsPatch, mergeAddressFlags, storedFlags } from "./address-flags";
+import { log, withLogContext } from "../log";
 import { deriveMessageId } from "./ids";
-import { composeMailRepositories, type MailRepositories } from "./repositories";
+import { describeMessage, starOf } from "./operations";
 import type {
   AddressInput,
   AddressPageRequest,
   AddressRole,
-  AddressUpdate,
-  FlagChange,
-  FlagState,
   MailAccount,
   MailboxInput,
-  MailboxRow,
   MailResult,
   MessageInput,
-  MessageLocation,
   MessageRecord,
-  NewOutbox,
-  OutboxDraft,
-  OutboxRecord,
-  OutboxStateChange,
   SkippedMessage,
-  SortOrder,
-  ThreadPage,
-  ThreadRow,
-  ThreadSearch,
 } from "./types";
 
 const SEEN = "\\Seen";
 const FLAGGED = "\\Flagged";
 const NO_PARENT = "";
-const THREAD_LIMIT = 500;
 
 type Sighting = "junk" | "discarded" | "correspondent";
 
@@ -63,8 +57,6 @@ const splitAddress = (address: string): { localPart: string; domain: string } | 
   if (at <= 0 || at === address.length - 1) return null;
   return { localPart: address.slice(0, at), domain: address.slice(at + 1) };
 };
-
-const orUndefined = (value: string | null): string | undefined => value ?? undefined;
 
 const roles = (input: MessageInput): readonly [AddressRole, readonly AddressInput[]][] => [
   ["from", input.envelope.from],
@@ -82,39 +74,26 @@ const sightingIn = (mailbox: MailboxItem): Sighting => {
   return "correspondent";
 };
 
-const flagsOf = (address: AddressItem): AddressFlags =>
-  storedFlags(address.flags ?? {}, address.addressId);
-
-const starOf = (starred: boolean) => (starred ? ("yellow" as const) : ("none" as const));
-
-const draftColumns = (draft: OutboxDraft) => ({
-  toAddresses: [...draft.toAddresses],
-  ccAddresses: [...draft.ccAddresses],
-  bccAddresses: [...draft.bccAddresses],
-  subject: orUndefined(draft.subject),
-  textBody: orUndefined(draft.textBody),
-  htmlBody: orUndefined(draft.htmlBody),
-  inReplyTo: orUndefined(draft.inReplyTo),
-  references: [...draft.references],
-});
-
-type PageRead =
-  | { readonly ok: true; readonly result: ResultList<ThreadMessageItem> }
-  | { readonly ok: false; readonly reason: string };
-
-const invalidToken = (error: unknown): PageRead => {
-  if (error instanceof BadRequestError) return { ok: false, reason: error.message };
-  throw error;
-};
-
 export class TenantMail extends DurableObject<Env> {
-  private readonly mail: MailRepositories;
+  private readonly mail: SqliteRepositories;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const db = drizzle(ctx.storage);
-    this.mail = composeMailRepositories(syncStore(db));
+    const mail = syncStore(db);
+    const appDb = openAppDb(env.DB);
+    this.mail = composeSqliteRepositories({
+      app: { db: appDb, batch: asyncBatch(appDb) },
+      mail,
+      search: mail,
+    });
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
+  }
+
+  async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
+    return withLogContext({ correlationId, tenantId: identity.sub }, () =>
+      serveTenantApi(request, identity, this.clientFor(identity.sub), correlationId),
+    );
   }
 
   async upsertMailboxes(
@@ -273,25 +252,6 @@ export class TenantMail extends DurableObject<Env> {
     return { ok: true, value: messageIds.length };
   }
 
-  async listMailboxes(accounts: readonly MailAccount[]): Promise<readonly MailboxRow[]> {
-    const rows: MailboxRow[] = [];
-    for (const account of accounts) {
-      const mailboxes = await this.mail.mailbox.listAllByAccount(account.accountId);
-      for (const mailbox of mailboxes.sort((left, right) =>
-        left.fullPath.localeCompare(right.fullPath),
-      )) {
-        const storedMessages = await this.mail.threadMessage.countByMailbox(
-          account.accountConfigId,
-          mailbox.mailboxId,
-          {},
-          { excludeDeleted: true },
-        );
-        rows.push({ ...mailbox, storedMessages });
-      }
-    }
-    return rows;
-  }
-
   async listMailboxItems(accountIds: readonly string[]): Promise<readonly MailboxItem[]> {
     const lists = await Promise.all(
       accountIds.map((accountId) => this.mail.mailbox.listAllByAccount(accountId)),
@@ -299,248 +259,17 @@ export class TenantMail extends DurableObject<Env> {
     return lists.flat();
   }
 
-  async findMailbox(mailboxId: string): Promise<MailboxItem | null> {
-    const accountId = await this.mail.mailbox.resolveAccountId(mailboxId);
-    if (accountId === null) return null;
-    const [mailbox] = await this.mail.mailbox.get(accountId, [mailboxId]);
-    return mailbox ?? null;
-  }
-
-  async searchThreads(query: ThreadSearch): Promise<MailResult<ThreadPage>> {
-    if (query.mailboxIds?.length === 0) {
-      return {
-        ok: true,
-        value: { rows: query.results ? [] : null, continuationToken: null, count: 0 },
-      };
-    }
-    const mailboxIds = query.mailboxIds === null ? undefined : new Set(query.mailboxIds);
-    const scope = { ...(mailboxIds === undefined ? {} : { mailboxIds }), excludeDeleted: true };
-    const page = query.results
-      ? await this.mail.threadMessage
-          .searchByDate(query.accountConfigId, query.search, {
-            ...scope,
-            order: query.order,
-            limit: query.limit,
-            ...(query.continuationToken === null
-              ? {}
-              : { continuationToken: query.continuationToken }),
-          })
-          .then((result): PageRead => ({ ok: true, result }), invalidToken)
-      : null;
-    if (page !== null && !page.ok) return page;
-    const count = query.count
-      ? await this.mail.threadMessage.countThreadsInScope(
-          query.accountConfigId,
-          query.search,
-          scope,
-        )
-      : null;
-    return {
-      ok: true,
-      value: {
-        rows:
-          page === null
-            ? null
-            : await this.withSenderFlags(query.accountConfigId, page.result.items),
-        continuationToken: page?.result.continuationToken ?? null,
-        count,
-      },
-    };
-  }
-
-  async listThreadMessages(
-    accountConfigId: string,
-    threadId: string,
-    order: SortOrder,
-  ): Promise<readonly ThreadRow[]> {
-    const page = await this.mail.threadMessage.listByThread(threadId, accountConfigId, {
-      order,
-      limit: THREAD_LIMIT,
-      excludeDeleted: true,
-    });
-    return this.withSenderFlags(accountConfigId, page.items);
-  }
-
   async describeMessage(accountConfigId: string, messageId: string): Promise<MessageRecord | null> {
-    const [message] = await this.mail.message.get([messageId]);
-    if (message === undefined) return null;
-    const accountId = await this.mail.mailbox.resolveAccountId(message.mailboxId);
-    if (accountId === null) return null;
-    const [mailbox] = await this.mail.mailbox.get(accountId, [message.mailboxId]);
-    if (mailbox === undefined) return null;
-    const description = await this.mail.message.describe(messageId);
-    const [envelope] = description.envelope;
-    if (envelope === undefined) throw new Error(`message ${messageId} has no envelope`);
-    const addressIds = [...new Set(description.envelopeAddress.map((entry) => entry.addressId))];
-    const flags = new Map(
-      (await this.mail.address.getAddress(accountConfigId, addressIds)).map((address) => [
-        address.addressId,
-        flagsOf(address),
-      ]),
-    );
-    const addresses = [...description.envelopeAddress]
-      .sort(
-        (left, right) =>
-          left.addressRole.localeCompare(right.addressRole) ||
-          left.addressOrder - right.addressOrder,
-      )
-      .map((entry) => ({
-        addressId: entry.addressId,
-        role: entry.addressRole,
-        order: entry.addressOrder,
-        displayName: entry.displayName ?? null,
-        email: entry.normalizedEmail,
-        flags: flags.get(entry.addressId) ?? {},
-      }));
-    return {
-      message,
-      accountId,
-      mailboxPath: mailbox.fullPath,
-      date: envelope.dateValue,
-      subject: envelope.subject ?? null,
-      messageIdValue: envelope.messageIdValue ?? null,
-      addresses,
-      flags: description.messageFlag.map((flag) => flag.flagName).sort(),
-    };
+    return describeMessage(this.mail, accountConfigId, messageId);
   }
 
-  async locateMessages(messageIds: readonly string[]): Promise<readonly MessageLocation[]> {
-    const messages = await this.mail.message.get([...messageIds]);
-    const locations: MessageLocation[] = [];
-    for (const message of messages) {
-      const mailbox = await this.findMailbox(message.mailboxId);
-      if (mailbox === null) continue;
-      locations.push({
-        messageId: message.messageId,
-        accountId: mailbox.accountId,
-        mailboxId: mailbox.mailboxId,
-        mailboxPath: mailbox.fullPath,
-        uid: message.uid,
-      });
-    }
-    return locations;
-  }
-
-  async setFlags(
-    accountConfigId: string,
-    messageIds: readonly string[],
-    change: FlagChange,
-  ): Promise<number> {
-    for (const messageId of messageIds) {
-      await this.applyFlag(messageId, SEEN, change.isRead);
-      await this.applyFlag(messageId, FLAGGED, change.isStarred);
-      const threads = await this.mail.threadMessage.findAllByMessageId(accountConfigId, messageId);
-      for (const thread of threads) {
-        await this.mail.threadMessage.update(accountConfigId, thread.threadMessageId, {
-          ...(change.isRead === null ? {} : { isRead: change.isRead }),
-          ...(change.isStarred === null
-            ? {}
-            : { hasStars: change.isStarred, star: starOf(change.isStarred) }),
-        });
-      }
-    }
-    log.info("flags set", { count: messageIds.length, ...change });
-    return messageIds.length;
-  }
-
-  async flagState(accountConfigId: string, messageId: string): Promise<FlagState | null> {
-    const thread = await this.mail.threadMessage.findByMessageId(accountConfigId, messageId);
-    if (thread === null) return null;
-    return { messageId, isRead: thread.isRead, isStarred: thread.hasStars };
-  }
-
-  async updateAddressFlags(
-    accountConfigId: string,
-    addressId: string,
-    patch: AddressFlagsPatch,
-  ): Promise<AddressUpdate> {
-    const [current] = await this.mail.address.getAddress(accountConfigId, [addressId]);
-    if (current === undefined) return { kind: "NotFound" };
-    const merged = mergeAddressFlags(flagsOf(current), patch);
-    if (!merged.ok) return { kind: "Invalid", reason: merged.reason };
-    const address = await this.mail.address.updateAddress(accountConfigId, addressId, {
-      flags: merged.flags,
+  private clientFor(tenantId: string): RemitClient<never> {
+    const core = createRemitCore({
+      repositories: this.mail,
+      storage: r2Storage(this.env.MAIL),
+      secrets: tenantSecrets(this.env, tenantId),
     });
-    log.info("address flags set", { addressId, flags: Object.keys(merged.flags) });
-    return { kind: "Updated", address };
-  }
-
-  async createOutbox(input: NewOutbox): Promise<OutboxRecord> {
-    return this.mail.outboxMessage.create({
-      accountId: input.accountId,
-      accountConfigId: input.accountConfigId,
-      fromAddress: input.fromAddress,
-      messageIdValue: input.messageIdValue,
-      ...draftColumns(input.draft),
-      status: "draft",
-    });
-  }
-
-  async getOutbox(accountConfigId: string, outboxMessageId: string): Promise<OutboxRecord | null> {
-    const [record] = await this.mail.outboxMessage.get(accountConfigId, [outboxMessageId]);
-    return record ?? null;
-  }
-
-  async listOutbox(accountIds: readonly string[]): Promise<readonly OutboxRecord[]> {
-    const page = await this.mail.outboxMessage.listByAccounts([...accountIds], { limit: 500 });
-    return page.items;
-  }
-
-  async updateOutboxDraft(
-    accountConfigId: string,
-    outboxMessageId: string,
-    draft: OutboxDraft,
-  ): Promise<MailResult<OutboxRecord>> {
-    const update = draftColumns(draft);
-    const updated =
-      (await this.mail.outboxMessage.updateIfStatus(
-        accountConfigId,
-        outboxMessageId,
-        "draft",
-        update,
-      )) ??
-      (await this.mail.outboxMessage.updateIfStatus(
-        accountConfigId,
-        outboxMessageId,
-        "failed",
-        update,
-      ));
-    if (updated === null) return { ok: false, reason: "outbox message is not an editable draft" };
-    return { ok: true, value: updated };
-  }
-
-  async claimOutbox(
-    accountConfigId: string,
-    outboxMessageId: string,
-  ): Promise<MailResult<OutboxRecord>> {
-    const claim = { status: "sending" as const, lastError: "" };
-    const claimed =
-      (await this.mail.outboxMessage.updateIfStatus(
-        accountConfigId,
-        outboxMessageId,
-        "draft",
-        claim,
-      )) ??
-      (await this.mail.outboxMessage.updateIfStatus(
-        accountConfigId,
-        outboxMessageId,
-        "failed",
-        claim,
-      ));
-    if (claimed === null) return { ok: false, reason: "outbox message is not ready to send" };
-    return { ok: true, value: claimed };
-  }
-
-  async settleOutbox(
-    accountConfigId: string,
-    outboxMessageId: string,
-    change: OutboxStateChange,
-  ): Promise<OutboxRecord> {
-    return this.mail.outboxMessage.update(accountConfigId, outboxMessageId, {
-      status: change.status,
-      lastError: change.lastError ?? "",
-      ...(change.sentAt === null ? {} : { sentAt: change.sentAt }),
-    });
+    return { ...core, queues: {} };
   }
 
   async listAddresses(accountConfigId: string): Promise<AddressItem[]> {
@@ -561,15 +290,6 @@ export class TenantMail extends DurableObject<Env> {
     patch: FlagsMergePatch,
   ): Promise<AddressItem> {
     return this.mail.address.mergeFlags(accountConfigId, addressId, patch);
-  }
-
-  private async applyFlag(messageId: string, flag: string, set: boolean | null): Promise<void> {
-    if (set === null) return;
-    if (set) {
-      await this.mail.messageFlag.addFlag(messageId, flag);
-      return;
-    }
-    await this.mail.messageFlag.removeFlag(messageId, flag);
   }
 
   private async saveMessage(
@@ -711,31 +431,5 @@ export class TenantMail extends DurableObject<Env> {
       referenceOrder: 0,
       isDeleted: false,
     });
-  }
-
-  private async withSenderFlags(
-    accountConfigId: string,
-    rows: readonly ThreadMessageItem[],
-  ): Promise<ThreadRow[]> {
-    const addressIds = [
-      ...new Set(
-        rows.flatMap((row) =>
-          row.fromEmail === undefined ? [] : [deriveAddressId(accountConfigId, row.fromEmail)],
-        ),
-      ),
-    ];
-    const flags = new Map(
-      (await this.mail.address.getAddress(accountConfigId, addressIds)).map((address) => [
-        address.addressId,
-        flagsOf(address),
-      ]),
-    );
-    return rows.map((row) => ({
-      ...row,
-      senderFlags:
-        (row.fromEmail === undefined
-          ? undefined
-          : flags.get(deriveAddressId(accountConfigId, row.fromEmail))) ?? {},
-    }));
   }
 }

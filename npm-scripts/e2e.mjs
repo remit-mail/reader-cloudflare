@@ -216,6 +216,8 @@ const main = async () => {
       String(inspectorPort),
       "--persist-to",
       stateDir,
+      "--var",
+      `PUBLIC_ORIGIN:${env.E2E_BASE_URL}`,
       "--show-interactive-dev-session=false",
     ]);
     wrangler = spawn(command, args, { cwd: root, env, detached: true, stdio: "pipe" });

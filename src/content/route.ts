@@ -1,11 +1,9 @@
 import type { Tenant } from "../access";
-import { apiError, notFound } from "../api/respond";
 import type { Env } from "../env";
-import { log } from "../log";
+import { notFound } from "../http";
 import { parseEmail } from "../mail/parse";
 import { tenantMail } from "../stubs";
 import { messageParts } from "./parts";
-import { verifyContentSignature } from "./signature";
 
 const PREFIX = "/content/";
 const CONTENT_PATH =
@@ -36,19 +34,10 @@ export const serveContent = async (
     accountConfigId === undefined ||
     accountId === undefined ||
     messageId === undefined ||
-    partPath === undefined
+    partPath === undefined ||
+    accountConfigId !== tenant.accountConfigId
   ) {
     return notFound("Content");
-  }
-  const check = await verifyContentSignature(
-    env,
-    url.pathname.slice(PREFIX.length),
-    url.searchParams.get("exp"),
-    url.searchParams.get("sig"),
-  );
-  if (!check.valid) {
-    log.warn("content signature rejected", { tenantId: tenant.tenantId, reason: check.reason });
-    return apiError(403, "ContentSignature", `Content URL signature is ${check.reason}`);
   }
   const record = await tenantMail(env, tenant.tenantId).describeMessage(accountConfigId, messageId);
   if (record === null || record.accountId !== accountId) return notFound("Message");

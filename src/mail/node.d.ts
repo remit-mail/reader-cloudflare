@@ -14,3 +14,18 @@ declare module "node:async_hooks" {
     getStore(): T | undefined;
   }
 }
+
+declare module "node:buffer" {
+  export class Buffer extends Uint8Array {
+    static from(data: Uint8Array | ArrayBuffer | string, encoding?: "utf8"): Buffer;
+    static concat(list: readonly Uint8Array[]): Buffer;
+    toString(encoding?: "utf8"): string;
+  }
+}
+
+declare module "node:stream" {
+  export class Readable implements AsyncIterable<Uint8Array> {
+    static from(chunks: Iterable<Uint8Array>): Readable;
+    [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
+  }
+}

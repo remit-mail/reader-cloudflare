@@ -5,14 +5,9 @@ import type {
   AddressResponse,
   CanonicalMailboxRole,
   FolderAppointment,
-  MailboxResponse,
-  OutboxMessageResponse,
-  ThreadMessageResponse,
 } from "@remit/api-openapi-types";
-import type { AccountConfigItem, AccountItem, MailboxItem } from "@remit/data-ports";
-import { isMuted, senderTrustOf, storedFlags } from "../mail/address-flags";
-import type { AddressRecord, MailboxRow, OutboxRecord, ThreadRow } from "../mail/types";
-import { optional } from "./respond";
+import type { AccountConfigItem, AccountItem, AddressItem, MailboxItem } from "@remit/data-ports";
+import { storedFlags } from "../../mail/address-flags";
 
 const ROLES: readonly CanonicalMailboxRole[] = [
   "Inbox",
@@ -27,10 +22,17 @@ const ROLES: readonly CanonicalMailboxRole[] = [
 
 const SERVICES: readonly AccountService[] = ["Mail", "Calendar"];
 
-const isInbox = (mailbox: MailboxItem): boolean => mailbox.fullPath.toUpperCase() === "INBOX";
+export const optional = <K extends string, V>(
+  key: K,
+  value: V | null | undefined,
+): Partial<Record<K, V>> => {
+  const entry: Partial<Record<K, V>> = {};
+  if (value === null || value === undefined) return entry;
+  entry[key] = value;
+  return entry;
+};
 
-export const inboxesOf = (mailboxes: readonly MailboxItem[]): MailboxItem[] =>
-  mailboxes.filter(isInbox);
+const isInbox = (mailbox: MailboxItem): boolean => mailbox.fullPath.toUpperCase() === "INBOX";
 
 const services = (value: unknown): AccountService[] =>
   Array.isArray(value) ? SERVICES.filter((service) => value.includes(service)) : [];
@@ -53,7 +55,7 @@ const appointment = (role: CanonicalMailboxRole, mailboxes: readonly MailboxItem
   return { role, source: "None" as const };
 };
 
-export const folderAppointments = (mailboxes: readonly MailboxItem[]): FolderAppointment[] =>
+const folderAppointments = (mailboxes: readonly MailboxItem[]): FolderAppointment[] =>
   ROLES.map((role) => appointment(role, mailboxes));
 
 export const toAccountConfigResponse = (row: AccountConfigItem): AccountConfigResponse => ({
@@ -103,81 +105,7 @@ export const toAccountResponse = (
   ),
 });
 
-export const toMailboxResponse = (row: MailboxRow): MailboxResponse => ({
-  mailboxId: row.mailboxId,
-  accountId: row.accountId,
-  namespaceType: row.namespaceType,
-  namespacePrefix: row.namespacePrefix,
-  hierarchyDelimiter: row.hierarchyDelimiter,
-  fullPath: row.fullPath,
-  messageCount: row.messageCount,
-  unseenCount: row.unseenCount,
-  deletedCount: row.deletedCount,
-  lastSyncUid: row.lastSyncUid,
-  highWaterMarkUid: row.highWaterMarkUid,
-  lastMessageSyncAt: row.lastMessageSyncAt,
-  syncStatus: row.syncStatus,
-  syncFailureReason: row.syncFailureReason,
-  specialUse: [...(row.specialUse ?? [])],
-  createdAt: row.createdAt,
-  updatedAt: row.updatedAt,
-});
-
-export const toThreadMessageResponse = (
-  row: ThreadRow,
-  accountIds: ReadonlyMap<string, string>,
-): ThreadMessageResponse => ({
-  threadMessageId: row.threadMessageId,
-  threadId: row.threadId,
-  messageId: row.messageId,
-  accountConfigId: row.accountConfigId,
-  mailboxId: row.mailboxId,
-  ...optional("fromEmail", row.fromEmail),
-  ...optional("fromName", row.fromName),
-  ...optional("subject", row.subject),
-  sentDate: row.sentDate,
-  isRead: row.isRead,
-  hasAttachment: row.hasAttachment,
-  star: row.star,
-  hasStars: row.hasStars,
-  isDeleted: row.isDeleted,
-  ...optional("snippet", row.snippet),
-  createdAt: row.createdAt,
-  updatedAt: row.updatedAt,
-  category: row.category,
-  senderTrust: senderTrustOf(row.senderFlags),
-  muted: isMuted(row.senderFlags),
-  status: "active",
-  syncStatus: "synced",
-  abandonedMutation: "none",
-  ...optional("accountId", accountIds.get(row.mailboxId)),
-});
-
-export const accountIdsByMailbox = (mailboxes: readonly MailboxItem[]): Map<string, string> =>
-  new Map(mailboxes.map((mailbox) => [mailbox.mailboxId, mailbox.accountId]));
-
-export const toOutboxMessageResponse = (record: OutboxRecord): OutboxMessageResponse => ({
-  outboxMessageId: record.outboxMessageId,
-  accountId: record.accountId,
-  fromAddress: record.fromAddress,
-  ...optional("fromName", record.fromName),
-  toAddresses: [...record.toAddresses],
-  ccAddresses: [...record.ccAddresses],
-  bccAddresses: [...record.bccAddresses],
-  ...optional("subject", record.subject),
-  ...optional("inReplyTo", record.inReplyTo),
-  references: [...record.references],
-  ...optional("textBody", record.textBody),
-  ...optional("htmlBody", record.htmlBody),
-  status: record.status,
-  ...optional("lastError", record.lastError),
-  ...optional("sentAt", record.sentAt),
-  createdAt: record.createdAt,
-  updatedAt: record.updatedAt,
-  attachments: [],
-});
-
-export const toAddressResponse = (record: AddressRecord): AddressResponse => ({
+export const toAddressResponse = (record: AddressItem): AddressResponse => ({
   addressId: record.addressId,
   accountConfigId: record.accountConfigId,
   ...optional("displayName", record.displayName),

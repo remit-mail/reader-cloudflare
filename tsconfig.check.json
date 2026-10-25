@@ -4,7 +4,9 @@
     "paths": {
       "@remit/config-format": ["./.types/config-format/src/index.d.ts"],
       "@remit/config-transfer": ["./.types/config-transfer/src/index.d.ts"],
-      "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"]
+      "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"],
+      "@remit/mail-oauth-service": ["./.types/mail-oauth-service/src/index.d.ts"],
+      "@remit/secrets-service": ["./.types/secrets-service/src/index.d.ts"]
     }
   }
 }

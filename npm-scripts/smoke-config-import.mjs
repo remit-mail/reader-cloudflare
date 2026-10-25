@@ -52,7 +52,11 @@ const mf = new Miniflare({
       ],
       compatibilityDate: "2026-08-06",
       compatibilityFlags: ["nodejs_compat"],
-      bindings: { ACCESS_TEAM_DOMAIN: teamDomain, ACCESS_AUD: audience },
+      bindings: {
+        ACCESS_TEAM_DOMAIN: teamDomain,
+        ACCESS_AUD: audience,
+        PUBLIC_ORIGIN: "https://smoke.test",
+      },
       d1Databases: { DB: "smoke-db" },
       r2Buckets: ["MAIL"],
       queueProducers: { SYNC: { queueName: "smoke-sync" } },

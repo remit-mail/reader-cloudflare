@@ -18,7 +18,6 @@ export type ErrorKind =
 const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   ValidationError: "validation",
   Unauthorized: "auth",
-  ContentSignature: "auth",
   NotFound: "notFound",
   MethodNotAllowed: "client",
   NotImplemented: "notImplemented",

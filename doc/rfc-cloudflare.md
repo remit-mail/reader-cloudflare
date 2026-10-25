@@ -13,15 +13,15 @@ Each decision below carries a number. Disagree by number.
 
 ## Storage
 
-3. One shared D1 database holds reader's app schema set, all 11 tables, for every tenant, plus three Cloudflare-only tables: `tenant_account`, `credential` and `tenant_key`. The Worker composes reader's settings repositories over `drizzle-orm/d1` per request. A tenant owns the account config whose `user_id` is its derived user id, and every other app row hangs off that config, as in reader. The repositories that read mail rows (account config, account, config import) reach the tenant's mail object through thin RPC ports.
+3. One shared D1 database holds reader's app schema set, all 11 tables, for every tenant, plus one Cloudflare-only table, `tenant_key`. A tenant owns the account config whose id is reader's `deriveAccountConfigId` of the Access subject, and every other app row hangs off that config, as in reader. Inside the mail object, `composeSqliteRepositories` composes every repository over D1 and the object's own SQLite. Outside it, the sync object and the queue consumers reach mail rows through thin RPC ports.
 4. Each tenant gets one mail Durable Object on SQLite. It runs reader's mail repositories and `SearchIndex` from `@remit/drizzle-service` over its own SQLite handle, with `syncBatch` as the write port. The FTS5 table sits in the same database, because reader's index reads the mail rows directly. It is written after each mail write. A Durable Object starts on first use, so a new tenant needs no deploy.
 5. Message bodies and attachments live in R2, outside the mail database.
 6. No code uses an interactive transaction. A write is an atomic batch or an idempotent step that is safe to repeat. A queue can deliver a message twice. Two tabs can start the same sync.
-7. Every schema is Drizzle sqlite-core. The mail database's migrations are generated from reader's mail schema set, plus reader's FTS5 DDL as one custom migration. A small TypeSpec here generates the three Cloudflare-only tables. It uses reader's emitter and entity vocabulary.
+7. Every schema is Drizzle sqlite-core. The mail database's migrations are generated from reader's mail schema set, plus reader's FTS5 DDL as one custom migration. A small TypeSpec here generates the Cloudflare-only table. It uses reader's emitter and entity vocabulary.
 
 ## Credentials
 
-8. Credentials use envelope encryption. One master key lives in Secrets Store. Each tenant gets a random data key, wrapped by the master key. Every row carries a key version, so a key can rotate. Where a provider supports OAuth, it takes priority over an app password.
+8. Credentials use envelope encryption. One master key lives in Secrets Store. Each tenant gets a random data key, wrapped by the master key. It is the data key provider of reader's secrets service, so a password lives on reader's account row as `passwordHash`. Every wrapped key carries a key version, so a key can rotate. Where a provider supports OAuth, it takes priority over an app password.
 
 ## Sync and schema updates
 
@@ -36,12 +36,12 @@ Each decision below carries a number. Disagree by number.
 ## Shared code
 
 13. The repo owns the Access identity to tenant mapping and the port adapters that plug D1, Durable Objects, R2 and the queue into reader's ports. It also owns the socket plumbing: imapflow over a `cloudflare:sockets` transport, and nodemailer over a `getSocket` on `node:tls` and `node:net`.
-14. The web client is `@remit/web-client`, mounted with an Access auth provider. The Worker serves the API contract from `@remit/api-openapi-spec` through openapi-backend at `/api` and `/content`, typed by `@remit/api-zod-schemas` and `@remit/api-openapi-types`.
+14. The web client is `@remit/web-client`, mounted with an Access auth provider. The Worker verifies Access and forwards `/api` with the caller's identity to the tenant's mail object, which serves it through `serveApi` and `handleFetch` from `@remit/backend/serve`. `/content` serves body parts behind Access, scoped to the caller's account config.
 15. Handlers come from `@remit/backend`, and repositories and schema sets from `@remit/drizzle-service`. `@remit/data-ports` and `@remit/domain-enums` supply the ports and enums. `@remit/logger` defines the logger, and the repo injects its Workers adapter.
 
 ## Interim
 
-1. Handlers for the needed operations live in this repo and call reader's repositories inside the mail object. `@remit/backend` handlers read one process-wide client and an API Gateway event, which a Worker serving many tenants cannot share. They go once reader injects the repositories per request.
+1. The client composes no queue yet, so reader serves every operation that sends to none. Ten operations that need a queue run local handlers in `src/api/local` over the same client: get config, create account, trigger sync, describe message, the two flag updates, update address, and create, update and send outbox. Each goes once its queue has a Cloudflare consumer. Every other queue operation answers 501.
 2. Three list-wrapper types are hand-written. They go once reader's TypeSpec names them.
 3. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
 4. A sync run takes the newest 200 messages per mailbox. A later backfill fetches the older ones.

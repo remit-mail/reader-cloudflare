@@ -14,6 +14,15 @@ export interface Env {
   readonly ACCOUNT_SYNC: DurableObjectNamespace<AccountSync>;
   readonly ACCESS_TEAM_DOMAIN: string;
   readonly ACCESS_AUD: string;
+  readonly PUBLIC_ORIGIN: string;
   readonly ACCESS_DEV_IDENTITY?: string;
   readonly PLAINTEXT_MAIL_HOSTS?: string;
+}
+
+type WorkerEnv = Env;
+
+declare global {
+  namespace Cloudflare {
+    interface Env extends WorkerEnv {}
+  }
 }

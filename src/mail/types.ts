@@ -2,12 +2,9 @@ import type { AddressFlags } from "@remit/api-openapi-types";
 import type {
   AddressItem,
   EnvelopeAddressItem,
-  MailboxItem,
   MailboxSpecialUseValue,
   MessageItem,
   OutboxMessageItem,
-  SearchOptions,
-  ThreadMessageItem,
 } from "@remit/data-ports";
 
 export type SpecialUse = MailboxSpecialUseValue;
@@ -67,33 +64,6 @@ export type MailResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly reason: string };
 
-export interface MailboxRow extends MailboxItem {
-  readonly storedMessages: number;
-}
-
-export type SortOrder = "asc" | "desc";
-
-export interface ThreadSearch {
-  readonly accountConfigId: string;
-  readonly mailboxIds: readonly string[] | null;
-  readonly search: SearchOptions;
-  readonly order: SortOrder;
-  readonly continuationToken: string | null;
-  readonly limit: number;
-  readonly results: boolean;
-  readonly count: boolean;
-}
-
-export interface ThreadRow extends ThreadMessageItem {
-  readonly senderFlags: AddressFlags;
-}
-
-export interface ThreadPage {
-  readonly rows: readonly ThreadRow[] | null;
-  readonly continuationToken: string | null;
-  readonly count: number | null;
-}
-
 export interface EnvelopeAddressRecord {
   readonly addressId: string;
   readonly role: AddressRole;
@@ -135,7 +105,7 @@ export interface FlagState {
 
 export type OutboxRecord = OutboxMessageItem;
 
-export type OutboxStatus = OutboxMessageItem["status"];
+type OutboxStatus = OutboxMessageItem["status"];
 
 export interface OutboxDraft {
   readonly toAddresses: readonly string[];
@@ -162,10 +132,8 @@ export interface OutboxStateChange {
   readonly sentAt: number | null;
 }
 
-export type AddressRecord = AddressItem;
-
 export type AddressUpdate =
-  | { readonly kind: "Updated"; readonly address: AddressRecord }
+  | { readonly kind: "Updated"; readonly address: AddressItem }
   | { readonly kind: "NotFound" }
   | { readonly kind: "Invalid"; readonly reason: string };
 

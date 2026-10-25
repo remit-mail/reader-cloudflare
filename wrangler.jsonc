@@ -18,7 +18,8 @@
   },
   "vars": {
     "ACCESS_TEAM_DOMAIN": "stallion-app.cloudflareaccess.com",
-    "ACCESS_AUD": "b06099dd8699373a9073e60ed78ca5d1bfff972808c1d5b46714f3b4ec567596"
+    "ACCESS_AUD": "b06099dd8699373a9073e60ed78ca5d1bfff972808c1d5b46714f3b4ec567596",
+    "PUBLIC_ORIGIN": "https://app.remit.email"
   },
   "d1_databases": [
     {
@@ -73,6 +74,7 @@
       "vars": {
         "ACCESS_TEAM_DOMAIN": "stallion-app.cloudflareaccess.com",
         "ACCESS_AUD": "b06099dd8699373a9073e60ed78ca5d1bfff972808c1d5b46714f3b4ec567596",
+        "PUBLIC_ORIGIN": "http://127.0.0.1:8790",
         "ACCESS_DEV_IDENTITY": "e2e@remit.test",
         "PLAINTEXT_MAIL_HOSTS": "127.0.0.1"
       },

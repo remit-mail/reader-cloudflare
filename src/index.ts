@@ -1,10 +1,12 @@
-import { requireTenant } from "./access";
-import { apiError, quotaExceeded, unauthorized } from "./api/respond";
-import { handleApi, operationOf } from "./api/router";
+import { api } from "@remit/backend/api";
+import { identityOf, requireTenant, type Tenant } from "./access";
+import { API_ROOT } from "./api/serve";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
 import { errorKindOf } from "./error-kind";
-import { annotateLog, log, withLogContext } from "./log";
+import { apiError, quotaExceeded, unauthorized } from "./http";
+import { annotateLog, currentCorrelationId, installRemitLogger, log, withLogContext } from "./log";
+import { tenantMail } from "./stubs";
 import {
   describeSyncMessage,
   handleDeadLetter,
@@ -15,6 +17,10 @@ import {
 
 export { TenantMail as TenantMailV2 } from "./mail/tenant-mail";
 export { AccountSync as AccountSyncV2 } from "./sync/account-sync";
+
+installRemitLogger();
+
+const operations = api.init();
 
 const CORRELATION_HEADER = "x-correlation-id";
 const INBOUND_CORRELATION = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -48,11 +54,16 @@ const failed =
     return response;
   };
 
+type Serve = (request: Request, env: Env, tenant: Tenant) => Promise<Response>;
+
+const serveApi: Serve = (request, env, tenant) =>
+  tenantMail(env, tenant.tenantId).api(request, identityOf(tenant), currentCorrelationId());
+
 const authenticated = async (
   request: Request,
   env: Env,
   path: string,
-  serve: typeof handleApi,
+  serve: Serve,
 ): Promise<Response> => {
   const result = await requireTenant(request, env);
   if (!result.ok) {
@@ -65,12 +76,22 @@ const authenticated = async (
 
 const route = (request: Request, env: Env, url: URL): Promise<Response> => {
   if (url.pathname.startsWith("/api/")) {
-    return authenticated(request, env, url.pathname, handleApi);
+    return authenticated(request, env, url.pathname, serveApi);
   }
   if (isContentPath(url.pathname)) {
     return authenticated(request, env, url.pathname, serveContent);
   }
   return env.ASSETS.fetch(request);
+};
+
+const operationOf = async (method: string, url: URL): Promise<string> => {
+  await operations;
+  const operation = api.matchOperation({
+    method,
+    path: url.pathname.slice(API_ROOT.length),
+    headers: {},
+  });
+  return operation?.operationId ?? "unmatched";
 };
 
 const routeOf = (method: string, url: URL): Promise<string> => {

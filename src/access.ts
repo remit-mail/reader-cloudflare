@@ -1,9 +1,10 @@
+import type { UserIdentity } from "@remit/backend/serve";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Env } from "./env";
-import { deriveUserId } from "./mail/ids";
 
 export interface Tenant {
   readonly tenantId: string;
-  readonly userId: string;
+  readonly accountConfigId: string;
   readonly email: string;
 }
 
@@ -144,9 +145,16 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
 
 const denied = (reason: string): TenantResult => ({ ok: false, reason });
 
-const admitted = async (tenantId: string, email: string): Promise<TenantResult> => ({
+const admitted = (tenantId: string, email: string): TenantResult => ({
   ok: true,
-  tenant: { tenantId, userId: await deriveUserId(tenantId), email },
+  tenant: { tenantId, accountConfigId: deriveAccountConfigId(tenantId), email },
+});
+
+export const identityOf = (tenant: Tenant): UserIdentity => ({
+  kind: "user",
+  accountConfigId: tenant.accountConfigId,
+  sub: tenant.tenantId,
+  email: tenant.email,
 });
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);

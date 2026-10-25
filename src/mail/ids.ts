@@ -25,8 +25,6 @@ const uuidV5Base36 = async (name: string): Promise<string> => {
   return BigInt(`0x${hex}`).toString(36).padStart(25, "0");
 };
 
-export const deriveUserId = (tenantId: string): Promise<string> => uuidV5Base36(`user:${tenantId}`);
-
 export const deriveMessageId = (
   accountId: string,
   mailboxId: string,

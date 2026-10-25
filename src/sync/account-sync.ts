@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
+import type { UpdateAccountInput } from "@remit/data-ports";
 import type { ImapFlow } from "imapflow";
-import { decryptCredential } from "../db/accounts";
-import { openAppStore } from "../db/client";
+import { accountPassword, tenantSecrets } from "../crypto/envelope";
 import { openSettings } from "../db/settings";
 import type { Env } from "../env";
 import { errorKindOf } from "../error-kind";
@@ -77,6 +77,10 @@ export class AccountSync extends DurableObject<Env> {
       currentMailbox: stored.currentMailbox,
     });
     await this.save(lost);
+    const account: unknown = await this.ctx.storage.get(ACCOUNT_KEY);
+    if (isMailAccount(account)) {
+      await this.publish(account, { syncPhase: "error", lastError: LOST_RUN });
+    }
     return lost;
   }
 
@@ -93,6 +97,7 @@ export class AccountSync extends DurableObject<Env> {
     };
     await this.ctx.storage.put({ [ACCOUNT_KEY]: account, [STATE_KEY]: state });
     await this.ctx.storage.setAlarm(now);
+    await this.publish(account, { syncPhase: "discovering_mailboxes" });
     log.info("sync started", { tenantId: account.tenantId, accountId: account.accountId });
     return { started: true, state };
   }
@@ -193,14 +198,8 @@ export class AccountSync extends DurableObject<Env> {
     const [row] = await openSettings(this.env, account.tenantId).account.get([account.accountId]);
     const owned = row?.accountConfigId === account.accountConfigId && row.deletedAt === undefined;
     if (row === undefined || !owned) throw new Error("account no longer exists");
-    const secret = await decryptCredential(
-      this.env,
-      openAppStore(this.env.DB),
-      account.tenantId,
-      account.accountId,
-    );
-    if (!secret.ok) throw new Error(secret.reason);
-    return accountCredentials(row, secret.plaintext).imap;
+    const password = await accountPassword(tenantSecrets(this.env, account.tenantId), row);
+    return accountCredentials(row, password).imap;
   }
 
   private async passOver(account: MailAccount): Promise<PassOutcome> {
@@ -221,6 +220,11 @@ export class AccountSync extends DurableObject<Env> {
     const mailboxes = await listServerMailboxes(this.env, client, account);
     const marks = await this.loadMarks();
     await this.advance({ mailboxesTotal: mailboxes.length, ...this.tally(mailboxes, marks) });
+    await this.publish(account, {
+      syncPhase: "syncing_inbox",
+      mailboxCountTotal: mailboxes.length,
+      mailboxCountSynced: this.progress.mailboxesDone,
+    });
     const offset = mailboxes.length === 0 ? 0 : this.progress.resumeAt % mailboxes.length;
     for (let step = 0; step < mailboxes.length; step += 1) {
       const index = (offset + step) % mailboxes.length;
@@ -247,6 +251,10 @@ export class AccountSync extends DurableObject<Env> {
       marks[mailbox.mailboxId] = result.mark;
       await this.ctx.storage.put(MARKS_KEY, marks);
       await this.advance(this.tally(mailboxes, marks));
+      await this.publish(account, {
+        syncPhase: "syncing_others",
+        mailboxCountSynced: this.progress.mailboxesDone,
+      });
     }
     await this.advance({ resumeAt: 0 });
     return { complete: this.progress.mailboxesDone === mailboxes.length };
@@ -265,6 +273,10 @@ export class AccountSync extends DurableObject<Env> {
       },
       { mailboxesDone: 0, remaining: 0 },
     );
+  }
+
+  private async publish(account: MailAccount, progress: UpdateAccountInput): Promise<void> {
+    await openSettings(this.env, account.tenantId).account.update(account.accountId, progress);
   }
 
   private progressFields(): Record<string, unknown> {
