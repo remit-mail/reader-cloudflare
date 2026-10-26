@@ -132,6 +132,10 @@
     {
       "tag": "v8",
       "new_sqlite_classes": ["TenantMailV3"]
+    },
+    {
+      "tag": "v9",
+      "deleted_classes": ["TenantMailV2"]
     }
   ],
   "rules": [

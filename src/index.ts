@@ -24,7 +24,7 @@ import {
 } from "./queue/routing";
 import { tenantMail } from "./stubs";
 
-export { TenantMail as TenantMailV2, TenantMail as TenantMailV3 } from "./mail/tenant-mail";
+export { TenantMail as TenantMailV3 } from "./mail/tenant-mail";
 
 installRemitLogger();
 
