@@ -26,7 +26,8 @@ interface JwtHeader {
 
 interface AccessClaims {
   readonly sub: string;
-  readonly email: string;
+  readonly email?: string;
+  readonly common_name?: string;
   readonly iss: string;
   readonly aud: string | readonly string[];
   readonly exp: number;
@@ -67,8 +68,8 @@ const isAudience = (value: unknown): value is string | readonly string[] =>
 const isAccessClaims = (value: unknown): value is AccessClaims =>
   isRecord(value) &&
   typeof value.sub === "string" &&
-  value.sub !== "" &&
-  typeof value.email === "string" &&
+  (value.email === undefined || typeof value.email === "string") &&
+  (value.common_name === undefined || typeof value.common_name === "string") &&
   typeof value.iss === "string" &&
   isAudience(value.aud) &&
   typeof value.exp === "number" &&
@@ -145,6 +146,8 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
 
 const denied = (reason: string): TenantResult => ({ ok: false, reason });
 
+const subjectOf = (claims: AccessClaims): string => claims.sub || (claims.common_name ?? "");
+
 const admitted = (tenantId: string, email: string): TenantResult => ({
   ok: true,
   tenant: { tenantId, accountConfigId: deriveAccountConfigId(tenantId), email },
@@ -207,5 +210,7 @@ export const requireTenant = async (request: Request, env: Env): Promise<TenantR
   if (claims.nbf !== undefined && claims.nbf - CLOCK_SKEW_S > now) {
     return denied("Access token not yet valid");
   }
-  return admitted(claims.sub, claims.email);
+  const subject = subjectOf(claims);
+  if (subject === "") return denied("Access token names no subject");
+  return admitted(subject, claims.email || subject);
 };

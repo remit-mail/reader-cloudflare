@@ -12,6 +12,9 @@ export const TOFU_INIT = [
   "-reconfigure",
   `-backend-config=path=${TFSTATE}`,
 ];
+export const ACCESS_ENV = join(CONFIG_DIR, "access-env");
+export const TEST_ACCOUNT_ENV = join(CONFIG_DIR, "test-account-env");
+export const APP_URL = "https://app.remit.email";
 
 export const parseEnv = (text) =>
   Object.fromEntries(

@@ -140,5 +140,8 @@ resource "cloudflare_zero_trust_access_application" "reader" {
   policies = [{
     id         = cloudflare_zero_trust_access_policy.owner.id
     precedence = 1
+    }, {
+    id         = cloudflare_zero_trust_access_policy.agent.id
+    precedence = 2
   }]
 }

@@ -33,3 +33,15 @@ output "debug_token" {
   value       = cloudflare_account_token.debug.value
   sensitive   = true
 }
+
+output "agent_client_id" {
+  description = "CF-Access-Client-Id of the agent service token; npm run access-env:write puts it in access-env."
+  value       = cloudflare_zero_trust_access_service_token.agent.client_id
+  sensitive   = true
+}
+
+output "agent_client_secret" {
+  description = "CF-Access-Client-Secret of the agent service token; npm run access-env:write puts it in access-env."
+  value       = cloudflare_zero_trust_access_service_token.agent.client_secret
+  sensitive   = true
+}
