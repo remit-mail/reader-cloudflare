@@ -37,7 +37,10 @@
     "smoke:config-import": "node npm-scripts/smoke-config-import.mjs",
     "logs": "node npm-scripts/logs.mjs",
     "e2e": "node npm-scripts/e2e.mjs",
-    "dashboards": "node npm-scripts/dashboards.mjs"
+    "dashboards": "node npm-scripts/dashboards.mjs",
+    "access-env:write": "node npm-scripts/access-env-write.mjs",
+    "api": "node npm-scripts/api.mjs",
+    "smoke:sync": "node npm-scripts/smoke-sync.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
