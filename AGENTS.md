@@ -42,7 +42,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                    |
 | `npm run db:generate:mail`           | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`    |
 | `npm run db:migrate`                 | `wrangler d1 migrations apply` on the remote D1                                         |
-| `npm run db:migrate:build`           | `db:migrate` inside Workers Builds, a no-op anywhere else                               |
+| `npm run db:migrate:build`           | `db:migrate` in a Workers Builds step that holds the API token, a no-op anywhere else   |
 | `npm run wrangler -- <args>`         | `wrangler` with the Cloudflare token from `cf-env`                                      |
 | `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`; kept until Workers Builds first deploys           |
 
