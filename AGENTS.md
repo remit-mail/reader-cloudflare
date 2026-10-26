@@ -8,9 +8,9 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 - npm workspaces with one lockfile at the root. Current major versions of every tool; Node 24 (`.nvmrc`).
 - Biome formats and lints. Run `npm run fix` before every commit.
 - Run `npm run ci` before every push.
-- Push straight to `main` until the prototype runs end to end.
+- `main` is protected. Branch from `origin/main`, run `npm run ci` before pushing, and open a pull request with a conventional title under 72 characters and a four-line body. Arm `gh pr merge --squash --auto`; it squash merges once `ci` is green and deletes the branch.
 - Never migrate or re-key existing data on the request path or at Durable Object start; a schema change that reshapes rows means wipe the tenant object and resync, or a D1 migration in `npm run db:migrate`.
-- CI is one fast job: `npm ci`, `npm run check`, `npm run typecheck`.
+- CI is one fast job named `ci`, the required check on `main`: `npm ci`, then `npm run ci`. It runs on every pull request and every push to `main`, and never deploys.
 - The Worker logs one JSON object per line through `log` in `src/log.ts`. Workers Observability is on in `wrangler.jsonc`.
 - `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `wrangler.jsonc` runs `npm run db:migrate:build`, then it, then `npm run build` as the build command, so `dev` and `deploy` ship fresh assets; `typecheck` runs it first. `GET /api/config` carries it as `buildCommit`, so a deploy matches a commit; the stale-build reload in `packages/web/src/stale-build.ts` compares it against the loaded bundle.
 
@@ -36,7 +36,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run check`                      | Biome format and lint check                                                             |
 | `npm run typecheck`                  | `tsc` over `src` and every package, against declarations `build:vendor-types` emits     |
 | `npm run smoke:config-import`        | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1) |
-| `npm run ci`                         | `check` then `typecheck`; run before every push                                         |
+| `npm run ci`                         | `check`, `check:retries`, then `typecheck`; run before every push                       |
 | `npm run e2e`                        | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it |
 | `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`                                           |
 | `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                    |
@@ -44,7 +44,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run db:migrate`                 | `wrangler d1 migrations apply` on the remote D1                                         |
 | `npm run db:migrate:build`           | `db:migrate` inside Workers Builds, a no-op anywhere else                               |
 | `npm run wrangler -- <args>`         | `wrangler` with the Cloudflare token from `cf-env`                                      |
-| `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`                                                    |
+| `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`; kept until Workers Builds first deploys           |
 
 ## Infra
 
