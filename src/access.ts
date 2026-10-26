@@ -1,5 +1,5 @@
 import type { UserIdentity } from "@remit/backend/serve";
-import { accountConfigIdOf } from "./db/account-config";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Env } from "./env";
 
 export interface Tenant {
@@ -145,9 +145,9 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
 
 const denied = (reason: string): TenantResult => ({ ok: false, reason });
 
-const admitted = async (env: Env, tenantId: string, email: string): Promise<TenantResult> => ({
+const admitted = (tenantId: string, email: string): TenantResult => ({
   ok: true,
-  tenant: { tenantId, accountConfigId: await accountConfigIdOf(env.DB, tenantId), email },
+  tenant: { tenantId, accountConfigId: deriveAccountConfigId(tenantId), email },
 });
 
 export const identityOf = (tenant: Tenant): UserIdentity => ({
@@ -162,18 +162,16 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const toHex = (bytes: ArrayBuffer): string =>
   Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const devTenant = async (request: Request, env: Env, email: string): Promise<TenantResult> => {
+const devTenant = async (request: Request, email: string): Promise<TenantResult> => {
   if (!LOOPBACK_HOSTS.has(new URL(request.url).hostname)) {
     return denied("dev identity is only accepted on loopback");
   }
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
-  return admitted(env, `dev-${toHex(digest).slice(0, 32)}`, email);
+  return admitted(`dev-${toHex(digest).slice(0, 32)}`, email);
 };
 
 export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
-  if (env.ACCESS_DEV_IDENTITY !== undefined) {
-    return devTenant(request, env, env.ACCESS_DEV_IDENTITY);
-  }
+  if (env.ACCESS_DEV_IDENTITY !== undefined) return devTenant(request, env.ACCESS_DEV_IDENTITY);
   const token = readToken(request);
   if (token === undefined) return denied("missing Access token");
   const parts = token.split(".");
@@ -209,5 +207,5 @@ export const requireTenant = async (request: Request, env: Env): Promise<TenantR
   if (claims.nbf !== undefined && claims.nbf - CLOCK_SKEW_S > now) {
     return denied("Access token not yet valid");
   }
-  return admitted(env, claims.sub, claims.email);
+  return admitted(claims.sub, claims.email);
 };
