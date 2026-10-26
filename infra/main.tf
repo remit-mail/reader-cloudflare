@@ -51,6 +51,26 @@ resource "cloudflare_queue" "sync_dlq" {
   queue_name = "${local.name}-sync-dlq"
 }
 
+resource "cloudflare_queue" "mutation" {
+  account_id = var.account_id
+  queue_name = "${local.name}-mutation"
+}
+
+resource "cloudflare_queue" "smtp" {
+  account_id = var.account_id
+  queue_name = "${local.name}-smtp"
+}
+
+resource "cloudflare_queue" "fanout" {
+  account_id = var.account_id
+  queue_name = "${local.name}-fanout"
+}
+
+resource "cloudflare_queue" "dlq" {
+  account_id = var.account_id
+  queue_name = "${local.name}-dlq"
+}
+
 resource "cloudflare_secrets_store" "this" {
   account_id = var.account_id
   name       = local.name

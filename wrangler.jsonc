@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "reader-cloudflare",
   "main": "src/index.ts",
-  "build": { "command": "npm run commit && npm run build" },
+  "build": {
+    "command": "npm run commit && npm run build"
+  },
   "assets": {
     "directory": "packages/web/dist",
     "binding": "ASSETS",
@@ -12,7 +14,12 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "routes": [{ "pattern": "app.remit.email", "custom_domain": true }],
+  "routes": [
+    {
+      "pattern": "app.remit.email",
+      "custom_domain": true
+    }
+  ],
   "observability": {
     "enabled": true
   },
@@ -28,9 +35,31 @@
       "database_id": "b89e3e29-23ba-427b-95ae-cc4cd5c15167"
     }
   ],
-  "r2_buckets": [{ "binding": "MAIL", "bucket_name": "reader-cloudflare-mail" }],
+  "r2_buckets": [
+    {
+      "binding": "MAIL",
+      "bucket_name": "reader-cloudflare-mail"
+    }
+  ],
   "queues": {
-    "producers": [{ "binding": "SYNC", "queue": "reader-cloudflare-sync" }],
+    "producers": [
+      {
+        "binding": "SYNC",
+        "queue": "reader-cloudflare-sync"
+      },
+      {
+        "binding": "MUTATION_QUEUE",
+        "queue": "reader-cloudflare-mutation"
+      },
+      {
+        "binding": "SMTP_QUEUE",
+        "queue": "reader-cloudflare-smtp"
+      },
+      {
+        "binding": "FANOUT_QUEUE",
+        "queue": "reader-cloudflare-fanout"
+      }
+    ],
     "consumers": [
       {
         "queue": "reader-cloudflare-sync",
@@ -42,24 +71,77 @@
         "queue": "reader-cloudflare-sync-dlq",
         "max_batch_size": 5,
         "max_retries": 3
+      },
+      {
+        "queue": "reader-cloudflare-mutation",
+        "max_batch_size": 10,
+        "max_retries": 2,
+        "dead_letter_queue": "reader-cloudflare-dlq"
+      },
+      {
+        "queue": "reader-cloudflare-smtp",
+        "max_batch_size": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "reader-cloudflare-dlq"
+      },
+      {
+        "queue": "reader-cloudflare-fanout",
+        "max_batch_size": 10,
+        "max_retries": 2,
+        "dead_letter_queue": "reader-cloudflare-dlq"
+      },
+      {
+        "queue": "reader-cloudflare-dlq",
+        "max_batch_size": 5,
+        "max_retries": 3
       }
     ]
   },
   "durable_objects": {
     "bindings": [
-      { "name": "TENANT_MAIL", "class_name": "TenantMailV2" },
-      { "name": "ACCOUNT_SYNC", "class_name": "AccountSyncV2" }
+      {
+        "name": "TENANT_MAIL",
+        "class_name": "TenantMailV2"
+      },
+      {
+        "name": "ACCOUNT_SYNC",
+        "class_name": "AccountSyncV2"
+      }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["TenantMail"] },
-    { "tag": "v2", "new_sqlite_classes": ["TenantSearch"] },
-    { "tag": "v3", "new_sqlite_classes": ["AccountSync"] },
-    { "tag": "v4", "deleted_classes": ["TenantSearch"] },
-    { "tag": "v5", "new_sqlite_classes": ["TenantMailV2", "AccountSyncV2"] },
-    { "tag": "v6", "deleted_classes": ["TenantMail", "AccountSync"] }
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TenantMail"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["TenantSearch"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["AccountSync"]
+    },
+    {
+      "tag": "v4",
+      "deleted_classes": ["TenantSearch"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["TenantMailV2", "AccountSyncV2"]
+    },
+    {
+      "tag": "v6",
+      "deleted_classes": ["TenantMail", "AccountSync"]
+    }
   ],
-  "rules": [{ "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }],
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.sql"],
+      "fallthrough": true
+    }
+  ],
   "secrets_store_secrets": [
     {
       "binding": "MASTER_KEY",
@@ -69,7 +151,9 @@
   ],
   "env": {
     "e2e": {
-      "build": { "command": "npm run commit" },
+      "build": {
+        "command": "npm run commit"
+      },
       "routes": [],
       "vars": {
         "ACCESS_TEAM_DOMAIN": "stallion-app.cloudflareaccess.com",
@@ -85,9 +169,31 @@
           "database_id": "b89e3e29-23ba-427b-95ae-cc4cd5c15167"
         }
       ],
-      "r2_buckets": [{ "binding": "MAIL", "bucket_name": "reader-cloudflare-mail" }],
+      "r2_buckets": [
+        {
+          "binding": "MAIL",
+          "bucket_name": "reader-cloudflare-mail"
+        }
+      ],
       "queues": {
-        "producers": [{ "binding": "SYNC", "queue": "reader-cloudflare-sync" }],
+        "producers": [
+          {
+            "binding": "SYNC",
+            "queue": "reader-cloudflare-sync"
+          },
+          {
+            "binding": "MUTATION_QUEUE",
+            "queue": "reader-cloudflare-mutation"
+          },
+          {
+            "binding": "SMTP_QUEUE",
+            "queue": "reader-cloudflare-smtp"
+          },
+          {
+            "binding": "FANOUT_QUEUE",
+            "queue": "reader-cloudflare-fanout"
+          }
+        ],
         "consumers": [
           {
             "queue": "reader-cloudflare-sync",
@@ -99,13 +205,42 @@
             "queue": "reader-cloudflare-sync-dlq",
             "max_batch_size": 5,
             "max_retries": 3
+          },
+          {
+            "queue": "reader-cloudflare-mutation",
+            "max_batch_size": 10,
+            "max_retries": 2,
+            "dead_letter_queue": "reader-cloudflare-dlq"
+          },
+          {
+            "queue": "reader-cloudflare-smtp",
+            "max_batch_size": 1,
+            "max_retries": 2,
+            "dead_letter_queue": "reader-cloudflare-dlq"
+          },
+          {
+            "queue": "reader-cloudflare-fanout",
+            "max_batch_size": 10,
+            "max_retries": 2,
+            "dead_letter_queue": "reader-cloudflare-dlq"
+          },
+          {
+            "queue": "reader-cloudflare-dlq",
+            "max_batch_size": 5,
+            "max_retries": 3
           }
         ]
       },
       "durable_objects": {
         "bindings": [
-          { "name": "TENANT_MAIL", "class_name": "TenantMailV2" },
-          { "name": "ACCOUNT_SYNC", "class_name": "AccountSyncV2" }
+          {
+            "name": "TENANT_MAIL",
+            "class_name": "TenantMailV2"
+          },
+          {
+            "name": "ACCOUNT_SYNC",
+            "class_name": "AccountSyncV2"
+          }
         ]
       },
       "secrets_store_secrets": [

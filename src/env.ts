@@ -9,6 +9,9 @@ export interface Env {
   readonly DB: D1Database;
   readonly MAIL: R2Bucket;
   readonly SYNC: Queue<SyncMessage>;
+  readonly MUTATION_QUEUE: Queue<unknown>;
+  readonly SMTP_QUEUE: Queue<unknown>;
+  readonly FANOUT_QUEUE: Queue<unknown>;
   readonly MASTER_KEY: SecretsStoreSecret;
   readonly TENANT_MAIL: DurableObjectNamespace<TenantMail>;
   readonly ACCOUNT_SYNC: DurableObjectNamespace<AccountSync>;

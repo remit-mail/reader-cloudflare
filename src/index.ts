@@ -13,6 +13,7 @@ import {
   handleSyncMessage,
   parseSyncMessage,
   SYNC_DLQ,
+  SYNC_QUEUE,
 } from "./sync/process";
 
 export { TenantMail as TenantMailV2 } from "./mail/tenant-mail";
@@ -30,6 +31,16 @@ const correlationIdOf = (request: Request): string => {
   if (inbound !== null && INBOUND_CORRELATION.test(inbound)) return inbound;
   return crypto.randomUUID();
 };
+
+class UnknownQueueError extends Error {
+  readonly queue: string;
+
+  constructor(queue: string) {
+    super(`queue ${queue} has no consumer in this Worker`);
+    this.name = "UnknownQueueError";
+    this.queue = queue;
+  }
+}
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -132,6 +143,14 @@ export default {
   },
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    switch (batch.queue) {
+      case SYNC_QUEUE:
+      case SYNC_DLQ:
+        break;
+      default:
+        log.error("queue refused", { queue: batch.queue, size: batch.messages.length });
+        throw new UnknownQueueError(batch.queue);
+    }
     for (const message of batch.messages) {
       const body = parseSyncMessage(message.body);
       const correlationId =

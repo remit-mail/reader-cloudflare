@@ -4,6 +4,7 @@ import type { MailAccount } from "../mail/types";
 import { tenantMail } from "../stubs";
 import { type ProcessBatch, type SyncMessage, syncMessageSchema } from "./messages";
 
+export const SYNC_QUEUE = "reader-cloudflare-sync";
 export const SYNC_DLQ = "reader-cloudflare-sync-dlq";
 
 const REDRIVE_CHUNK = 5;
