@@ -76,13 +76,18 @@ interface QueueConsumeBase {
   readonly durationMs: number;
 }
 
+interface QueueFailure {
+  readonly errorKind: string;
+  readonly error: string;
+}
+
+export type ConsumeReport =
+  | { readonly outcome: "Acked"; readonly poolWaitMs: number }
+  | ({ readonly outcome: "Retried"; readonly poolWaitMs: number } & QueueFailure);
+
 export type QueueConsume =
-  | (QueueConsumeBase & { readonly outcome: "Acked" })
-  | (QueueConsumeBase & {
-      readonly outcome: "Retried";
-      readonly errorKind: string;
-      readonly error: string;
-    });
+  | (QueueConsumeBase & ConsumeReport)
+  | (QueueConsumeBase & { readonly outcome: "Unreachable" } & QueueFailure);
 
 export const logQueueConsume = (record: QueueConsume): void => {
   if (record.outcome === "Acked") {

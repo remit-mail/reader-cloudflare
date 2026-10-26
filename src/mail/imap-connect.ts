@@ -1,5 +1,6 @@
 import { connect } from "cloudflare:sockets";
 import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
+import type { ConnectImap } from "@remit/imap-worker/process";
 import { connectionScope, type ImapTransport } from "@remit/mailbox-service";
 import { createSocketsTransport, ImapFlow } from "imapflow";
 import { accountPassword } from "../crypto/envelope";
@@ -41,16 +42,22 @@ const cleartextTransport = (): ImapTransport => {
 export const workersTransport = (host: string, secure: boolean): ImapTransport =>
   allowsPlaintext(host, secure) ? cleartextTransport() : socketsTransport();
 
+export const connectImap: ConnectImap = (account, credentials) =>
+  connectionScope({
+    host: account.imapHost,
+    port: account.imapPort,
+    tls: account.imapTls,
+    user: account.username,
+    credentials,
+    transport: workersTransport(account.imapHost, account.imapTls),
+  });
+
 export const workersConnectionScope: ConnectionScopeFactory =
   (accounts, secrets) => async (accountId) => {
     const account = await accounts.get(accountId);
-    return connectionScope({
-      host: account.imapHost,
-      port: account.imapPort,
-      tls: account.imapTls,
-      user: account.username,
-      credentials: { kind: "password", password: await accountPassword(secrets, account) },
-      transport: workersTransport(account.imapHost, account.imapTls),
+    return connectImap(account, {
+      kind: "password",
+      password: await accountPassword(secrets, account),
     });
   };
 

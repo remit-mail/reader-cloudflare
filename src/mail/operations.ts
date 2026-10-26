@@ -1,13 +1,9 @@
 import type { AddressFlags } from "@remit/api-openapi-types";
 import type { RemitClientCore } from "@remit/backend/create-remit-client";
 import type { AddressItem } from "@remit/data-ports";
-import { log } from "../log";
 import { storedFlags } from "./address-flags";
 import type {
-  FlagChange,
-  FlagState,
   MailResult,
-  MessageLocation,
   MessageRecord,
   NewOutbox,
   OutboxDraft,
@@ -19,9 +15,6 @@ export type MailStore = Pick<
   RemitClientCore,
   "address" | "mailbox" | "message" | "messageFlag" | "outboxMessage" | "threadMessage"
 >;
-
-const SEEN = "\\Seen";
-const FLAGGED = "\\Flagged";
 
 const flagsOf = (address: AddressItem): AddressFlags =>
   storedFlags(address.flags ?? {}, address.addressId);
@@ -85,75 +78,6 @@ export const describeMessage = async (
     addresses,
     flags: description.messageFlag.map((flag) => flag.flagName).sort(),
   };
-};
-
-export const locateMessages = async (
-  mail: MailStore,
-  messageIds: readonly string[],
-): Promise<readonly MessageLocation[]> => {
-  const messages = await mail.message.get([...messageIds]);
-  const locations: MessageLocation[] = [];
-  for (const message of messages) {
-    const accountId = await mail.mailbox.resolveAccountId(message.mailboxId);
-    if (accountId === null) continue;
-    const [mailbox] = await mail.mailbox.get(accountId, [message.mailboxId]);
-    if (mailbox === undefined) continue;
-    locations.push({
-      messageId: message.messageId,
-      accountId: mailbox.accountId,
-      mailboxId: mailbox.mailboxId,
-      mailboxPath: mailbox.fullPath,
-      uid: message.uid,
-    });
-  }
-  return locations;
-};
-
-const applyFlag = async (
-  mail: MailStore,
-  messageId: string,
-  flag: string,
-  set: boolean | null,
-): Promise<void> => {
-  if (set === null) return;
-  if (set) {
-    await mail.messageFlag.addFlag(messageId, flag);
-    return;
-  }
-  await mail.messageFlag.removeFlag(messageId, flag);
-};
-
-export const setFlags = async (
-  mail: MailStore,
-  accountConfigId: string,
-  messageIds: readonly string[],
-  change: FlagChange,
-): Promise<number> => {
-  for (const messageId of messageIds) {
-    await applyFlag(mail, messageId, SEEN, change.isRead);
-    await applyFlag(mail, messageId, FLAGGED, change.isStarred);
-    const threads = await mail.threadMessage.findAllByMessageId(accountConfigId, messageId);
-    for (const thread of threads) {
-      await mail.threadMessage.update(accountConfigId, thread.threadMessageId, {
-        ...(change.isRead === null ? {} : { isRead: change.isRead }),
-        ...(change.isStarred === null
-          ? {}
-          : { hasStars: change.isStarred, star: starOf(change.isStarred) }),
-      });
-    }
-  }
-  log.info("flags set", { count: messageIds.length, ...change });
-  return messageIds.length;
-};
-
-export const flagState = async (
-  mail: MailStore,
-  accountConfigId: string,
-  messageId: string,
-): Promise<FlagState | null> => {
-  const thread = await mail.threadMessage.findByMessageId(accountConfigId, messageId);
-  if (thread === null) return null;
-  return { messageId, isRead: thread.isRead, isStarred: thread.hasStars };
 };
 
 export const createOutbox = (mail: MailStore, input: NewOutbox): Promise<OutboxRecord> =>

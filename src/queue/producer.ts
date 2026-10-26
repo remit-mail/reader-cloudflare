@@ -1,12 +1,12 @@
 import type { QueueKind, QueueMessage, QueueProducerOf } from "@remit/data-ports";
 import type { Env } from "../env";
 import { refuseQuota } from "../error-kind";
+import { currentCorrelationId } from "../log";
 import {
   envelopeOf,
   FAMILY_OF,
   type QueueEnvelope,
   type QueueFamily,
-  type QueueStamp,
   type ReaderEvent,
 } from "./routing";
 
@@ -37,20 +37,24 @@ const byFamily = <E extends ReaderEvent>(
 export const queueProducer = <K extends QueueKind, E extends ReaderEvent>(
   kind: K,
   env: Env,
-  stamp: QueueStamp,
-): QueueProducerOf<K, QueueMessage<E>> => ({
-  kind,
-  send: async (message) => {
-    await bindingFor(env, FAMILY_OF[message.body.type])
-      .send(envelopeOf(stamp, message.body))
-      .catch(refuseQuota);
-  },
-  sendBatch: async (messages) => {
-    for (const [family, group] of byFamily(messages)) {
-      await bindingFor(env, family)
-        .sendBatch(group.map((message) => ({ body: envelopeOf(stamp, message.body) })))
+  tenantId: string,
+): QueueProducerOf<K, QueueMessage<E>> => {
+  const stamped = (event: E): QueueEnvelope =>
+    envelopeOf({ tenantId, correlationId: currentCorrelationId() }, event);
+  return {
+    kind,
+    send: async (message) => {
+      await bindingFor(env, FAMILY_OF[message.body.type])
+        .send(stamped(message.body))
         .catch(refuseQuota);
-    }
-    return { refused: new Set<number>() };
-  },
-});
+    },
+    sendBatch: async (messages) => {
+      for (const [family, group] of byFamily(messages)) {
+        await bindingFor(env, family)
+          .sendBatch(group.map((message) => ({ body: stamped(message.body) })))
+          .catch(refuseQuota);
+      }
+      return { refused: new Set<number>() };
+    },
+  };
+};

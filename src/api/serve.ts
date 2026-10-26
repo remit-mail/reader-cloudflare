@@ -7,7 +7,7 @@ import { localHandlers } from "./local";
 
 export const API_ROOT = "/api";
 
-export type ServedQueues = "accountFanout" | "messageManagement";
+export type ServedQueues = "sync" | "accountFanout" | "messageManagement";
 
 type Handlers = ApiRegistry<ServedQueues>["handlers"];
 
@@ -75,9 +75,11 @@ const readerHandlers = {
   MeOperations_getExport: handlers.MeOperations_getExport,
   MeOperations_listQuarantine: handlers.MeOperations_listQuarantine,
   MeOperations_listVipSuggestions: handlers.MeOperations_listVipSuggestions,
+  MessageBulkOperations_updateFlags: handlers.MessageBulkOperations_updateFlags,
   MessageBulkOperations_updateMessageLabels: handlers.MessageBulkOperations_updateMessageLabels,
   MessageCalendarSuggestionOperations_listMessageCalendarSuggestions:
     handlers.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions,
+  MessageOperations_updateMessageFlags: handlers.MessageOperations_updateMessageFlags,
   MicrosoftOAuthOperations_microsoftOAuthStart:
     handlers.MicrosoftOAuthOperations_microsoftOAuthStart,
   OrganizeJobDetailOperations_getOrganizeJob: handlers.OrganizeJobDetailOperations_getOrganizeJob,

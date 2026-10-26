@@ -74,9 +74,10 @@ const queries = [
   },
   {
     name: "queue consumes by family",
-    description: "Queue deliveries per family, event type and outcome, with p95 durationMs.",
+    description:
+      "Queue deliveries per family, event type and outcome, with p95 durationMs and poolWaitMs.",
     filters: [eq("event", "queue.consume")],
-    calculations: [count, of("p95", "durationMs")],
+    calculations: [count, of("p95", "durationMs"), of("p95", "poolWaitMs")],
     groupBys: ["family", "type", "outcome"],
     orderBy: "count",
   },

@@ -3,7 +3,7 @@ import { identityOf, requireTenant, type Tenant } from "./access";
 import { API_ROOT } from "./api/serve";
 import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
-import { errorKindOf } from "./error-kind";
+import { errorKindOf, messageOf } from "./error-kind";
 import { apiError, quotaExceeded, unauthorized } from "./http";
 import {
   annotateLog,
@@ -58,9 +58,6 @@ class UnknownQueueError extends Error {
   }
 }
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 const consumeEnveloped = async (
   env: Env,
   queue: ConsumedQueue,
@@ -76,6 +73,7 @@ const consumeEnveloped = async (
       attempt: message.attempts,
       durationMs: 0,
       outcome: "Retried",
+      poolWaitMs: 0,
       errorKind: "validation",
       error: parsed.reason,
     });
@@ -90,18 +88,22 @@ const consumeEnveloped = async (
       return tenantMail(env, envelope.tenantId)
         .consume(family, envelope, message.attempts)
         .then(
-          () => {
-            message.ack();
-            logQueueConsume({ ...fields, durationMs: Date.now() - started, outcome: "Acked" });
+          (report) => {
+            logQueueConsume({ ...fields, durationMs: Date.now() - started, ...report });
+            if (report.outcome === "Acked") {
+              message.ack();
+              return;
+            }
+            message.retry();
           },
           (error: unknown) => {
             message.retry();
             logQueueConsume({
               ...fields,
               durationMs: Date.now() - started,
-              outcome: "Retried",
+              outcome: "Unreachable",
               errorKind: errorKindOf(error),
-              error: errorMessage(error),
+              error: messageOf(error),
             });
           },
         );
@@ -132,15 +134,15 @@ const failed =
     const kind = errorKindOf(error);
     const response =
       kind === "quota"
-        ? quotaExceeded(errorMessage(error))
-        : apiError(500, "InternalServerError", errorMessage(error));
+        ? quotaExceeded(messageOf(error))
+        : apiError(500, "InternalServerError", messageOf(error));
     annotateLog({ errorKind: kind });
     log.error("request failed", {
       event: "http.error",
       method,
       path,
       status: response.status,
-      error: errorMessage(error),
+      error: messageOf(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
     return response;

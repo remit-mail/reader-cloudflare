@@ -25,7 +25,7 @@ Each decision below carries a number. Disagree by number.
 
 ## Sync and schema updates
 
-9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns, in alarm-driven passes. It fetches newest first in batches of ten and streams raw RFC822 to R2 under reader's body key. Then it writes each message's envelope, addresses and thread row to the mail object from the IMAP envelope. The sync object sends one queue message per batch. Sync status lives on reader's account row. Consumers never open IMAP. A message moves to the dead-letter queue after 3 retries, which redrives it once.
+9. Each mail object holds reader's IMAP connection pool, built by `createConnectionPool({ size: 1, overflow: "Wait" })` over the Workers socket transport. Each account gets one pooled connection. A second borrow waits for the first to release it, so one account's IMAP work runs in order. The mutation consumer runs reader's `processEvent` inside the mail object, over that pool. Each attempt budget equals its queue's `max_retries + 1`. The sync object still runs the sync on a connection of its own. The browser starts a sync and polls its status. The run continues after the request returns, in alarm-driven passes. It fetches newest first in batches of ten and streams raw RFC822 to R2 under reader's body key. Then it writes each message's envelope, addresses and thread row to the mail object, and sends one queue message per batch. Sync status lives on reader's account row. A sync message moves to its dead-letter queue after 3 retries, which redrives it once.
 10. Each mail object applies its own schema migrations when it starts. It skips them when the newest one is already applied. No data migration runs on the request path or at object start.
 
 ## Delivery
@@ -36,7 +36,7 @@ Each decision below carries a number. Disagree by number.
 ## Shared code
 
 13. The repo owns the Access identity to tenant mapping and the port adapters that plug D1, Durable Objects, R2, Secrets Store and the queue into reader's ports. It also owns the socket plumbing: imapflow over a `cloudflare:sockets` transport, and nodemailer over a `getSocket` on `node:tls` and `node:net`.
-14. The web client is `@remit/web-client`, mounted with an Access auth provider. The Worker is the Access boundary only. It verifies the JWT, derives the caller's identity and forwards `/api` to the tenant's mail object. That object serves reader's handlers through `serveApi` and `handleFetch` from `@remit/backend/serve`. `ApiConfig` runs in `GatewayAuthorizer` mode. The client is a `RemitClient<"accountFanout" | "messageManagement">` over reader's repositories, an R2 storage adapter, the Secrets Store key provider, reader's `connectionScope` on the Workers socket transport, and the queue producers of decision 21. `/content` serves body parts behind Access with no URL signature, scoped to the caller's account config.
+14. The web client is `@remit/web-client`, mounted with an Access auth provider. The Worker is the Access boundary only. It verifies the JWT, derives the caller's identity and forwards `/api` to the tenant's mail object. That object serves reader's handlers through `serveApi` and `handleFetch` from `@remit/backend/serve`. `ApiConfig` runs in `GatewayAuthorizer` mode. The client is a `RemitClient<"sync" | "accountFanout" | "messageManagement">` over reader's repositories, an R2 storage adapter, the Secrets Store key provider, reader's `connectionScope` on the Workers socket transport, and the queue producers of decision 21. `/content` serves body parts behind Access with no URL signature, scoped to the caller's account config.
 15. Handlers come from `@remit/backend`, and repositories and schema sets from `@remit/drizzle-service`. `@remit/mailbox-service` runs the body sync. `@remit/data-ports` and `@remit/domain-enums` supply the ports and enums. `@remit/logger` defines the logger, and the repo injects its Workers adapter. Every reader package sits at its `pkgs-v0.3.0` release.
 
 ## Composition and operations
@@ -50,7 +50,7 @@ Each decision below carries a number. Disagree by number.
 
 ## Interim
 
-1. The client composes the fan-out and message-management queues, so reader serves every operation that sends to those or to none, `updateAddress` among them. The fan-out consumer runs reader's sender-category back-apply and organize jobs. Nine operations need another queue and run local handlers in `src/api/local` over the same client. `getConfig`, `createAccount` and `triggerSync` send to the sync queue. `describeMessage`, `updateMessageFlags` and `updateFlags` need the body and flag queues. `createOutboxMessage`, `updateOutboxMessage` and `sendOutboxMessage` need the SMTP queue. Each goes once its queue has a Cloudflare consumer. Every other queue operation answers 501.
+1. The client composes the sync, fan-out and message-management queues, so reader serves every operation that sends to those or to none, `updateAddress`, `updateMessageFlags` and `updateFlags` among them. The fan-out consumer runs reader's sender-category back-apply and organize jobs. The mutation consumer pushes the flag changes to IMAP. Seven operations still run local handlers in `src/api/local` over the same client. `getConfig`, `createAccount` and `triggerSync` start the sync object's run. `describeMessage` needs the body queue. `createOutboxMessage`, `updateOutboxMessage` and `sendOutboxMessage` need the SMTP queue. Each goes once its queue has a Cloudflare consumer. Every other queue operation answers 501.
 2. Superseded.
 3. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
 4. A sync pass takes the newest 200 messages per mailbox. Later passes backfill older mail.
@@ -70,9 +70,9 @@ D1 bindings are fixed at deploy time. Durable Objects start on demand, so new te
 
 Reader's index selects from the mail tables when it writes and when it rebuilds, so it needs the same database (decision 4).
 
-### Why can't queue consumers fetch from IMAP?
+### How do queue consumers reach IMAP?
 
-The Gmail connection limit leaves room for one connection per account, owned by the sync object (decision 9).
+Through reader's connection pool in the tenant's mail object. One connection per account stays well under Gmail's limit of about 15. A second consumer waits for that connection, so an account's IMAP writes run in order (decision 9).
 
 ### Why not write the handlers here?
 
@@ -101,7 +101,7 @@ Yes, that build comes next. It plugs AWS services into the same ports, and Scale
 | Tenant     | One user, keyed by Access identity                        |
 | App DB     | The shared D1 database for app and Cloudflare-only tables |
 | Mail DB    | Per-tenant Durable Object SQLite: IMAP state and FTS5     |
-| Sync DO    | Per-account Durable Object that owns the IMAP connection  |
+| Sync DO    | Per-account Durable Object that runs the IMAP sync        |
 | Port       | A reader interface that a platform adapter implements     |
 | Data key   | Random per-tenant key that encrypts credentials           |
 | Master key | The Secrets Store key that wraps every data key           |

@@ -101,25 +101,6 @@ export interface MessageRecord {
   readonly flags: readonly string[];
 }
 
-export interface MessageLocation {
-  readonly messageId: string;
-  readonly accountId: string;
-  readonly mailboxId: string;
-  readonly mailboxPath: string;
-  readonly uid: number;
-}
-
-export interface FlagChange {
-  readonly isRead: boolean | null;
-  readonly isStarred: boolean | null;
-}
-
-export interface FlagState {
-  readonly messageId: string;
-  readonly isRead: boolean;
-  readonly isStarred: boolean;
-}
-
 export type OutboxRecord = OutboxMessageItem;
 
 type OutboxStatus = OutboxMessageItem["status"];

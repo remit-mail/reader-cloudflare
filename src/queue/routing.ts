@@ -1,4 +1,5 @@
 import type { RemitClientDeps } from "@remit/backend/create-remit-client";
+import type { WorkerEvent } from "@remit/imap-worker/process";
 import { z } from "zod";
 
 type ClientQueues = RemitClientDeps["queues"];
@@ -7,7 +8,7 @@ export type QueueName = keyof ClientQueues;
 
 export type EventOn<Q extends QueueName> = Parameters<ClientQueues[Q]["send"]>[0]["body"];
 
-export type ReaderEvent = EventOn<QueueName>;
+export type ReaderEvent = EventOn<QueueName> | WorkerEvent;
 
 export type ReaderEventType = ReaderEvent["type"];
 
@@ -17,6 +18,7 @@ export type ConsumedFamily = Exclude<QueueFamily, "sync">;
 
 export const FAMILY_OF = {
   SYNC_MAILBOXES: "sync",
+  SYNC_MESSAGES: "sync",
   SYNC_MESSAGE_BODY: "sync",
   FLAG_PUSH: "mutation",
   PLACEMENT_MOVE_PUSH: "mutation",
@@ -27,6 +29,8 @@ export const FAMILY_OF = {
   MESSAGE_DELETE: "mutation",
   MESSAGE_COPY: "mutation",
   EMPTY_TRASH: "mutation",
+  APPEND_SENT_MESSAGE: "mutation",
+  DELETE_ACCOUNT_OBJECTS: "mutation",
   SEND_MESSAGE: "smtp",
   AccountDelete: "fanout",
   AccountDataPurge: "fanout",
@@ -34,6 +38,15 @@ export const FAMILY_OF = {
   OrganizeJob: "fanout",
   SenderCategoryBackApply: "fanout",
 } as const satisfies Record<ReaderEventType, QueueFamily>;
+
+export const MAX_RETRIES = {
+  sync: 3,
+  mutation: 2,
+  smtp: 2,
+  fanout: 2,
+} as const satisfies Record<QueueFamily, number>;
+
+export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] + 1;
 
 export const CONSUMED_QUEUES = {
   "reader-cloudflare-mutation": "mutation",

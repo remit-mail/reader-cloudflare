@@ -59,6 +59,7 @@
     "@remit/domain-enums": "^0.0.29",
     "@remit/drizzle-service": "^0.0.104",
     "@remit/drizzle-sqlite-schema": "^0.0.36",
+    "@remit/imap-worker": "^0.0.91",
     "@remit/logger": "^0.0.2",
     "@remit/mailbox-service": "^0.0.115",
     "@remit/secrets-service": "^0.0.11",

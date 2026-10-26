@@ -14,6 +14,7 @@ import {
   appendMessages,
   listServerSubjects,
   type Message,
+  serverFlagsForSubject,
   waitForServerMailbox,
 } from "../.reader/packages/e2e/src/imap.js";
 import {
@@ -42,6 +43,9 @@ const SEEDED: Message[] = [
   { subject: "Invoice for October", body: "Attached is the invoice for October." },
   NEWSLETTER.message,
 ];
+const TOGGLED_SUBJECT = "Lunch on Thursday?";
+const SEEN = "\\Seen";
+const FLAGGED = "\\Flagged";
 const SEEDED_SUBJECTS = SEEDED.map((message) => message.subject).sort();
 const LATE: Message = {
   subject: "Arrived after onboarding",
@@ -243,6 +247,37 @@ test.describe("reader on a local Worker", () => {
       });
     }
     await expect(page.getByText(match.subject, { exact: true }).first()).toBeVisible();
+  });
+
+  test("toggling read and star lands on Dovecot", async () => {
+    const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
+    const serverFlags = (accept: (flags: string[]) => boolean, what: string) =>
+      waitFor(() => serverFlagsForSubject(imapUser, "INBOX", TOGGLED_SUBJECT), accept, {
+        timeoutMs: 60_000,
+        what,
+      });
+
+    expect(await api.updateMessageFlags(messageId, { isRead: true, isStarred: true })).toEqual({
+      messageId,
+      isRead: true,
+      isStarred: true,
+    });
+    await serverFlags(
+      (flags) => flags.includes(SEEN) && flags.includes(FLAGGED),
+      `${SEEN} and ${FLAGGED} on "${TOGGLED_SUBJECT}" in Dovecot`,
+    );
+
+    const cleared = await api.request("POST", "/messages/flags", {
+      messageIds: [messageId],
+      isRead: false,
+      isStarred: false,
+    });
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toEqual({ successCount: 1, failureCount: 0 });
+    await serverFlags(
+      (flags) => !flags.includes(SEEN) && !flags.includes(FLAGGED),
+      `${SEEN} and ${FLAGGED} cleared from "${TOGGLED_SUBJECT}" in Dovecot`,
+    );
   });
 
   test("a composed message reaches the recipient and the Sent folder", async ({ page }) => {

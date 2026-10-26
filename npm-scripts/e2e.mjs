@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { accessSync, constants, createWriteStream, existsSync, mkdirSync, rmSync } from "node:fs";
+import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,8 +125,6 @@ const stop = async (child, marker) => {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   signalGroups(new Set([...groups, ...processGroups(matching(marker))]), "SIGKILL");
-  child.stdout.destroy();
-  child.stderr.destroy();
 };
 
 const main = async () => {
@@ -167,6 +165,7 @@ const main = async () => {
   rmSync(stateDir, { recursive: true, force: true });
   mkdirSync(stateDir, { recursive: true });
   let wrangler;
+  let log;
   try {
     compose("up", "--detach", "--wait", "dovecot", "mailpit");
     run(...withCap("npm", ["run", "build"]), { env });
@@ -203,7 +202,7 @@ const main = async () => {
       ],
       { env },
     );
-    const log = createWriteStream(join(stateDir, "wrangler.log"));
+    log = openSync(join(stateDir, "wrangler.log"), "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
       "--env",
@@ -220,9 +219,12 @@ const main = async () => {
       `PUBLIC_ORIGIN:${env.E2E_BASE_URL}`,
       "--show-interactive-dev-session=false",
     ]);
-    wrangler = spawn(command, args, { cwd: root, env, detached: true, stdio: "pipe" });
-    wrangler.stdout.pipe(log);
-    wrangler.stderr.pipe(log);
+    wrangler = spawn(command, args, {
+      cwd: root,
+      env,
+      detached: true,
+      stdio: ["ignore", log, log],
+    });
     await waitForReady(`${env.E2E_BASE_URL}/`, wrangler);
     run(
       ...withCap(bin("playwright"), [
@@ -237,6 +239,7 @@ const main = async () => {
     console.log(`e2e: passed in ${Math.round((Date.now() - started) / 1000)}s`);
   } finally {
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
+    if (log !== undefined) closeSync(log);
     compose("down", "--volumes", "--remove-orphans");
     console.log(`e2e: wrangler log at ${join(stateDir, "wrangler.log")}`);
   }

@@ -16,6 +16,18 @@ export type ErrorKind =
   | "client"
   | "unknown";
 
+export type HostPort = "oauth";
+
+export class NotComposedError extends Error {
+  readonly port: HostPort;
+
+  constructor(port: HostPort, reason: string) {
+    super(`the ${port} port is not composed on this host: ${reason}`);
+    this.name = "NotComposedError";
+    this.port = port;
+  }
+}
+
 const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   ValidationError: "validation",
   Unauthorized: "auth",
@@ -25,7 +37,6 @@ const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   OutboxNotSendable: "conflict",
   OutboxNotEditable: "conflict",
   SmtpSendFailed: "smtp",
-  ImapFlagPushFailed: "imap",
   CredentialUnavailable: "credential",
   request_refused: "quota",
 };
@@ -51,11 +62,12 @@ export const errorKindOfCode = (status: number, code: string): ErrorKind => {
 export const errorKindOf = (error: unknown): ErrorKind => {
   if (error instanceof ZodError) return "validation";
   if (error instanceof HostRefusedError) return "quota";
+  if (error instanceof NotComposedError) return "notImplemented";
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
   return MESSAGE_KINDS.find(([pattern]) => pattern.test(text))?.[1] ?? "unknown";
 };
 
-const messageOf = (error: unknown): string =>
+export const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const quotaRefusal = (reason: string): string =>
