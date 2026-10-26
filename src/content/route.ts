@@ -1,4 +1,5 @@
 import type { Tenant } from "../access";
+import { r2Storage } from "../api/storage";
 import type { Env } from "../env";
 import { notFound } from "../http";
 import { parseEmail } from "../mail/parse";
@@ -43,9 +44,8 @@ export const serveContent = async (
   if (record === null || record.accountId !== accountId) return notFound("Message");
   const key = record.message.bodyStorageKey;
   if (key === undefined) return notReady();
-  const object = await env.MAIL.get(key);
-  if (object === null) throw new Error(`body object ${key} is missing`);
-  const part = messageParts(await parseEmail(object.body)).find(
+  const body = await r2Storage(env.MAIL).retrieve(key);
+  const part = messageParts(await parseEmail(body)).find(
     (candidate) => candidate.partPath === partPath,
   );
   if (part === undefined) return notFound("Body part");

@@ -46,9 +46,14 @@ const queries = [
   },
   {
     name: "messages stored per account",
-    description: "Messages stored and failed per account from queue batches.",
+    description: "Messages stored, skipped and failed per account from queue batches.",
     filters: [eq("event", "sync.batch")],
-    calculations: [of("sum", "messagesStored"), of("sum", "messagesFailed"), of("sum", "bytes")],
+    calculations: [
+      of("sum", "messagesStored"),
+      of("sum", "messagesSkipped"),
+      of("sum", "messagesFailed"),
+      of("sum", "bytes"),
+    ],
     groupBys: ["accountId"],
     orderBy: "sum_messagesStored",
   },

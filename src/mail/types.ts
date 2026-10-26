@@ -49,6 +49,7 @@ export interface EnvelopeInput {
 }
 
 export interface MessageInput {
+  readonly messageId: string;
   readonly uid: number;
   readonly sequenceNumber: number;
   readonly rfc822Size: number;
@@ -56,8 +57,25 @@ export interface MessageInput {
   readonly envelope: EnvelopeInput;
   readonly flags: readonly string[];
   readonly hasAttachment: boolean;
-  readonly snippet: string | null;
-  readonly bodyStorageKey: string | null;
+}
+
+export interface SyncedMessage {
+  readonly messageId: string;
+  readonly uid: number;
+}
+
+export interface BodyBatch {
+  readonly account: MailAccount;
+  readonly mailboxId: string;
+  readonly messages: readonly SyncedMessage[];
+  readonly attempts: number;
+}
+
+export interface BodyBatchResult {
+  readonly synced: number;
+  readonly skipped: number;
+  readonly failed: number;
+  readonly bytes: number;
 }
 
 export type MailResult<T> =
@@ -141,10 +159,4 @@ export interface AddressPageRequest {
   readonly accountConfigId: string;
   readonly cursor?: string;
   readonly limit?: number;
-}
-
-export interface SkippedMessage {
-  readonly uid: number;
-  readonly key: string;
-  readonly reason: string;
 }

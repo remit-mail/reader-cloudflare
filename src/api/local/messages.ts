@@ -31,6 +31,7 @@ import type {
   MessageRecord,
 } from "../../mail/types";
 import { apiConfig } from "../config";
+import { r2Storage } from "../storage";
 import { accountsOf, ownedAccount } from "./accounts";
 import { optional } from "./responses";
 
@@ -75,9 +76,7 @@ const referencesOf = (email: Email | null): MessageReferenceResponse[] => {
 const loadEmail = async (record: MessageRecord): Promise<Email | null> => {
   const key = record.message.bodyStorageKey;
   if (key === undefined) return null;
-  const object = await env.MAIL.get(key);
-  if (object === null) throw new Error(`body object ${key} is missing`);
-  return parseEmail(object.body);
+  return parseEmail(await r2Storage(env.MAIL).retrieve(key));
 };
 
 const bodyPartsOf = (

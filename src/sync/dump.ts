@@ -1,10 +1,26 @@
 import type { MailboxItem } from "@remit/data-ports";
-import type { ImapFlow, ListResponse } from "imapflow";
+import { buildMessageBodyKey } from "@remit/storage-service";
+import type {
+  FetchMessageObject,
+  ImapFlow,
+  ListResponse,
+  MessageAddressObject,
+  MessageEnvelopeObject,
+  MessageStructureObject,
+} from "imapflow";
 import type { Env } from "../env";
 import { currentCorrelationId, log } from "../log";
-import type { MailAccount, MailboxInput, SpecialUse } from "../mail/types";
+import { deriveMessageId } from "../mail/ids";
+import type {
+  AddressInput,
+  EnvelopeInput,
+  MailAccount,
+  MailboxInput,
+  MessageInput,
+  SpecialUse,
+  SyncedMessage,
+} from "../mail/types";
 import { tenantMail } from "../stubs";
-import { messageKey, toCustomMetadata } from "./messages";
 import type { MailboxMark } from "./state";
 
 const BATCH_SIZE = 10;
@@ -93,18 +109,80 @@ export const listServerMailboxes = async (
   });
 };
 
+const addressesOf = (list: readonly MessageAddressObject[] | undefined): AddressInput[] =>
+  (list ?? []).flatMap((entry): AddressInput[] =>
+    entry.address === undefined || entry.address === ""
+      ? []
+      : [
+          {
+            name: entry.name === undefined || entry.name === "" ? null : entry.name,
+            address: entry.address,
+          },
+        ],
+  );
+
+const timeOf = (date: Date | string | undefined): number | null => {
+  if (date === undefined) return null;
+  const time = new Date(date).getTime();
+  return Number.isNaN(time) ? null : time;
+};
+
+const toEnvelopeInput = (
+  envelope: MessageEnvelopeObject | undefined,
+  internalDate: number,
+): EnvelopeInput => {
+  const sent = timeOf(envelope?.date);
+  return {
+    date: sent ?? internalDate,
+    dateRaw: sent === null ? "" : new Date(sent).toISOString(),
+    subject: envelope?.subject ?? null,
+    messageId: envelope?.messageId ?? null,
+    inReplyTo: envelope?.inReplyTo ?? null,
+    from: addressesOf(envelope?.from),
+    sender: addressesOf(envelope?.sender),
+    replyTo: addressesOf(envelope?.replyTo),
+    to: addressesOf(envelope?.to),
+    cc: addressesOf(envelope?.cc),
+    bcc: addressesOf(envelope?.bcc),
+  };
+};
+
+const carriesAttachment = (node: MessageStructureObject | undefined): boolean => {
+  if (node === undefined) return false;
+  const children = node.childNodes ?? [];
+  if (children.length > 0) return children.some(carriesAttachment);
+  return node.disposition === "attachment";
+};
+
+const toMessageInput = (
+  messageId: string,
+  message: FetchMessageObject,
+  size: number,
+): MessageInput => {
+  const internalDate = toEpoch(message.internalDate);
+  return {
+    messageId,
+    uid: message.uid,
+    sequenceNumber: message.seq,
+    rfc822Size: size,
+    internalDate,
+    envelope: toEnvelopeInput(message.envelope, internalDate),
+    flags: [...(message.flags ?? [])],
+    hasAttachment: carriesAttachment(message.bodyStructure),
+  };
+};
+
 const dumpMessage = async (
   env: Env,
   client: ImapFlow,
   key: string,
-  metadata: Record<string, string>,
   uid: number,
   size: number,
 ): Promise<void> => {
   const download = await client.download(String(uid), undefined, { uid: true });
   if (download.content === undefined) throw new Error(`uid ${uid} vanished during download`);
   const { readable, writable } = new FixedLengthStream(size);
-  const upload = env.MAIL.put(key, readable, { customMetadata: metadata });
+  const upload = env.MAIL.put(key, readable);
   const writer = writable.getWriter();
   for await (const part of download.content) {
     if (!(part instanceof Uint8Array)) throw new Error(`uid ${uid} streamed a non-binary chunk`);
@@ -120,28 +198,34 @@ const dumpBatch = async (
   account: MailAccount,
   mailbox: ServerMailbox,
   uids: readonly number[],
-): Promise<string[]> => {
+): Promise<readonly SyncedMessage[]> => {
   const fetched = await client.fetchAll(
     uids.join(","),
-    { uid: true, flags: true, internalDate: true, size: true },
+    {
+      uid: true,
+      flags: true,
+      internalDate: true,
+      size: true,
+      envelope: true,
+      bodyStructure: true,
+    },
     { uid: true },
   );
-  const keys: string[] = [];
+  const inputs: MessageInput[] = [];
   for (const message of fetched.sort((left, right) => right.uid - left.uid)) {
-    const key = messageKey(account.tenantId, account.accountId, mailbox.mailboxId, message.uid);
+    const messageId = await deriveMessageId(account.accountId, mailbox.mailboxId, message.uid);
+    const key = buildMessageBodyKey(account.accountConfigId, account.accountId, messageId);
     const size = message.size ?? 0;
-    const metadata = toCustomMetadata({
-      uid: message.uid,
-      sequenceNumber: message.seq,
-      uidValidity: mailbox.uidValidity,
-      internalDate: toEpoch(message.internalDate),
-      rfc822Size: size,
-      flags: [...(message.flags ?? [])],
-    });
-    await dumpMessage(env, client, key, metadata, message.uid, size);
-    keys.push(key);
+    await dumpMessage(env, client, key, message.uid, size);
+    inputs.push(toMessageInput(messageId, message, size));
   }
-  return keys;
+  const stored = await tenantMail(env, account.tenantId).upsertMessages(
+    account,
+    mailbox.mailboxId,
+    inputs,
+  );
+  if (!stored.ok) throw new Error(`upsert ${mailbox.entry.path}: ${stored.reason}`);
+  return stored.value;
 };
 
 const resetIfInvalidated = async (
@@ -261,15 +345,15 @@ const enqueueBatches = async (
   onBatch: BatchQueued,
 ): Promise<void> => {
   for (const batch of chunk(uids, BATCH_SIZE)) {
-    const keys = await dumpBatch(env, client, account, mailbox, batch);
+    const messages = await dumpBatch(env, client, account, mailbox, batch);
+    if (messages.length === 0) continue;
     await env.SYNC.send({
       kind: "ProcessBatch",
       tenantId: account.tenantId,
       accountId: account.accountId,
       accountConfigId: account.accountConfigId,
       mailboxId: mailbox.mailboxId,
-      uidValidity: mailbox.uidValidity,
-      keys,
+      messages: [...messages],
       correlationId: currentCorrelationId(),
       redrive: false,
       split: false,
@@ -278,11 +362,11 @@ const enqueueBatches = async (
       tenantId: account.tenantId,
       accountId: account.accountId,
       mailboxId: mailbox.mailboxId,
-      keys: keys.length,
+      messages: messages.length,
       firstUid: batch[0],
       lastUid: batch[batch.length - 1],
     });
-    await onBatch(keys.length);
+    await onBatch(messages.length);
   }
 };
 

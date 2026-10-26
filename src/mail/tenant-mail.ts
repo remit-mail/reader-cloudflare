@@ -16,27 +16,37 @@ import {
   type SqliteRepositories,
   syncStore,
 } from "@remit/drizzle-service";
+import { logger } from "@remit/logger";
+import {
+  BodySyncService,
+  QuarantineService,
+  resolveFolderPlacement,
+  SyncWarningService,
+} from "@remit/mailbox-service";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { serveTenantApi } from "../api/serve";
 import { r2Storage } from "../api/storage";
+import { commit } from "../commit";
 import { tenantSecrets } from "../crypto/envelope";
 import { openAppDb } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { log, withLogContext } from "../log";
-import { deriveMessageId } from "./ids";
 import { describeMessage, starOf } from "./operations";
+import { storedBodies } from "./stored-bodies";
 import type {
   AddressInput,
   AddressPageRequest,
   AddressRole,
+  BodyBatch,
+  BodyBatchResult,
   MailAccount,
   MailboxInput,
   MailResult,
   MessageInput,
   MessageRecord,
-  SkippedMessage,
+  SyncedMessage,
 } from "./types";
 
 const SEEN = "\\Seen";
@@ -143,7 +153,7 @@ export class TenantMail extends DurableObject<Env> {
     account: MailAccount,
     mailboxId: string,
     input: readonly MessageInput[],
-  ): Promise<MailResult<readonly { readonly messageId: string; readonly uid: number }[]>> {
+  ): Promise<MailResult<readonly SyncedMessage[]>> {
     const [mailbox] = await this.mail.mailbox.get(account.accountId, [mailboxId]);
     if (mailbox === undefined) {
       log.warn("mailbox not found", {
@@ -153,12 +163,10 @@ export class TenantMail extends DurableObject<Env> {
       });
       return { ok: false, reason: "mailbox not found" };
     }
-    const stored: { messageId: string; uid: number }[] = [];
+    const stored: SyncedMessage[] = [];
     for (const message of input) {
-      stored.push({
-        messageId: await this.saveMessage(account, mailbox, message),
-        uid: message.uid,
-      });
+      await this.saveMessage(account, mailbox, message);
+      stored.push({ messageId: message.messageId, uid: message.uid });
     }
     log.info("messages upserted", {
       tenantId: account.tenantId,
@@ -191,33 +199,32 @@ export class TenantMail extends DurableObject<Env> {
     return page.items[0]?.uid ?? 0;
   }
 
-  async recordSkippedMessages(
-    account: MailAccount,
-    mailboxId: string,
-    uidValidity: number,
-    skipped: readonly SkippedMessage[],
-  ): Promise<MailResult<number>> {
+  async syncBodies(batch: BodyBatch): Promise<MailResult<BodyBatchResult>> {
+    const { account, mailboxId } = batch;
     const [mailbox] = await this.mail.mailbox.get(account.accountId, [mailboxId]);
     if (mailbox === undefined) return { ok: false, reason: "mailbox not found" };
-    await this.mail.syncWarning.recordFailures(
-      skipped.map((skip) => ({
-        accountConfigId: account.accountConfigId,
-        accountId: account.accountId,
-        mailboxId,
-        uidValidity,
-        uid: skip.uid,
-        stage: "Body" as const,
-      })),
-    );
-    const total = (await this.mail.syncWarning.listByMailboxId(mailboxId)).length;
-    log.warn("messages skipped", {
-      tenantId: account.tenantId,
-      accountId: account.accountId,
+    const bodies = storedBodies(this.env.MAIL, account, mailbox, batch.messages);
+    const placement = await resolveFolderPlacement(
+      this.mail.mailboxSpecialUse,
+      account.accountId,
       mailboxId,
-      skipped: skipped.length,
-      total,
-    });
-    return { ok: true, value: total };
+    );
+    const result = await this.bodySync(mailbox, batch.attempts).syncBodies(
+      batch.messages.map((message) => message.messageId),
+      account.accountId,
+      account.accountConfigId,
+      { mailboxId, fullPath: mailbox.fullPath, placement, uidValidity: mailbox.uidValidity },
+      async () => bodies.connection,
+    );
+    return {
+      ok: true,
+      value: {
+        synced: result.syncedCount,
+        skipped: result.skippedCount,
+        failed: result.failedCount,
+        bytes: bodies.bytesRead(),
+      },
+    };
   }
 
   async resetMailbox(account: MailAccount, mailboxId: string): Promise<MailResult<number>> {
@@ -263,6 +270,31 @@ export class TenantMail extends DurableObject<Env> {
     return describeMessage(this.mail, accountConfigId, messageId);
   }
 
+  private bodySync(mailbox: MailboxItem, attempts: number): BodySyncService {
+    return new BodySyncService(
+      this.mail.message,
+      r2Storage(this.env.MAIL),
+      this.mail.threadMessage,
+      this.mail.address,
+      this.mail.envelope,
+      new SyncWarningService(this.mail.syncWarning),
+      logger,
+      undefined,
+      undefined,
+      {
+        quarantineService: new QuarantineService(
+          this.mail.quarantine,
+          this.mail.mailboxSpecialUse,
+          commit,
+          logger,
+        ),
+        mailboxId: mailbox.mailboxId,
+        uidValidity: mailbox.uidValidity,
+        attempts,
+      },
+    );
+  }
+
   private clientFor(tenantId: string): RemitClient<never> {
     const core = createRemitCore({
       repositories: this.mail,
@@ -296,9 +328,8 @@ export class TenantMail extends DurableObject<Env> {
     account: MailAccount,
     mailbox: MailboxItem,
     input: MessageInput,
-  ): Promise<string> {
-    const { envelope } = input;
-    const messageId = await deriveMessageId(account.accountId, mailbox.mailboxId, input.uid);
+  ): Promise<void> {
+    const { envelope, messageId } = input;
     const envelopeId = deriveEnvelopeId(messageId);
     await this.mail.envelope.upsertEnvelope({
       envelopeId,
@@ -309,7 +340,7 @@ export class TenantMail extends DurableObject<Env> {
       ...(envelope.messageId === null ? {} : { messageIdValue: envelope.messageId }),
     });
     const from = await this.saveAddresses(account, mailbox, messageId, input);
-    const { created } = await this.mail.message.upsertWithStatus({
+    await this.mail.message.upsertWithStatus({
       messageId,
       mailboxId: mailbox.mailboxId,
       uid: input.uid,
@@ -318,14 +349,9 @@ export class TenantMail extends DurableObject<Env> {
       internalDate: input.internalDate,
       envelopeId,
       rootBodyPartId: deriveBodyPartId(messageId, "0"),
-      ...(input.bodyStorageKey === null ? {} : { bodyStorageKey: input.bodyStorageKey }),
     });
-    if (!created && input.bodyStorageKey !== null) {
-      await this.mail.message.update(messageId, { bodyStorageKey: input.bodyStorageKey });
-    }
     await this.saveFlags(messageId, input.flags);
     await this.saveThread(account, mailbox, messageId, input, from);
-    return messageId;
   }
 
   private async saveFlags(messageId: string, flags: readonly string[]): Promise<void> {
@@ -409,7 +435,6 @@ export class TenantMail extends DurableObject<Env> {
       ...(envelope.inReplyTo === null ? {} : { inReplyTo: envelope.inReplyTo }),
       ...(from === null ? {} : { fromEmail: from.email }),
       ...(from === null || from.name === "" ? {} : { fromName: from.name }),
-      ...(input.snippet === null ? {} : { snippet: input.snippet }),
     };
     const existing = await this.mail.threadMessage.findByMessageId(
       account.accountConfigId,

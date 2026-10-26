@@ -25,7 +25,7 @@ Each decision below carries a number. Disagree by number.
 
 ## Sync and schema updates
 
-9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns: `waitUntil` today, an alarm later. It fetches newest first in small batches, streams raw RFC822 to R2 and sends one queue message per batch. Queue consumers parse from R2 and write to the mail object. They never open IMAP. A message moves to the dead-letter queue after 3 retries.
+9. The browser starts a sync and polls its status. A Durable Object per account owns the single IMAP connection. The run continues after the request returns: `waitUntil` today, an alarm later. It fetches newest first in small batches, streams raw RFC822 to R2 under reader's body key, writes each message's envelope, addresses and thread row to the mail object from the IMAP envelope, and sends one queue message per batch. The consumer runs reader's `BodySyncService` inside the mail object over the stored bytes, so reader classifies the message and writes its snippet and search text. Consumers never open IMAP. A message moves to the dead-letter queue after 3 retries.
 10. Each mail object applies its own schema migrations when it starts.
 
 ## Delivery
@@ -45,6 +45,7 @@ Each decision below carries a number. Disagree by number.
 2. Three list-wrapper types are hand-written. They go once reader's TypeSpec names them.
 3. The web package keeps looser TypeScript settings. They tighten once `@remit/web-client` and `@remit/data-ports` publish compiled output.
 4. A sync run takes the newest 200 messages per mailbox. A later backfill fetches the older ones.
+5. Body sync runs without placement moves, filters and unsubscribe auto-read. Each needs a queue whose consumer drives IMAP, and they arrive with those consumers.
 
 ## Open risks
 

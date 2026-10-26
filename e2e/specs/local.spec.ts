@@ -1,6 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
+  buildClassificationFixtures,
+  type ClassificationFixture,
+} from "../.reader/packages/e2e/src/classification-fixtures.js";
+import {
   imap,
   imapFromStack,
   mintImapUser,
@@ -21,10 +25,20 @@ const DEV_IDENTITY = "e2e@remit.test";
 const RECIPIENT = "sender@remit.test";
 const SEARCHED_WORD = "Harbourmaster";
 
+const newsletterFixture = (): ClassificationFixture => {
+  const fixture = buildClassificationFixtures().find(
+    (candidate) => candidate.expectedCategory === "newsletter",
+  );
+  if (fixture === undefined) throw new Error("reader has no newsletter classification fixture");
+  return fixture;
+};
+const NEWSLETTER = newsletterFixture();
+
 const SEEDED: Message[] = [
   { subject: `${SEARCHED_WORD} inspection on Friday`, body: "The quay closes at noon." },
   { subject: "Lunch on Thursday?", body: "Shall we try the new place on the corner?" },
   { subject: "Invoice for October", body: "Attached is the invoice for October." },
+  NEWSLETTER.message,
 ];
 const SEEDED_SUBJECTS = SEEDED.map((message) => message.subject).sort();
 const LATE: Message = {
@@ -149,6 +163,30 @@ test.describe("reader on a local Worker", () => {
     for (const subject of onServer) {
       await expect(page.getByText(subject, { exact: true }).first()).toBeVisible();
     }
+  });
+
+  test("a synced newsletter lands in the brief's Newsletter section", async ({ page }) => {
+    const threads = await waitFor(
+      () => api.listThreads(shared.inboxId),
+      (items) =>
+        items.some(
+          (thread) =>
+            thread.subject === NEWSLETTER.subject &&
+            thread.category !== undefined &&
+            thread.category !== "uncategorized",
+        ),
+      { timeoutMs: 60_000, what: "the newsletter classified by body sync" },
+    );
+    const newsletter = threads.find((thread) => thread.subject === NEWSLETTER.subject);
+    expect(newsletter?.category).toBe(NEWSLETTER.expectedCategory);
+
+    await page.goto("/mail/brief");
+    const section = page
+      .locator("[data-section-header]", { hasText: "Newsletter" })
+      .locator("xpath=..");
+    await expect(
+      section.locator("[data-message-row]", { hasText: NEWSLETTER.subject }).first(),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("opening a seeded message shows its body", async ({ page }) => {
