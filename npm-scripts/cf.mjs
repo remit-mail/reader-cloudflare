@@ -5,14 +5,14 @@ export const inWorkersBuilds = process.env.WORKERS_CI === "1";
 
 export const CLOUDFLARE_VARS = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"];
 
-export const cloudflareEnv = () => {
+export const cloudflareEnv = (file = CF_ENV) => {
   const env = { ...process.env };
   const missing = CLOUDFLARE_VARS.filter((name) => !env[name]);
   if (inWorkersBuilds || missing.length === 0) return env;
-  const fileEnv = readEnvFile(CF_ENV);
+  const fileEnv = readEnvFile(file);
   for (const name of missing) {
     if (!fileEnv[name]) {
-      console.error(`Neither the environment nor ${CF_ENV} sets ${name}`);
+      console.error(`Neither the environment nor ${file} sets ${name}`);
       process.exit(1);
     }
     env[name] = fileEnv[name];
@@ -20,8 +20,8 @@ export const cloudflareEnv = () => {
   return env;
 };
 
-export const wrangler = (args) => {
-  const run = spawnSync("wrangler", args, { env: cloudflareEnv(), stdio: "inherit" });
+export const wrangler = (args, file = CF_ENV) => {
+  const run = spawnSync("wrangler", args, { env: cloudflareEnv(file), stdio: "inherit" });
   if (run.error) throw run.error;
   return run.status ?? 1;
 };

@@ -27,3 +27,9 @@ output "access_aud" {
   description = "Application audience tag for ACCESS_AUD."
   value       = cloudflare_zero_trust_access_application.reader.aud
 }
+
+output "debug_token" {
+  description = "Read-biased token for agents; npm run cf-env:write puts it in cf-env."
+  value       = cloudflare_account_token.debug.value
+  sensitive   = true
+}

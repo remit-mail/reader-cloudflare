@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export const CONFIG_DIR = join(homedir(), ".config", "reader-cloudflare");
 export const CF_ENV = join(CONFIG_DIR, "cf-env");
+export const CF_BOOTSTRAP_ENV = join(CONFIG_DIR, "cf-bootstrap-env");
 export const TFSTATE = join(CONFIG_DIR, "terraform.tfstate");
 export const TOFU_INIT = [
   "init",
