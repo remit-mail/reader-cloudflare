@@ -5,7 +5,6 @@ import {
   type DataKeyProvider,
   deserializeEncryptedPayload,
   type SecretsService,
-  serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -121,9 +120,6 @@ const tenantDataKeys = (env: Env, tenantId: string): DataKeyProvider => ({
 
 export const tenantSecrets = (env: Env, tenantId: string): SecretsService =>
   createSecretsService(createCachedDataKeyProvider(tenantDataKeys(env, tenantId)));
-
-export const sealPassword = async (secrets: SecretsService, password: string): Promise<string> =>
-  JSON.stringify(serializeEncryptedPayload(await secrets.encrypt(password)));
 
 export const accountPassword = async (
   secrets: SecretsService,

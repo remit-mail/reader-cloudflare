@@ -57,6 +57,7 @@ const SENT_SUBJECT = `Sent from the local Worker ${Date.now()}`;
 const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
 const REFUSED_RECIPIENT = "nobody@remit.test";
 const CORRECTED_RECIPIENT = "corrected@remit.test";
+const QUEUE_SETTLE_MS = 8_000;
 
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
@@ -83,6 +84,33 @@ const accountIdFor = async (email: string): Promise<string> => {
     throw new Error(`no account for ${email} in GET /config`);
   }
   return account.accountId;
+};
+
+interface SyncSnapshot {
+  readonly syncPhase: string;
+  readonly lastSyncAt: number;
+  readonly mailboxes: ReadonlyMap<string, number>;
+}
+
+const numberOf = (value: unknown): number => (typeof value === "number" ? value : 0);
+
+const syncSnapshot = async (accountId: string): Promise<SyncSnapshot> => {
+  const response = await api.request("GET", `/accounts/${accountId}/sync/status`);
+  const body: unknown = await response.json();
+  if (!isRecord(body) || !Array.isArray(body.mailboxes)) {
+    throw new Error(`GET /accounts/${accountId}/sync/status has no mailboxes`);
+  }
+  const mailboxes = new Map<string, number>();
+  for (const entry of body.mailboxes) {
+    if (isRecord(entry) && typeof entry.mailboxId === "string") {
+      mailboxes.set(entry.mailboxId, numberOf(entry.lastSyncedAt));
+    }
+  }
+  return {
+    syncPhase: typeof body.syncPhase === "string" ? body.syncPhase : "",
+    lastSyncAt: numberOf(body.lastSyncAt),
+    mailboxes,
+  };
 };
 
 interface Server {
@@ -174,6 +202,38 @@ test.describe("reader on a local Worker", () => {
     for (const subject of onServer) {
       await expect(page.getByText(subject, { exact: true }).first()).toBeVisible();
     }
+  });
+
+  test("a second GET /config within a minute queues no message sync", async () => {
+    const askedAt = Date.now();
+    await api.triggerSync(shared.accountId);
+    const fresh = await waitFor(
+      () => syncSnapshot(shared.accountId),
+      (snapshot) =>
+        snapshot.syncPhase === "complete" &&
+        snapshot.mailboxes.size > 0 &&
+        [...snapshot.mailboxes.values()].every((syncedAt) => syncedAt >= askedAt),
+      { timeoutMs: 60_000, what: "every mailbox synced by the explicit trigger" },
+    );
+
+    const oldest = Math.min(...fresh.mailboxes.values());
+    let lastSyncAt = fresh.lastSyncAt;
+    let configAt = 0;
+    for (const round of ["first", "second"]) {
+      configAt = Date.now();
+      const config = await api.request("GET", "/config");
+      expect(config.status).toBe(200);
+      const after = await waitFor(
+        () => syncSnapshot(shared.accountId),
+        (snapshot) => snapshot.lastSyncAt > lastSyncAt && snapshot.syncPhase === "complete",
+        { timeoutMs: 30_000, what: `the mailbox sync the ${round} GET /config queued` },
+      );
+      lastSyncAt = after.lastSyncAt;
+    }
+    expect(configAt - oldest).toBeLessThan(60_000);
+    await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
+
+    expect((await syncSnapshot(shared.accountId)).mailboxes).toEqual(fresh.mailboxes);
   });
 
   test("a synced newsletter lands in the brief's Newsletter section", async ({ page }) => {

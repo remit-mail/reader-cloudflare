@@ -40,6 +40,7 @@ const config: ImapWorkerConfig = {
     messageDelete: mutationAttempts,
     messageCopy: mutationAttempts,
   },
+  bodyBatchSize: 25,
   workerVersion: commit,
 };
 

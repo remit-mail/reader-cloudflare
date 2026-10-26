@@ -1,21 +1,16 @@
 import type { TenantMail } from "./mail/tenant-mail";
 import type { QueueEnvelope } from "./queue/routing";
-import type { AccountSync } from "./sync/account-sync";
-import type { SyncMessage } from "./sync/messages";
-
-export type { SyncMessage };
 
 export interface Env {
   readonly ASSETS: Fetcher;
   readonly DB: D1Database;
   readonly MAIL: R2Bucket;
-  readonly SYNC: Queue<SyncMessage | QueueEnvelope>;
+  readonly SYNC: Queue<QueueEnvelope>;
   readonly MUTATION_QUEUE: Queue<QueueEnvelope>;
   readonly SMTP_QUEUE: Queue<QueueEnvelope>;
   readonly FANOUT_QUEUE: Queue<QueueEnvelope>;
   readonly MASTER_KEY: SecretsStoreSecret;
   readonly TENANT_MAIL: DurableObjectNamespace<TenantMail>;
-  readonly ACCOUNT_SYNC: DurableObjectNamespace<AccountSync>;
   readonly ACCESS_TEAM_DOMAIN: string;
   readonly ACCESS_AUD: string;
   readonly PUBLIC_ORIGIN: string;

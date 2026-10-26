@@ -14,8 +14,6 @@ export type ReaderEventType = ReaderEvent["type"];
 
 export type QueueFamily = "sync" | "mutation" | "smtp" | "fanout";
 
-export type ConsumedFamily = Exclude<QueueFamily, "sync">;
-
 export const FAMILY_OF = {
   SYNC_MAILBOXES: "sync",
   SYNC_MESSAGES: "sync",
@@ -48,13 +46,12 @@ export const MAX_RETRIES = {
 
 export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] + 1;
 
-export const SYNC_QUEUE = "reader-cloudflare-sync";
-
 export const CONSUMED_QUEUES = {
+  "reader-cloudflare-sync": "sync",
   "reader-cloudflare-mutation": "mutation",
   "reader-cloudflare-smtp": "smtp",
   "reader-cloudflare-fanout": "fanout",
-} as const satisfies Record<string, ConsumedFamily>;
+} as const satisfies Record<string, QueueFamily>;
 
 export type ConsumedQueue = keyof typeof CONSUMED_QUEUES;
 

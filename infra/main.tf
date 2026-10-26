@@ -46,11 +46,6 @@ resource "cloudflare_queue" "sync" {
   queue_name = "${local.name}-sync"
 }
 
-resource "cloudflare_queue" "sync_dlq" {
-  account_id = var.account_id
-  queue_name = "${local.name}-sync-dlq"
-}
-
 resource "cloudflare_queue" "mutation" {
   account_id = var.account_id
   queue_name = "${local.name}-mutation"

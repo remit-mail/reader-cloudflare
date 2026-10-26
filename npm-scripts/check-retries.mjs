@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CONSUMED_QUEUES, MAX_RETRIES, SYNC_QUEUE } from "../src/queue/routing.ts";
+import { CONSUMED_QUEUES, MAX_RETRIES, SHARED_DLQ } from "../src/queue/routing.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -38,8 +38,6 @@ const stripJsonc = (text) => {
 
 const config = JSON.parse(stripJsonc(readFileSync(`${root}wrangler.jsonc`, "utf8")));
 
-const familyOf = { ...CONSUMED_QUEUES, [SYNC_QUEUE]: "sync" };
-
 const scopes = [
   ["top level", config],
   ...Object.entries(config.env ?? {}).map(([name, scope]) => [`env.${name}`, scope]),
@@ -49,7 +47,7 @@ const problems = [];
 const checked = new Set();
 for (const [scope, { queues }] of scopes) {
   const consumers = new Map((queues?.consumers ?? []).map((entry) => [entry.queue, entry]));
-  for (const [queue, family] of Object.entries(familyOf)) {
+  for (const [queue, family] of Object.entries(CONSUMED_QUEUES)) {
     checked.add(family);
     const consumer = consumers.get(queue);
     if (consumer === undefined) {
@@ -61,6 +59,16 @@ for (const [scope, { queues }] of scopes) {
         `${scope}: ${queue} has max_retries ${consumer.max_retries}, MAX_RETRIES.${family} in src/queue/routing.ts is ${MAX_RETRIES[family]}`,
       );
     }
+    if (consumer.dead_letter_queue !== SHARED_DLQ) {
+      problems.push(
+        `${scope}: ${queue} dead-letters to ${consumer.dead_letter_queue}, not ${SHARED_DLQ}`,
+      );
+    }
+  }
+  for (const queue of consumers.keys()) {
+    if (queue !== SHARED_DLQ && !Object.hasOwn(CONSUMED_QUEUES, queue)) {
+      problems.push(`${scope}: ${queue} has a consumer but no family in src/queue/routing.ts`);
+    }
   }
 }
 for (const family of Object.keys(MAX_RETRIES)) {
@@ -71,4 +79,4 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`check:retries: ${problem}`);
   process.exit(1);
 }
-console.log(`check:retries: ${scopes.length} scopes agree with MAX_RETRIES`);
+console.log(`check:retries: ${scopes.length} scopes agree with MAX_RETRIES and ${SHARED_DLQ}`);

@@ -12,8 +12,6 @@ export type MailStore = Pick<
 const flagsOf = (address: AddressItem): AddressFlags =>
   storedFlags(address.flags ?? {}, address.addressId);
 
-export const starOf = (starred: boolean) => (starred ? ("yellow" as const) : ("none" as const));
-
 export const describeMessage = async (
   mail: MailStore,
   accountConfigId: string,

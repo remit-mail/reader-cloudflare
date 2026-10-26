@@ -2,14 +2,13 @@ import type { RemitClient } from "@remit/backend/client";
 import { handlers } from "@remit/backend/handlers";
 import { type ApiRegistry, serveApi, type UserIdentity } from "@remit/backend/serve";
 import { refuseQuota } from "../error-kind";
+import type { QueueName } from "../queue/routing";
 import { apiConfig } from "./config";
 import { localHandlers } from "./local";
 
 export const API_ROOT = "/api";
 
-export type ServedQueues = "sync" | "accountFanout" | "messageManagement" | "smtp";
-
-type Handlers = ApiRegistry<ServedQueues>["handlers"];
+type Handlers = ApiRegistry<QueueName>["handlers"];
 
 type Handler = NonNullable<Handlers[keyof Handlers]>;
 
@@ -27,6 +26,7 @@ const quotaRefusing = (registry: Handlers): Handlers =>
 
 const readerHandlers = {
   AccountDetailOperations_updateAccount: handlers.AccountDetailOperations_updateAccount,
+  AccountOperations_createAccount: handlers.AccountOperations_createAccount,
   AccountOperations_testConnection: handlers.AccountOperations_testConnection,
   AddressDetailOperations_updateAddress: handlers.AddressDetailOperations_updateAddress,
   AddressOperations_searchAddresses: handlers.AddressOperations_searchAddresses,
@@ -59,6 +59,7 @@ const readerHandlers = {
   CalendarSuggestionOperations_listCalendarSuggestions:
     handlers.CalendarSuggestionOperations_listCalendarSuggestions,
   ConfigOperations_exportConfig: handlers.ConfigOperations_exportConfig,
+  ConfigOperations_getConfig: handlers.ConfigOperations_getConfig,
   ConfigOperations_importConfig: handlers.ConfigOperations_importConfig,
   FilterDetailOperations_deleteFilter: handlers.FilterDetailOperations_deleteFilter,
   FilterDetailOperations_getFilter: handlers.FilterDetailOperations_getFilter,
@@ -90,6 +91,7 @@ const readerHandlers = {
   OutboxOperations_createOutboxMessage: handlers.OutboxOperations_createOutboxMessage,
   OutboxOperations_listOutboxMessages: handlers.OutboxOperations_listOutboxMessages,
   SyncOperations_getSyncStatus: handlers.SyncOperations_getSyncStatus,
+  SyncOperations_triggerSync: handlers.SyncOperations_triggerSync,
   SystemOperations_applySystemUpdate: handlers.SystemOperations_applySystemUpdate,
   SystemOperations_getSystemUpdate: handlers.SystemOperations_getSystemUpdate,
   ThreadDetailOperations_listThreadMessages: handlers.ThreadDetailOperations_listThreadMessages,
@@ -98,7 +100,7 @@ const readerHandlers = {
   UnifiedThreadOperations_listAllThreads: handlers.UnifiedThreadOperations_listAllThreads,
 } satisfies Handlers;
 
-const served = serveApi<ServedQueues>({
+const served = serveApi<QueueName>({
   handlers: quotaRefusing({ ...readerHandlers, ...localHandlers }),
   publicHandlers: {},
 });
@@ -106,7 +108,7 @@ const served = serveApi<ServedQueues>({
 export const serveTenantApi = (
   request: Request,
   identity: UserIdentity,
-  client: RemitClient<ServedQueues>,
+  client: RemitClient,
   correlationId: string,
 ): Promise<Response> => {
   const url = new URL(request.url);

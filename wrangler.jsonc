@@ -65,12 +65,7 @@
         "queue": "reader-cloudflare-sync",
         "max_batch_size": 1,
         "max_retries": 3,
-        "dead_letter_queue": "reader-cloudflare-sync-dlq"
-      },
-      {
-        "queue": "reader-cloudflare-sync-dlq",
-        "max_batch_size": 5,
-        "max_retries": 3
+        "dead_letter_queue": "reader-cloudflare-dlq"
       },
       {
         "queue": "reader-cloudflare-mutation",
@@ -102,10 +97,6 @@
       {
         "name": "TENANT_MAIL",
         "class_name": "TenantMailV2"
-      },
-      {
-        "name": "ACCOUNT_SYNC",
-        "class_name": "AccountSyncV2"
       }
     ]
   },
@@ -133,6 +124,10 @@
     {
       "tag": "v6",
       "deleted_classes": ["TenantMail", "AccountSync"]
+    },
+    {
+      "tag": "v7",
+      "deleted_classes": ["AccountSyncV2"]
     }
   ],
   "rules": [
@@ -199,12 +194,7 @@
             "queue": "reader-cloudflare-sync",
             "max_batch_size": 1,
             "max_retries": 3,
-            "dead_letter_queue": "reader-cloudflare-sync-dlq"
-          },
-          {
-            "queue": "reader-cloudflare-sync-dlq",
-            "max_batch_size": 5,
-            "max_retries": 3
+            "dead_letter_queue": "reader-cloudflare-dlq"
           },
           {
             "queue": "reader-cloudflare-mutation",
@@ -236,10 +226,6 @@
           {
             "name": "TENANT_MAIL",
             "class_name": "TenantMailV2"
-          },
-          {
-            "name": "ACCOUNT_SYNC",
-            "class_name": "AccountSyncV2"
           }
         ]
       },

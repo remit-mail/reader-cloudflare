@@ -20,10 +20,21 @@ import { parseEmail } from "../../mail/parse";
 import type { AddressRole, EnvelopeAddressRecord, MessageRecord } from "../../mail/types";
 import { apiConfig } from "../config";
 import { r2Storage } from "../storage";
-import { ownedAccount } from "./accounts";
 import { optional } from "./responses";
 
 const messageParams = z.object({ messageId: z.string().min(1) });
+
+const ownedAccount = async (ctx: HandlerContext, accountId: string): Promise<AccountItem> => {
+  const [account] = await ctx.client.account.get([accountId]);
+  if (
+    account === undefined ||
+    account.deletedAt !== undefined ||
+    account.accountConfigId !== ctx.identity.accountConfigId
+  ) {
+    throw new NotFoundError("Account not found");
+  }
+  return account;
+};
 
 const addressesFor = (
   addresses: readonly EnvelopeAddressRecord[],

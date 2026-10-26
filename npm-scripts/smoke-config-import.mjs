@@ -62,7 +62,6 @@ const mf = new Miniflare({
       queueProducers: { SYNC: { queueName: "smoke-sync" } },
       durableObjects: {
         TENANT_MAIL: { className: "TenantMailV2", useSQLite: true },
-        ACCOUNT_SYNC: { className: "AccountSyncV2", useSQLite: true },
       },
       outboundService: (request) => {
         if (new URL(request.url).hostname === teamDomain) {

@@ -21,19 +21,10 @@ import {
   isConsumedQueue,
   parseEnvelope,
   SHARED_DLQ,
-  SYNC_QUEUE,
 } from "./queue/routing";
 import { tenantMail } from "./stubs";
-import {
-  describeSyncMessage,
-  handleDeadLetter,
-  handleSyncMessage,
-  parseSyncMessage,
-  SYNC_DLQ,
-} from "./sync/process";
 
 export { TenantMail as TenantMailV2 } from "./mail/tenant-mail";
-export { AccountSync as AccountSyncV2 } from "./sync/account-sync";
 
 installRemitLogger();
 
@@ -235,34 +226,7 @@ export default {
       for (const message of batch.messages) deadLetter(message);
       return;
     }
-    switch (batch.queue) {
-      case SYNC_QUEUE:
-      case SYNC_DLQ:
-        break;
-      default:
-        log.error("queue refused", { queue: batch.queue, size: batch.messages.length });
-        throw new UnknownQueueError(batch.queue);
-    }
-    for (const message of batch.messages) {
-      const body = parseSyncMessage(message.body);
-      const correlationId =
-        body === null || body.correlationId === "" ? message.id : body.correlationId;
-      await withLogContext({ correlationId }, async () => {
-        log.info("queue message", {
-          queue: batch.queue,
-          id: message.id,
-          attempts: message.attempts,
-          ...describeSyncMessage(body),
-        });
-        if (batch.queue === SYNC_DLQ) {
-          await handleDeadLetter(env, body, message.attempts, message.body);
-          message.ack();
-          return;
-        }
-        if (body === null) throw new Error(`queue message ${message.id} is not a sync message`);
-        await handleSyncMessage(env, body, message.attempts);
-        message.ack();
-      });
-    }
+    log.error("queue refused", { queue, size: batch.messages.length });
+    throw new UnknownQueueError(queue);
   },
 } satisfies ExportedHandler<Env, unknown>;
