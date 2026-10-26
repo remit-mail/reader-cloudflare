@@ -30,6 +30,7 @@ const slot = (
   .slice(0, 40);
 const project = `rcf-e2e-${slot}`;
 const stateDir = join(root, ".tmp", "e2e", slot);
+const wranglerLog = join(stateDir, "wrangler.log");
 
 const onPath = (name) =>
   (process.env.PATH ?? "").split(delimiter).some((dir) => {
@@ -163,6 +164,7 @@ const main = async () => {
     E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
     E2E_QUEUE_PORT: "0",
+    E2E_WRANGLER_LOG: wranglerLog,
   };
   const compose = (...args) =>
     run("docker", ["compose", "-p", project, "-f", join(e2eDir, "compose.yml"), ...args], {
@@ -210,7 +212,7 @@ const main = async () => {
       ],
       { env },
     );
-    log = openSync(join(stateDir, "wrangler.log"), "w");
+    log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
       "--env",
@@ -226,6 +228,7 @@ const main = async () => {
       "--var",
       `PUBLIC_ORIGIN:${env.E2E_BASE_URL}`,
       "--show-interactive-dev-session=false",
+      "--test-scheduled",
     ]);
     wrangler = spawn(command, args, {
       cwd: root,
@@ -249,7 +252,7 @@ const main = async () => {
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
     if (log !== undefined) closeSync(log);
     compose("down", "--volumes", "--remove-orphans");
-    console.log(`e2e: wrangler log at ${join(stateDir, "wrangler.log")}`);
+    console.log(`e2e: wrangler log at ${wranglerLog}`);
   }
 };
 

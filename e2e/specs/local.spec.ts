@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
@@ -63,6 +64,7 @@ const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
 const REFUSED_RECIPIENT = "nobody@remit.test";
 const CORRECTED_RECIPIENT = "corrected@remit.test";
 const QUEUE_SETTLE_MS = 8_000;
+const CRON = "*/5 * * * *";
 
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
@@ -146,6 +148,35 @@ const plainTextUrlOf = (description: unknown): string => {
   }
   return part.contentUrl;
 };
+
+const connectionTestOf = (password: string): Record<string, unknown> => ({
+  username: imapUser,
+  password,
+  imapHost: imapFromStack.host,
+  imapPort: imapFromStack.port,
+  imapTls: false,
+  imapStartTls: false,
+  smtpHost: smtpFromStack.host,
+  smtpPort: smtpFromStack.port,
+  smtpTls: false,
+  smtpStartTls: false,
+});
+
+const wranglerLog = (): string => {
+  const path = process.env.E2E_WRANGLER_LOG;
+  if (path === undefined) throw new Error("E2E_WRANGLER_LOG is not set; run `npm run e2e`");
+  return readFileSync(path, "utf8");
+};
+
+const jsonLineOf = (line: string): unknown => JSON.parse(line.slice(line.indexOf("{")));
+
+const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
+  wranglerLog()
+    .split("\n")
+    .filter((line) => line.includes('"scheduler.tick"'))
+    .map(jsonLineOf)
+    .filter(isRecord)
+    .filter((record) => typeof record.time === "string" && Date.parse(record.time) >= since);
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -256,6 +287,41 @@ test.describe("reader on a local Worker", () => {
     await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
 
     expect((await syncSnapshot(shared.accountId)).mailboxes).toEqual(fresh.mailboxes);
+  });
+
+  test("a connection test with the right password passes IMAP and SMTP", async () => {
+    const response = await api.request("POST", "/accounts/test-connection", {
+      ...connectionTestOf(imap.password),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ imapSuccess: true, smtpSuccess: true });
+  });
+
+  test("a connection test with a wrong password reports an authentication failure", async () => {
+    const response = await api.request("POST", "/accounts/test-connection", {
+      ...connectionTestOf(`${imap.password}-wrong`),
+    });
+    expect(response.status).toBe(200);
+    const body: unknown = await response.json();
+    expect(body).toMatchObject({ imapSuccess: false });
+    expect(isRecord(body) && body.imapError).toMatch(/authentication failed/i);
+  });
+
+  test("a scheduler tick scans the synced account and queues no sync for it", async () => {
+    const before = await syncSnapshot(shared.accountId);
+    const tickedAt = Date.now();
+    const response = await fetch(
+      `${process.env.E2E_BASE_URL}/__scheduled?cron=${encodeURIComponent(CRON)}`,
+    );
+    expect(response.status).toBe(200);
+    const [tick] = await waitFor(
+      async () => schedulerTicksSince(tickedAt),
+      (ticks) => ticks.length > 0,
+      { timeoutMs: 30_000, what: "a scheduler.tick line in the wrangler log" },
+    );
+    expect(tick).toMatchObject({ outcome: "Ticked", scanned: 1, enqueued: 0, redriveFailed: 0 });
+    await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
+    expect((await syncSnapshot(shared.accountId)).mailboxes).toEqual(before.mailboxes);
   });
 
   test("a synced newsletter lands in the brief's Newsletter section", async ({ page }) => {

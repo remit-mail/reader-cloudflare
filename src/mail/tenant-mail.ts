@@ -10,6 +10,7 @@ import {
   syncStore,
 } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
+import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
@@ -23,9 +24,11 @@ import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
-import { connectImap, pooledConnectionScope } from "./imap-connect";
+import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
+import { schedulerTick } from "./scheduler-tick";
+import { workersSmtpSocket } from "./smtp-connect";
 
 class UnservedEventError extends Error {
   readonly family: QueueFamily;
@@ -156,6 +159,17 @@ export class TenantMail extends DurableObject<Env> {
     );
   }
 
+  async schedulerTick(
+    tenantId: string,
+    now: number,
+    correlationId: string,
+  ): Promise<SchedulerTickResult> {
+    return withLogContext({ correlationId, tenantId }, () => {
+      const composed = this.compose(tenantId);
+      return schedulerTick(composed.client, composed.process, now);
+    });
+  }
+
   private async dispatch(
     family: QueueFamily,
     event: ReaderEvent,
@@ -198,6 +212,7 @@ export class TenantMail extends DurableObject<Env> {
       storage: r2Storage(this.env.MAIL),
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
+      mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(

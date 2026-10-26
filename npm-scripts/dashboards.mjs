@@ -94,6 +94,23 @@ const queries = [
     orderBy: "count",
   },
   {
+    name: "scheduler ticks per tenant",
+    description:
+      "Cron scheduler ticks per tenant and outcome: accounts scanned, syncs enqueued, placements re-driven.",
+    filters: [eq("event", "scheduler.tick")],
+    calculations: [
+      count,
+      of("sum", "scanned"),
+      of("sum", "enqueued"),
+      of("sum", "redriven"),
+      of("sum", "redriveFailed"),
+      of("sum", "sweepFailed"),
+      of("p95", "durationMs"),
+    ],
+    groupBys: ["tenantId", "outcome"],
+    orderBy: "count",
+  },
+  {
     name: "errors by kind",
     description: "Every line with an errorKind, by kind and event.",
     filters: [{ key: "errorKind", operation: "exists", type: "string" }],
