@@ -96,7 +96,7 @@
     "bindings": [
       {
         "name": "TENANT_MAIL",
-        "class_name": "TenantMailV2"
+        "class_name": "TenantMailV3"
       }
     ]
   },
@@ -128,6 +128,10 @@
     {
       "tag": "v7",
       "deleted_classes": ["AccountSyncV2"]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["TenantMailV3"]
     }
   ],
   "rules": [
@@ -225,7 +229,7 @@
         "bindings": [
           {
             "name": "TENANT_MAIL",
-            "class_name": "TenantMailV2"
+            "class_name": "TenantMailV3"
           }
         ]
       },

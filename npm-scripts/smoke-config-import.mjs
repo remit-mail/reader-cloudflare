@@ -61,7 +61,7 @@ const mf = new Miniflare({
       r2Buckets: ["MAIL"],
       queueProducers: { SYNC: { queueName: "smoke-sync" } },
       durableObjects: {
-        TENANT_MAIL: { className: "TenantMailV2", useSQLite: true },
+        TENANT_MAIL: { className: "TenantMailV3", useSQLite: true },
       },
       outboundService: (request) => {
         if (new URL(request.url).hostname === teamDomain) {
