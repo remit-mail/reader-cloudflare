@@ -3,7 +3,7 @@
   "name": "reader-cloudflare",
   "main": "src/index.ts",
   "build": {
-    "command": "npm run db:migrate:build && npm run commit && npm run build"
+    "command": "npm run commit && npm run build"
   },
   "assets": {
     "directory": "packages/web/dist",

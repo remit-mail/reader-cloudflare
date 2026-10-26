@@ -3,13 +3,16 @@ import { CF_ENV, readEnvFile } from "./env.mjs";
 
 export const inWorkersBuilds = process.env.WORKERS_CI === "1";
 
+export const CLOUDFLARE_VARS = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"];
+
 export const cloudflareEnv = () => {
   const env = { ...process.env };
-  if (inWorkersBuilds) return env;
+  const missing = CLOUDFLARE_VARS.filter((name) => !env[name]);
+  if (inWorkersBuilds || missing.length === 0) return env;
   const fileEnv = readEnvFile(CF_ENV);
-  for (const name of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+  for (const name of missing) {
     if (!fileEnv[name]) {
-      console.error(`${CF_ENV} does not set ${name}`);
+      console.error(`Neither the environment nor ${CF_ENV} sets ${name}`);
       process.exit(1);
     }
     env[name] = fileEnv[name];
