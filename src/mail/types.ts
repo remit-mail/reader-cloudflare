@@ -1,10 +1,5 @@
 import type { AddressFlags } from "@remit/api-openapi-types";
-import type {
-  EnvelopeAddressItem,
-  MailboxSpecialUseValue,
-  MessageItem,
-  OutboxMessageItem,
-} from "@remit/data-ports";
+import type { EnvelopeAddressItem, MailboxSpecialUseValue, MessageItem } from "@remit/data-ports";
 
 export type SpecialUse = MailboxSpecialUseValue;
 
@@ -99,35 +94,6 @@ export interface MessageRecord {
   readonly messageIdValue: string | null;
   readonly addresses: readonly EnvelopeAddressRecord[];
   readonly flags: readonly string[];
-}
-
-export type OutboxRecord = OutboxMessageItem;
-
-type OutboxStatus = OutboxMessageItem["status"];
-
-export interface OutboxDraft {
-  readonly toAddresses: readonly string[];
-  readonly ccAddresses: readonly string[];
-  readonly bccAddresses: readonly string[];
-  readonly subject: string | null;
-  readonly textBody: string | null;
-  readonly htmlBody: string | null;
-  readonly inReplyTo: string | null;
-  readonly references: readonly string[];
-}
-
-export interface NewOutbox {
-  readonly accountId: string;
-  readonly accountConfigId: string;
-  readonly fromAddress: string;
-  readonly messageIdValue: string;
-  readonly draft: OutboxDraft;
-}
-
-export interface OutboxStateChange {
-  readonly status: OutboxStatus;
-  readonly lastError: string | null;
-  readonly sentAt: number | null;
 }
 
 export interface AddressPageRequest {

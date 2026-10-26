@@ -19,7 +19,9 @@
     "node_modules/@remit/config-format/src",
     "node_modules/@remit/drizzle-service/src",
     "node_modules/@remit/mail-oauth-service/src",
-    "node_modules/@remit/secrets-service/src"
+    "node_modules/@remit/secrets-service/src",
+    "node_modules/@remit/smtp-service/src",
+    "node_modules/@remit/smtp-worker/src"
   ],
   "exclude": [
     "node_modules/@remit/*/src/**/*.test.ts",

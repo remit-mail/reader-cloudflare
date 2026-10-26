@@ -8,6 +8,7 @@ import {
   imap,
   imapFromStack,
   mintImapUser,
+  rejectingSmtpFromStack,
   smtpFromStack,
 } from "../.reader/packages/e2e/src/env.js";
 import {
@@ -17,6 +18,7 @@ import {
   serverFlagsForSubject,
   waitForServerMailbox,
 } from "../.reader/packages/e2e/src/imap.js";
+import { waitForSettledOutboxRow } from "../.reader/packages/e2e/src/outbox.js";
 import {
   readAcceptedEnvelope,
   waitForAcceptedMessage,
@@ -52,6 +54,9 @@ const LATE: Message = {
   body: "Sent once the account existed.",
 };
 const SENT_SUBJECT = `Sent from the local Worker ${Date.now()}`;
+const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
+const REFUSED_RECIPIENT = "nobody@remit.test";
+const CORRECTED_RECIPIENT = "corrected@remit.test";
 
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
@@ -298,6 +303,34 @@ test.describe("reader on a local Worker", () => {
 
     await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(SENT_SUBJECT), {
       what: `"${SENT_SUBJECT}" in Sent`,
+    });
+  });
+
+  test("a refused send settles as failed and goes out once its recipient is corrected", async () => {
+    await api.updateAccount(shared.accountId, {
+      smtpHost: rejectingSmtpFromStack.host,
+      smtpPort: rejectingSmtpFromStack.port,
+    });
+    const queued = await api.sendMessage({
+      accountId: shared.accountId,
+      toAddresses: [REFUSED_RECIPIENT],
+      subject: REFUSED_SUBJECT,
+      textBody: "The refusing lane answers 550 at RCPT TO.",
+    });
+    const row = await waitForSettledOutboxRow(api, queued.outboxMessageId, "failed", {
+      timeoutMs: 60_000,
+    });
+    expect(row.lastError).toContain("550");
+    expect(await listServerSubjects(imapUser, "Sent")).not.toContain(REFUSED_SUBJECT);
+
+    const corrected = await api.request("PATCH", `/outbox/${queued.outboxMessageId}`, {
+      toAddresses: [CORRECTED_RECIPIENT],
+    });
+    expect(corrected.status).toBe(200);
+    const resent = await api.request("POST", `/outbox/${queued.outboxMessageId}/send`);
+    expect(resent.status).toBe(200);
+    await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(REFUSED_SUBJECT), {
+      what: `"${REFUSED_SUBJECT}" in Sent after the corrected send`,
     });
   });
 });

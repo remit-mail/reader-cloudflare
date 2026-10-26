@@ -1,26 +1,26 @@
 import net from "node:net";
 import tls from "node:tls";
-import nodemailer, { type Transporter } from "nodemailer";
-import type { ImapCredential } from "./imap-connect";
+import type { SendMessageContext } from "@remit/smtp-worker/process";
 import { allowsPlaintext } from "./plaintext";
 
-export type SmtpCredential = ImapCredential;
+export type SmtpGetSocket = SendMessageContext["getSocket"];
 
-export const openSmtp = (credential: SmtpCredential): Transporter => {
-  const { host, port, secure } = credential;
+export const workersSmtpSocket: SmtpGetSocket = (options, callback) => {
+  const { host } = options;
+  const port = Number(options.port);
+  if (host === undefined || !Number.isInteger(port)) {
+    callback(new Error("the SMTP transport named no host or port to connect to"));
+    return;
+  }
+  const secure = options.secure === true;
   const plaintext = allowsPlaintext(host, secure);
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
+  const connection = secure
+    ? tls.connect({ host, port, servername: host })
+    : net.connect({ host, port });
+  callback(null, {
+    connection,
+    secured: secure,
     requireTLS: !secure && !plaintext,
     ignoreTLS: plaintext,
-    auth: { user: credential.username, pass: credential.password },
-    getSocket: (_options, callback) => {
-      const connection = secure
-        ? tls.connect({ host, port, servername: host })
-        : net.connect({ host, port });
-      callback(null, { connection, secured: secure });
-    },
   });
 };

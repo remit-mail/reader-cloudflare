@@ -7,7 +7,7 @@ import { localHandlers } from "./local";
 
 export const API_ROOT = "/api";
 
-export type ServedQueues = "sync" | "accountFanout" | "messageManagement";
+export type ServedQueues = "sync" | "accountFanout" | "messageManagement" | "smtp";
 
 type Handlers = ApiRegistry<ServedQueues>["handlers"];
 
@@ -85,6 +85,9 @@ const readerHandlers = {
   OrganizeJobDetailOperations_getOrganizeJob: handlers.OrganizeJobDetailOperations_getOrganizeJob,
   OrganizeOperations_previewOrganize: handlers.OrganizeOperations_previewOrganize,
   OutboxDetailOperations_getOutboxMessage: handlers.OutboxDetailOperations_getOutboxMessage,
+  OutboxDetailOperations_sendOutboxMessage: handlers.OutboxDetailOperations_sendOutboxMessage,
+  OutboxDetailOperations_updateOutboxMessage: handlers.OutboxDetailOperations_updateOutboxMessage,
+  OutboxOperations_createOutboxMessage: handlers.OutboxOperations_createOutboxMessage,
   OutboxOperations_listOutboxMessages: handlers.OutboxOperations_listOutboxMessages,
   SyncOperations_getSyncStatus: handlers.SyncOperations_getSyncStatus,
   SystemOperations_applySystemUpdate: handlers.SystemOperations_applySystemUpdate,

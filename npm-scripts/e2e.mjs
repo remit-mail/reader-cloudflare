@@ -131,9 +131,15 @@ const main = async () => {
   const started = Date.now();
   fetchReader();
   const readerEnv = readEnvFile(join(readerDir, "deploy/vps/e2e.env"));
-  const [workerPort, inspectorPort, imapPort, smtpPort, smtpHttpPort] = await Promise.all(
-    Array.from({ length: 5 }, freePort),
-  );
+  const [
+    workerPort,
+    inspectorPort,
+    imapPort,
+    smtpPort,
+    smtpHttpPort,
+    rejectingSmtpPort,
+    rejectingSmtpHttpPort,
+  ] = await Promise.all(Array.from({ length: 7 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -152,7 +158,9 @@ const main = async () => {
     E2E_SMTP_STACK_PORT: String(smtpPort),
     E2E_SMTP_HTTP_PORT: String(smtpHttpPort),
     E2E_SMTP_REJECT_HOST: "127.0.0.1",
-    E2E_SMTP_REJECT_HTTP_PORT: String(smtpHttpPort),
+    E2E_SMTP_REJECT_PORT: String(rejectingSmtpPort),
+    E2E_SMTP_REJECT_STACK_PORT: String(rejectingSmtpPort),
+    E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
     E2E_QUEUE_PORT: "0",
   };
@@ -167,7 +175,7 @@ const main = async () => {
   let wrangler;
   let log;
   try {
-    compose("up", "--detach", "--wait", "dovecot", "mailpit");
+    compose("up", "--detach", "--wait", "dovecot", "mailpit", "mailpit-rejecting");
     run(...withCap("npm", ["run", "build"]), { env });
     run(
       bin("wrangler"),

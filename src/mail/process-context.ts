@@ -1,4 +1,6 @@
 import type { RemitClient } from "@remit/backend/client";
+import type { RemitClientCore } from "@remit/backend/create-remit-client";
+import type { SqliteRepositories } from "@remit/drizzle-service";
 import {
   type AccountObjectStore,
   type ConnectionPool,
@@ -12,12 +14,18 @@ import {
   type WorkerQueues,
 } from "@remit/imap-worker/process";
 import { logger } from "@remit/logger";
+import type {
+  AppendSentMessageEvent,
+  SendMessageContext,
+  SmtpDataPorts,
+} from "@remit/smtp-worker/process";
 import { commit } from "../commit";
 import type { Env } from "../env";
 import { NotComposedError } from "../error-kind";
 import { log } from "../log";
 import { queueProducer } from "../queue/producer";
 import { attemptsOn } from "../queue/routing";
+import { workersSmtpSocket } from "./smtp-connect";
 
 const mutationAttempts = attemptsOn("mutation");
 
@@ -83,4 +91,32 @@ export const processContext = (
   log: logger,
   oauth,
   accountObjects: r2AccountObjects(env.MAIL),
+});
+
+const smtpPorts = (mail: SqliteRepositories): SmtpDataPorts => ({
+  account: mail.account,
+  outboxMessage: mail.outboxMessage,
+  outboxAttachment: mail.outboxAttachment,
+  address: mail.address,
+  message: mail.message,
+  envelope: mail.envelope,
+});
+
+const recordSmtpFailure: SendMessageContext["recordSmtpFailure"] = (kind) =>
+  log.warn("smtp failure", { event: "smtp.failure", failureKind: kind });
+
+export const sendContext = (
+  env: Env,
+  tenantId: string,
+  mail: SqliteRepositories,
+  client: Pick<RemitClientCore, "secrets" | "storage">,
+): SendMessageContext => ({
+  ports: smtpPorts(mail),
+  secrets: client.secrets,
+  storage: client.storage,
+  messageManagement: queueProducer<"Standard", AppendSentMessageEvent>("Standard", env, tenantId),
+  tokenService: oauth,
+  getSocket: workersSmtpSocket,
+  maxAttempts: attemptsOn("smtp"),
+  recordSmtpFailure,
 });

@@ -7,7 +7,6 @@ import type { Env } from "../env";
 import { errorKindOf } from "../error-kind";
 import { log, withLogContext } from "../log";
 import { type ImapCredential, openImap } from "../mail/imap-connect";
-import { accountCredentials } from "../mail/send";
 import type { MailAccount } from "../mail/types";
 import { tenantMail } from "../stubs";
 import { listServerMailboxes, type ServerMailbox, syncMailbox } from "./dump";
@@ -199,7 +198,13 @@ export class AccountSync extends DurableObject<Env> {
     const owned = row?.accountConfigId === account.accountConfigId && row.deletedAt === undefined;
     if (row === undefined || !owned) throw new Error("account no longer exists");
     const password = await accountPassword(tenantSecrets(this.env, account.tenantId), row);
-    return accountCredentials(row, password).imap;
+    return {
+      host: row.imapHost,
+      port: row.imapPort,
+      secure: row.imapTls,
+      username: row.username,
+      password,
+    };
   }
 
   private async passOver(account: MailAccount): Promise<PassOutcome> {

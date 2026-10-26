@@ -48,6 +48,8 @@ export const MAX_RETRIES = {
 
 export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] + 1;
 
+export const SYNC_QUEUE = "reader-cloudflare-sync";
+
 export const CONSUMED_QUEUES = {
   "reader-cloudflare-mutation": "mutation",
   "reader-cloudflare-smtp": "smtp",

@@ -21,6 +21,7 @@ import {
   isConsumedQueue,
   parseEnvelope,
   SHARED_DLQ,
+  SYNC_QUEUE,
 } from "./queue/routing";
 import { tenantMail } from "./stubs";
 import {
@@ -29,7 +30,6 @@ import {
   handleSyncMessage,
   parseSyncMessage,
   SYNC_DLQ,
-  SYNC_QUEUE,
 } from "./sync/process";
 
 export { TenantMail as TenantMailV2 } from "./mail/tenant-mail";

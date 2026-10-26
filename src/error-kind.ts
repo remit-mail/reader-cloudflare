@@ -34,10 +34,6 @@ const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   NotFound: "notFound",
   MethodNotAllowed: "client",
   NotImplemented: "notImplemented",
-  OutboxNotSendable: "conflict",
-  OutboxNotEditable: "conflict",
-  SmtpSendFailed: "smtp",
-  CredentialUnavailable: "credential",
   request_refused: "quota",
 };
 

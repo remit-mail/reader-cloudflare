@@ -3,6 +3,7 @@ import { processAccountFanoutEvent } from "@remit/account-worker/process";
 import type { RemitClient } from "@remit/backend/client";
 import {
   composeReadPathServices,
+  composeSmtpServices,
   composeSyncServices,
   createRemitCore,
 } from "@remit/backend/create-remit-client";
@@ -23,6 +24,7 @@ import {
   resolveFolderPlacement,
   SyncWarningService,
 } from "@remit/mailbox-service";
+import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { type ServedQueues, serveTenantApi } from "../api/serve";
@@ -39,7 +41,7 @@ import type { ConsumedFamily, EventOn, QueueEnvelope, ReaderEvent } from "../que
 import { connectImap, workersConnectionScope } from "./imap-connect";
 import { describeMessage, starOf } from "./operations";
 import { metered, meteredPool } from "./pool";
-import { processContext } from "./process-context";
+import { processContext, sendContext } from "./process-context";
 import { storedBodies } from "./stored-bodies";
 import type {
   AddressInput,
@@ -99,6 +101,7 @@ interface Composed {
   readonly tenantId: string;
   readonly client: RemitClient<ServedQueues>;
   readonly process: ProcessContext;
+  readonly send: SendMessageContext;
 }
 
 const consumeFanout = (event: ReaderEvent, client: RemitClient<ServedQueues>): Promise<void> => {
@@ -131,6 +134,19 @@ const consumeMutation = (
       return processEvent(event, context, attempts);
     default:
       throw new UnservedEventError("mutation", event.type);
+  }
+};
+
+const consumeSmtp = (
+  event: ReaderEvent,
+  context: SendMessageContext,
+  attempts: number,
+): Promise<void> => {
+  switch (event.type) {
+    case "SEND_MESSAGE":
+      return handleSendMessage(event, context, attempts);
+    default:
+      throw new UnservedEventError("smtp", event.type);
   }
 };
 
@@ -199,7 +215,7 @@ export class TenantMail extends DurableObject<Env> {
       case "mutation":
         return consumeMutation(event, composed.process, attempts);
       case "smtp":
-        throw new UnservedEventError(family, event.type);
+        return consumeSmtp(event, composed.send, attempts);
     }
   }
 
@@ -404,6 +420,7 @@ export class TenantMail extends DurableObject<Env> {
       tenantId,
       client,
       process: processContext(this.env, tenantId, client, this.pool),
+      send: sendContext(this.env, tenantId, this.mail, client),
     };
     return this.composed;
   }
@@ -427,9 +444,16 @@ export class TenantMail extends DurableObject<Env> {
         this.env,
         tenantId,
       ),
+      smtp: queueProducer<"Standard", EventOn<"smtp">>("Standard", this.env, tenantId),
     };
     const sync = composeSyncServices(core, queues);
-    return { ...core, queues, ...sync, ...composeReadPathServices(core, queues, sync) };
+    return {
+      ...core,
+      queues,
+      ...sync,
+      ...composeSmtpServices(core, queues),
+      ...composeReadPathServices(core, queues, sync),
+    };
   }
 
   async listAddresses(accountConfigId: string): Promise<AddressItem[]> {

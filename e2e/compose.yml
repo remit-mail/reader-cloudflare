@@ -7,3 +7,7 @@ services:
     extends:
       file: ./.reader/deploy/vps/docker-compose.dovecot.yml
       service: mailpit
+  mailpit-rejecting:
+    extends:
+      file: ./.reader/deploy/vps/docker-compose.dovecot.yml
+      service: mailpit-rejecting
