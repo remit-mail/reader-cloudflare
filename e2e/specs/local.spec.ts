@@ -53,6 +53,11 @@ const LATE: Message = {
   subject: "Arrived after onboarding",
   body: "Sent once the account existed.",
 };
+const UNFETCHED: Message = {
+  subject: "Opened before its body batch",
+  body: "The reading pane fetched this body from IMAP.",
+};
+const FIRST_SIGHT_POLL_MS = 100;
 const SENT_SUBJECT = `Sent from the local Worker ${Date.now()}`;
 const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
 const REFUSED_RECIPIENT = "nobody@remit.test";
@@ -123,6 +128,23 @@ const fillServer = async (page: Page, legend: RegExp, server: Server): Promise<v
   await group.getByLabel("Host").fill(server.host);
   await group.getByLabel("Port").fill(String(server.port));
   await group.getByLabel("Security").selectOption("none");
+};
+
+const plainTextUrlOf = (description: unknown): string => {
+  if (!isRecord(description) || !Array.isArray(description.bodyParts)) {
+    throw new Error("GET /messages/{messageId} has no bodyParts");
+  }
+  const part: unknown = description.bodyParts.find(
+    (entry: unknown) =>
+      isRecord(entry) &&
+      typeof entry.mediaType === "string" &&
+      typeof entry.mediaSubtype === "string" &&
+      `${entry.mediaType}/${entry.mediaSubtype}`.toLowerCase() === "text/plain",
+  );
+  if (!isRecord(part) || typeof part.contentUrl !== "string") {
+    throw new Error("GET /messages/{messageId} has no text/plain part");
+  }
+  return part.contentUrl;
 };
 
 const openInbox = async (page: Page): Promise<void> => {
@@ -298,9 +320,27 @@ test.describe("reader on a local Worker", () => {
     await expect(article).toContainText(message.body, { timeout: 30_000 });
   });
 
+  test("opening a message before its body batch lands serves the body", async () => {
+    await appendMessages(imapUser, [UNFETCHED]);
+    await api.triggerSync(shared.accountId);
+    const threads = await waitFor(
+      () => api.listThreads(shared.inboxId),
+      (items) => items.some((thread) => thread.subject === UNFETCHED.subject),
+      { timeoutMs: 60_000, intervalMs: FIRST_SIGHT_POLL_MS, what: "the unfetched message" },
+    );
+    const thread = threads.find((candidate) => candidate.subject === UNFETCHED.subject);
+    if (thread === undefined) throw new Error("matched but not found");
+
+    const described = await api.request("GET", `/messages/${thread.messageId}`);
+    expect(described.status).toBe(200);
+    const content = await fetch(plainTextUrlOf(await described.json()));
+    expect(content.status).toBe(200);
+    expect(await content.text()).toContain(UNFETCHED.body);
+  });
+
   test("search finds a seeded subject and nothing else", async ({ page }) => {
     const [match, ...rest] = SEEDED;
-    const others = [...rest, LATE];
+    const others = [...rest, LATE, UNFETCHED];
     if (match === undefined) throw new Error("no seeded message");
     await openInbox(page);
     const field = page.getByRole("textbox", { name: "Search mail" });

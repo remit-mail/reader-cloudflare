@@ -79,8 +79,12 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
     contentEncoding: ContentEncoding.None,
   });
 
-  const put = async (key: string, content: Uint8Array): Promise<StorageReference> => {
-    await bucket.put(key, content);
+  const put = async (
+    key: string,
+    content: Uint8Array,
+    options: R2PutOptions = {},
+  ): Promise<StorageReference> => {
+    await bucket.put(key, content, options);
     return referenceOf(key, content);
   };
 
@@ -107,8 +111,12 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
       put(buildMessageBodyKey(accountConfigId, accountId, messageId), content),
     storeMessageBodyStream: async ({ accountConfigId, accountId, messageId, content }) =>
       put(buildMessageBodyKey(accountConfigId, accountId, messageId), await collect(content)),
-    storeBodyPart: ({ accountConfigId, accountId, messageId, partPath, content }) =>
-      put(buildBodyPartKey(accountConfigId, accountId, messageId, partPath), content),
+    storeBodyPart: ({ accountConfigId, accountId, messageId, partPath, content, contentType }) =>
+      put(
+        buildBodyPartKey(accountConfigId, accountId, messageId, partPath),
+        content,
+        contentType === undefined ? {} : { httpMetadata: { contentType } },
+      ),
     bodyPartExists: async (accountConfigId, accountId, messageId, partPath) =>
       (await bucket.head(buildBodyPartKey(accountConfigId, accountId, messageId, partPath))) !==
       null,

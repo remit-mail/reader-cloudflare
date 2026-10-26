@@ -23,11 +23,9 @@ import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
-import { connectImap, workersConnectionScope } from "./imap-connect";
-import { describeMessage } from "./operations";
+import { connectImap, pooledConnectionScope } from "./imap-connect";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
-import type { MessageRecord } from "./types";
 
 class UnservedEventError extends Error {
   readonly family: QueueFamily;
@@ -158,10 +156,6 @@ export class TenantMail extends DurableObject<Env> {
     );
   }
 
-  async describeMessage(accountConfigId: string, messageId: string): Promise<MessageRecord | null> {
-    return describeMessage(this.mail, accountConfigId, messageId);
-  }
-
   private async dispatch(
     family: QueueFamily,
     event: ReaderEvent,
@@ -203,7 +197,7 @@ export class TenantMail extends DurableObject<Env> {
       repositories: this.mail,
       storage: r2Storage(this.env.MAIL),
       secrets: tenantSecrets(this.env, tenantId),
-      connectionScope: workersConnectionScope,
+      connectionScope: pooledConnectionScope(this.pool),
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(

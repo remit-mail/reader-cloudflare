@@ -8,7 +8,7 @@ export const apiConfig: ApiConfig = {
   auth: { mode: "GatewayAuthorizer" },
   corsAllowedOrigins: [env.PUBLIC_ORIGIN],
   publicOrigin: env.PUBLIC_ORIGIN,
-  contentDeliveryDomain: new URL(env.PUBLIC_ORIGIN).host,
+  contentDeliveryDomain: env.PUBLIC_ORIGIN,
   msOAuth: { mode: "Disabled" },
   selfUpdate: "Disabled",
   updateControlDir: NO_UPDATE_CONTROL,

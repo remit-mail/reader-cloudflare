@@ -1,6 +1,6 @@
 import { connect } from "cloudflare:sockets";
 import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
-import type { ConnectImap } from "@remit/imap-worker/process";
+import type { ConnectImap, ConnectionPool } from "@remit/imap-worker/process";
 import { connectionScope, type ImapTransport } from "@remit/mailbox-service";
 import { createSocketsTransport } from "imapflow";
 import { accountPassword } from "../crypto/envelope";
@@ -43,11 +43,21 @@ export const connectImap: ConnectImap = (account, credentials) =>
     transport: workersTransport(account.imapHost, account.imapTls),
   });
 
-export const workersConnectionScope: ConnectionScopeFactory =
-  (accounts, secrets) => async (accountId) => {
+export const pooledConnectionScope =
+  (pool: ConnectionPool): ConnectionScopeFactory =>
+  (accounts, secrets) =>
+  async (accountId) => {
     const account = await accounts.get(accountId);
-    return connectImap(account, {
+    const lease = pool.borrow(account, {
       kind: "password",
       password: await accountPassword(secrets, account),
     });
+    return {
+      getConnection: () =>
+        lease.getConnection().catch(async (error: unknown) => {
+          await lease.release();
+          throw error;
+        }),
+      disconnect: () => lease.release(),
+    };
   };
