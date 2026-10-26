@@ -1,14 +1,34 @@
 import type { RemitClient } from "@remit/backend/client";
 import { handlers } from "@remit/backend/handlers";
 import { type ApiRegistry, serveApi, type UserIdentity } from "@remit/backend/serve";
+import { refuseQuota } from "../error-kind";
 import { apiConfig } from "./config";
 import { localHandlers } from "./local";
 
 export const API_ROOT = "/api";
 
+export type ServedQueues = "accountFanout" | "messageManagement";
+
+type Handlers = ApiRegistry<ServedQueues>["handlers"];
+
+type Handler = NonNullable<Handlers[keyof Handlers]>;
+
+const refusingQuota =
+  (handler: Handler): Handler =>
+  (context, ctx) =>
+    handler(context, ctx).catch(refuseQuota);
+
+const quotaRefusing = (registry: Handlers): Handlers =>
+  Object.fromEntries(
+    Object.entries(registry).flatMap(([operationId, handler]) =>
+      handler === undefined ? [] : [[operationId, refusingQuota(handler)]],
+    ),
+  );
+
 const readerHandlers = {
   AccountDetailOperations_updateAccount: handlers.AccountDetailOperations_updateAccount,
   AccountOperations_testConnection: handlers.AccountOperations_testConnection,
+  AddressDetailOperations_updateAddress: handlers.AddressDetailOperations_updateAddress,
   AddressOperations_searchAddresses: handlers.AddressOperations_searchAddresses,
   CalendarDetailOperations_deleteCalendar: handlers.CalendarDetailOperations_deleteCalendar,
   CalendarDetailOperations_getCalendar: handlers.CalendarDetailOperations_getCalendar,
@@ -71,17 +91,17 @@ const readerHandlers = {
   ThreadOperations_listThreads: handlers.ThreadOperations_listThreads,
   ThreadOperations_searchThreads: handlers.ThreadOperations_searchThreads,
   UnifiedThreadOperations_listAllThreads: handlers.UnifiedThreadOperations_listAllThreads,
-} satisfies ApiRegistry<never>["handlers"];
+} satisfies Handlers;
 
-const served = serveApi<never>({
-  handlers: { ...readerHandlers, ...localHandlers },
+const served = serveApi<ServedQueues>({
+  handlers: quotaRefusing({ ...readerHandlers, ...localHandlers }),
   publicHandlers: {},
 });
 
 export const serveTenantApi = (
   request: Request,
   identity: UserIdentity,
-  client: RemitClient<never>,
+  client: RemitClient<ServedQueues>,
   correlationId: string,
 ): Promise<Response> => {
   const url = new URL(request.url);

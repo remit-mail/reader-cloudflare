@@ -2,12 +2,10 @@ import type {
   AccountConfigResponse,
   AccountResponse,
   AccountService,
-  AddressResponse,
   CanonicalMailboxRole,
   FolderAppointment,
 } from "@remit/api-openapi-types";
-import type { AccountConfigItem, AccountItem, AddressItem, MailboxItem } from "@remit/data-ports";
-import { storedFlags } from "../../mail/address-flags";
+import type { AccountConfigItem, AccountItem, MailboxItem } from "@remit/data-ports";
 
 const ROLES: readonly CanonicalMailboxRole[] = [
   "Inbox",
@@ -103,21 +101,4 @@ export const toAccountResponse = (
   folderAppointments: folderAppointments(
     mailboxes.filter((mailbox) => mailbox.accountId === row.accountId),
   ),
-});
-
-export const toAddressResponse = (record: AddressItem): AddressResponse => ({
-  addressId: record.addressId,
-  accountConfigId: record.accountConfigId,
-  ...optional("displayName", record.displayName),
-  localPart: record.localPart,
-  domain: record.domain,
-  normalizedEmail: record.normalizedEmail,
-  flags: storedFlags(record.flags ?? {}, record.addressId),
-  inboundCount: record.inboundCount,
-  outboundCount: record.outboundCount,
-  replyCount: record.replyCount,
-  lastInboundAt: record.lastInboundAt,
-  lastReplyAt: record.lastReplyAt,
-  createdAt: record.createdAt,
-  updatedAt: record.updatedAt,
 });

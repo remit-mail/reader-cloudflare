@@ -68,3 +68,46 @@ const remitLogger = (bindings: Fields): Logger => {
 };
 
 export const installRemitLogger = (): void => setLogger(remitLogger({}));
+
+interface QueueConsumeBase {
+  readonly family: string;
+  readonly type: string;
+  readonly attempt: number;
+  readonly durationMs: number;
+}
+
+export type QueueConsume =
+  | (QueueConsumeBase & { readonly outcome: "Acked" })
+  | (QueueConsumeBase & {
+      readonly outcome: "Retried";
+      readonly errorKind: string;
+      readonly error: string;
+    });
+
+export const logQueueConsume = (record: QueueConsume): void => {
+  if (record.outcome === "Acked") {
+    log.info("queue message consumed", { event: "queue.consume", ...record });
+    return;
+  }
+  log.error("queue message failed", { event: "queue.consume", ...record });
+};
+
+export type QueueDeadLetter =
+  | {
+      readonly id: string;
+      readonly attempt: number;
+      readonly family: string;
+      readonly type: string;
+      readonly tenantId: string;
+      readonly correlationId: string;
+    }
+  | {
+      readonly id: string;
+      readonly attempt: number;
+      readonly type: "Unreadable";
+      readonly reason: string;
+      readonly body: unknown;
+    };
+
+export const logQueueDeadLetter = (record: QueueDeadLetter): void =>
+  log.error("queue message dead-lettered", { event: "queue.dlq", ...record });

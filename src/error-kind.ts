@@ -1,3 +1,4 @@
+import { HostRefusedError } from "@remit/data-ports/errors";
 import { ZodError } from "zod";
 
 export type ErrorKind =
@@ -26,6 +27,7 @@ const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   SmtpSendFailed: "smtp",
   ImapFlagPushFailed: "imap",
   CredentialUnavailable: "credential",
+  request_refused: "quota",
 };
 
 const MESSAGE_KINDS: readonly (readonly [RegExp, ErrorKind])[] = [
@@ -48,6 +50,20 @@ export const errorKindOfCode = (status: number, code: string): ErrorKind => {
 
 export const errorKindOf = (error: unknown): ErrorKind => {
   if (error instanceof ZodError) return "validation";
+  if (error instanceof HostRefusedError) return "quota";
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);
   return MESSAGE_KINDS.find(([pattern]) => pattern.test(text))?.[1] ?? "unknown";
+};
+
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+export const quotaRefusal = (reason: string): string =>
+  `This account hit a Cloudflare storage or request limit; try again later. ${reason}`;
+
+export const refuseQuota = (error: unknown): never => {
+  if (error instanceof HostRefusedError) throw error;
+  if (errorKindOf(error) === "quota")
+    throw new HostRefusedError(quotaRefusal(messageOf(error)), error);
+  throw error;
 };

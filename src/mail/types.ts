@@ -1,6 +1,5 @@
 import type { AddressFlags } from "@remit/api-openapi-types";
 import type {
-  AddressItem,
   EnvelopeAddressItem,
   MailboxSpecialUseValue,
   MessageItem,
@@ -149,11 +148,6 @@ export interface OutboxStateChange {
   readonly lastError: string | null;
   readonly sentAt: number | null;
 }
-
-export type AddressUpdate =
-  | { readonly kind: "Updated"; readonly address: AddressItem }
-  | { readonly kind: "NotFound" }
-  | { readonly kind: "Invalid"; readonly reason: string };
 
 export interface AddressPageRequest {
   readonly accountConfigId: string;

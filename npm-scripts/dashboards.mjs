@@ -73,6 +73,22 @@ const queries = [
     groupBys: ["event", "action"],
   },
   {
+    name: "queue consumes by family",
+    description: "Queue deliveries per family, event type and outcome, with p95 durationMs.",
+    filters: [eq("event", "queue.consume")],
+    calculations: [count, of("p95", "durationMs")],
+    groupBys: ["family", "type", "outcome"],
+    orderBy: "count",
+  },
+  {
+    name: "queue dead letters",
+    description: "Messages the shared dead-letter queue received, by family and event type.",
+    filters: [eq("event", "queue.dlq")],
+    calculations: [count],
+    groupBys: ["family", "type"],
+    orderBy: "count",
+  },
+  {
     name: "errors by kind",
     description: "Every line with an errorKind, by kind and event.",
     filters: [{ key: "errorKind", operation: "exists", type: "string" }],

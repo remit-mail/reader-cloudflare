@@ -4,20 +4,20 @@ Account `f496802dcadb597e5939f6449c759a43`, Worker `reader-cloudflare`.
 
 ## Dashboard paths
 
-| What                                                                                                                             | Path                                                                                    |
-| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Worker metrics: requests, errors, CPU time, wall time percentiles                                                                | Workers & Pages / reader-cloudflare / Metrics                                           |
-| Workers Logs, query builder, saved queries                                                                                       | Workers & Pages / reader-cloudflare / Observability                                     |
-| Grouped Worker failures                                                                                                          | Workers & Pages / reader-cloudflare / Observability / Issues                            |
-| Durable Objects                                                                                                                  | Workers & Pages / Durable Objects / TenantMailV2, AccountSyncV2 / Metrics               |
-| D1                                                                                                                               | Storage & Databases / D1 SQL Database / reader-cloudflare / Metrics                     |
-| R2                                                                                                                               | Storage & Databases / R2 Object Storage / reader-cloudflare-mail / Metrics              |
-| Queues backlog and DLQ depth                                                                                                     | Workers & Pages / Queues / reader-cloudflare-sync, reader-cloudflare-sync-dlq / Metrics |
-| Billable usage                                                                                                                   | Manage Account / Billing / Billable Usage                                               |
-| Notification policies                                                                                                            | Manage Account / Notifications                                                          |
-| Budget alert at 5 and 20 USD (not in OpenTofu, [#7438](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7438)) | Manage Account / Notifications / Add / Billing Budget Alert                             |
-| Error rate alert (not in OpenTofu, [#7259](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7259))             | Workers & Pages / reader-cloudflare / Observability / Alerts                            |
-| GraphQL explorer                                                                                                                 | https://graphql.cloudflare.com/explorer                                                 |
+| What                                                                                                                             | Path                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Worker metrics: requests, errors, CPU time, wall time percentiles                                                                | Workers & Pages / reader-cloudflare / Metrics                                                |
+| Workers Logs, query builder, saved queries                                                                                       | Workers & Pages / reader-cloudflare / Observability                                          |
+| Grouped Worker failures                                                                                                          | Workers & Pages / reader-cloudflare / Observability / Issues                                 |
+| Durable Objects                                                                                                                  | Workers & Pages / Durable Objects / TenantMailV2, AccountSyncV2 / Metrics                    |
+| D1                                                                                                                               | Storage & Databases / D1 SQL Database / reader-cloudflare / Metrics                          |
+| R2                                                                                                                               | Storage & Databases / R2 Object Storage / reader-cloudflare-mail / Metrics                   |
+| Queues backlog and DLQ depth                                                                                                     | Workers & Pages / Queues / reader-cloudflare-sync, -mutation, -smtp, -fanout, -dlq / Metrics |
+| Billable usage                                                                                                                   | Manage Account / Billing / Billable Usage                                                    |
+| Notification policies                                                                                                            | Manage Account / Notifications                                                               |
+| Budget alert at 5 and 20 USD (not in OpenTofu, [#7438](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7438)) | Manage Account / Notifications / Add / Billing Budget Alert                                  |
+| Error rate alert (not in OpenTofu, [#7259](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7259))             | Workers & Pages / reader-cloudflare / Observability / Alerts                                 |
+| GraphQL explorer                                                                                                                 | https://graphql.cloudflare.com/explorer                                                      |
 
 ## Bookmarks
 
@@ -34,7 +34,7 @@ Every line is one JSON object from `log` in `src/log.ts`. Lines that feed a dash
 
 | Field               | Type   | On                                                                 | Meaning                                                                                                                                              |
 | ------------------- | ------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `event`             | string | all below                                                          | `http.response`, `http.error`, `sync.batch`, `sync.pass`, `sync.complete`, `sync.failed`, `sync.dlq`, `smtp.send`                                    |
+| `event`             | string | all below                                                          | `http.response`, `http.error`, `sync.batch`, `sync.pass`, `sync.complete`, `sync.failed`, `sync.dlq`, `smtp.send`, `queue.consume`, `queue.dlq`      |
 | `correlationId`     | string | every line                                                         | One request, queue message or sync run                                                                                                               |
 | `route`             | string | every line of a request                                            | OpenAPI operationId, or `content`, `assets`, `unmatched`                                                                                             |
 | `tenantId`          | string | authenticated request lines, sync, send                            | Stable tenant id, never an email                                                                                                                     |
@@ -52,6 +52,10 @@ Every line is one JSON object from `log` in `src/log.ts`. Lines that feed a dash
 | `messagesQueued`    | number | `sync.complete`                                                    | Messages dumped to R2 and queued in the run                                                                                                          |
 | `lastMessageSyncAt` | string | `sync.complete`                                                    | ISO time the run finished                                                                                                                            |
 | `action`, `reason`  | string | `sync.dlq`                                                         | `Redriven` or `Dropped`, and why                                                                                                                     |
+| `family`            | string | `queue.consume`, `queue.dlq`                                       | Queue family: `sync`, `mutation`, `smtp`, `fanout`                                                                                                   |
+| `type`              | string | `queue.consume`, `queue.dlq`                                       | Reader event type, such as `SenderCategoryBackApply`, or `Unreadable`                                                                                |
+| `attempt`           | number | `queue.consume`, `queue.dlq`                                       | Delivery attempt of the queue message                                                                                                                |
+| `outcome`           | string | `queue.consume`                                                    | `Acked` or `Retried`                                                                                                                                 |
 | `sendStatus`        | string | `smtp.send`                                                        | `Sent`, `Unfiled`, `Failed`, `CredentialUnavailable`                                                                                                 |
 | `syncStatus`        | string | `sync.complete`, `sync.failed`                                     | Sync run state: `Idle`, `Running`, `Failed`                                                                                                          |
 
@@ -61,15 +65,17 @@ The Worker has no CPU clock, so per-batch CPU is read from `$workers.cpuTimeMs` 
 
 `npm run dashboards` creates or updates these saved queries in Observability / Queries, each filtered on `$metadata.service = reader-cloudflare` and named `reader-cloudflare: ...`. The definitions live in `npm-scripts/dashboards.mjs`. The Observability API has saved queries but no dashboards; each saved query renders its own charts over time.
 
-| Saved query                 | Filter                                   | Visualize                                       | Group by                 |
-| --------------------------- | ---------------------------------------- | ----------------------------------------------- | ------------------------ |
-| requests by status class    | `event = http.response`                  | Count                                           | `statusClass`            |
-| 4xx and 5xx by route        | `event = http.response`, `status >= 400` | Count, top 20                                   | `route`, `statusClass`   |
-| latency by route            | `event = http.response`                  | Median, P95 `durationMs`, Count                 | `route`, top 20          |
-| messages stored per account | `event = sync.batch`                     | Sum `messagesStored`, `messagesFailed`, `bytes` | `accountId`              |
-| sync failures per account   | `event = sync.failed`                    | Count                                           | `accountId`, `errorKind` |
-| queue batches and dlq       | `event in sync.batch, sync.dlq`          | Count, P95 `durationMs`                         | `event`, `action`        |
-| errors by kind              | `errorKind exists`                       | Count                                           | `errorKind`, `event`     |
+| Saved query                 | Filter                                   | Visualize                                       | Group by                    |
+| --------------------------- | ---------------------------------------- | ----------------------------------------------- | --------------------------- |
+| requests by status class    | `event = http.response`                  | Count                                           | `statusClass`               |
+| 4xx and 5xx by route        | `event = http.response`, `status >= 400` | Count, top 20                                   | `route`, `statusClass`      |
+| latency by route            | `event = http.response`                  | Median, P95 `durationMs`, Count                 | `route`, top 20             |
+| messages stored per account | `event = sync.batch`                     | Sum `messagesStored`, `messagesFailed`, `bytes` | `accountId`                 |
+| sync failures per account   | `event = sync.failed`                    | Count                                           | `accountId`, `errorKind`    |
+| queue batches and dlq       | `event in sync.batch, sync.dlq`          | Count, P95 `durationMs`                         | `event`, `action`           |
+| queue consumes by family    | `event = queue.consume`                  | Count, P95 `durationMs`                         | `family`, `type`, `outcome` |
+| queue dead letters          | `event = queue.dlq`                      | Count                                           | `family`, `type`            |
+| errors by kind              | `errorKind exists`                       | Count                                           | `errorKind`, `event`        |
 
 ## GraphQL
 

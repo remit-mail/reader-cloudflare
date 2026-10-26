@@ -1,5 +1,5 @@
 import type { ApiError } from "@remit/api-openapi-types";
-import { errorKindOfCode } from "./error-kind";
+import { errorKindOfCode, quotaRefusal } from "./error-kind";
 import { annotateLog } from "./log";
 
 export const apiError = (status: number, code: string, message: string): Response => {
@@ -8,15 +8,8 @@ export const apiError = (status: number, code: string, message: string): Respons
   return Response.json(body, { status });
 };
 
-export const quotaExceeded = (reason: string): Response => {
-  const response = apiError(
-    429,
-    "request_refused",
-    `This account hit a Cloudflare storage or request limit; try again later. ${reason}`,
-  );
-  annotateLog({ errorKind: "quota" });
-  return response;
-};
+export const quotaExceeded = (reason: string): Response =>
+  apiError(429, "request_refused", quotaRefusal(reason));
 
 export const notFound = (what: string): Response => apiError(404, "NotFound", `${what} not found`);
 

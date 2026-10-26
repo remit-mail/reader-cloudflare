@@ -5,7 +5,23 @@ import { isContentPath, serveContent } from "./content/route";
 import type { Env } from "./env";
 import { errorKindOf } from "./error-kind";
 import { apiError, quotaExceeded, unauthorized } from "./http";
-import { annotateLog, currentCorrelationId, installRemitLogger, log, withLogContext } from "./log";
+import {
+  annotateLog,
+  currentCorrelationId,
+  installRemitLogger,
+  log,
+  logQueueConsume,
+  logQueueDeadLetter,
+  withLogContext,
+} from "./log";
+import {
+  CONSUMED_QUEUES,
+  type ConsumedQueue,
+  FAMILY_OF,
+  isConsumedQueue,
+  parseEnvelope,
+  SHARED_DLQ,
+} from "./queue/routing";
 import { tenantMail } from "./stubs";
 import {
   describeSyncMessage,
@@ -44,6 +60,71 @@ class UnknownQueueError extends Error {
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const consumeEnveloped = async (
+  env: Env,
+  queue: ConsumedQueue,
+  message: Message<unknown>,
+): Promise<void> => {
+  const family = CONSUMED_QUEUES[queue];
+  const parsed = parseEnvelope(message.body);
+  if (!parsed.ok) {
+    message.retry();
+    logQueueConsume({
+      family,
+      type: "Unreadable",
+      attempt: message.attempts,
+      durationMs: 0,
+      outcome: "Retried",
+      errorKind: "validation",
+      error: parsed.reason,
+    });
+    return;
+  }
+  const { envelope } = parsed;
+  const fields = { family, type: envelope.event.type, attempt: message.attempts };
+  await withLogContext(
+    { correlationId: envelope.correlationId, tenantId: envelope.tenantId },
+    () => {
+      const started = Date.now();
+      return tenantMail(env, envelope.tenantId)
+        .consume(family, envelope, message.attempts)
+        .then(
+          () => {
+            message.ack();
+            logQueueConsume({ ...fields, durationMs: Date.now() - started, outcome: "Acked" });
+          },
+          (error: unknown) => {
+            message.retry();
+            logQueueConsume({
+              ...fields,
+              durationMs: Date.now() - started,
+              outcome: "Retried",
+              errorKind: errorKindOf(error),
+              error: errorMessage(error),
+            });
+          },
+        );
+    },
+  );
+};
+
+const deadLetter = (message: Message<unknown>): void => {
+  const parsed = parseEnvelope(message.body);
+  const seen = { id: message.id, attempt: message.attempts };
+  logQueueDeadLetter(
+    parsed.ok
+      ? {
+          ...seen,
+          family: FAMILY_OF[parsed.envelope.event.type],
+          type: parsed.envelope.event.type,
+          tenantId: parsed.envelope.tenantId,
+          correlationId: parsed.envelope.correlationId,
+        }
+      : { ...seen, type: "Unreadable", reason: parsed.reason, body: message.body },
+  );
+  message.ack();
+};
 
 const failed =
   (method: string, path: string) =>
@@ -143,6 +224,15 @@ export default {
   },
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    const { queue } = batch;
+    if (isConsumedQueue(queue)) {
+      for (const message of batch.messages) await consumeEnveloped(env, queue, message);
+      return;
+    }
+    if (queue === SHARED_DLQ) {
+      for (const message of batch.messages) deadLetter(message);
+      return;
+    }
     switch (batch.queue) {
       case SYNC_QUEUE:
       case SYNC_DLQ:

@@ -33,6 +33,8 @@ const newsletterFixture = (): ClassificationFixture => {
   return fixture;
 };
 const NEWSLETTER = newsletterFixture();
+const NEWSLETTER_SENDER = "writer@letter.test";
+const OVERRIDDEN_CATEGORY = "personal";
 
 const SEEDED: Message[] = [
   { subject: `${SEARCHED_WORD} inspection on Friday`, body: "The quay closes at noon." },
@@ -187,6 +189,32 @@ test.describe("reader on a local Worker", () => {
     await expect(
       section.locator("[data-message-row]", { hasText: NEWSLETTER.subject }).first(),
     ).toBeVisible({ timeout: 30_000 });
+  });
+
+  test("setting a sender's category relabels that sender's existing messages", async () => {
+    const [sender] = (await api.searchAddresses(NEWSLETTER_SENDER)).filter(
+      (address) => address.normalizedEmail === NEWSLETTER_SENDER,
+    );
+    if (sender === undefined) throw new Error(`no address for ${NEWSLETTER_SENDER}`);
+    const response = await api.request("PATCH", `/addresses/${sender.addressId}`, {
+      flags: { category: { value: OVERRIDDEN_CATEGORY, setAt: Date.now() } },
+    });
+    expect(response.status).toBe(200);
+
+    const threads = await waitFor(
+      () => api.listThreads(shared.inboxId),
+      (items) =>
+        items.some(
+          (thread) =>
+            thread.subject === NEWSLETTER.subject && thread.category === OVERRIDDEN_CATEGORY,
+        ),
+      { timeoutMs: 60_000, what: "the newsletter relabelled by the sender category back-apply" },
+    );
+    const fromSender = threads.filter((thread) => thread.fromEmail === NEWSLETTER_SENDER);
+    expect(fromSender.length).toBeGreaterThan(0);
+    expect(fromSender.map((thread) => thread.category)).toEqual(
+      fromSender.map(() => OVERRIDDEN_CATEGORY),
+    );
   });
 
   test("opening a seeded message shows its body", async ({ page }) => {

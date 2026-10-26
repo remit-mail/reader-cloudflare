@@ -1,14 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
+import { processAccountFanoutEvent } from "@remit/account-worker/process";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitCore } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
-import type {
-  AddressItem,
-  CreateAddressInput,
-  FlagsMergePatch,
-  MailboxItem,
-  ResultList,
-} from "@remit/data-ports";
+import type { AddressItem, CreateAddressInput, MailboxItem, ResultList } from "@remit/data-ports";
 import { deriveAddressId, deriveBodyPartId, deriveEnvelopeId } from "@remit/data-ports/id";
 import {
   asyncBatch,
@@ -25,7 +20,7 @@ import {
 } from "@remit/mailbox-service";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
-import { serveTenantApi } from "../api/serve";
+import { type ServedQueues, serveTenantApi } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { commit } from "../commit";
 import { tenantSecrets } from "../crypto/envelope";
@@ -33,6 +28,9 @@ import { openAppDb } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { log, withLogContext } from "../log";
+import { queueProducer } from "../queue/producer";
+import type { ConsumedFamily, EventOn, QueueEnvelope, ReaderEvent } from "../queue/routing";
+import { workersConnectionScope } from "./imap-connect";
 import { describeMessage, starOf } from "./operations";
 import { storedBodies } from "./stored-bodies";
 import type {
@@ -77,6 +75,28 @@ const roles = (input: MessageInput): readonly [AddressRole, readonly AddressInpu
   ["bcc", input.envelope.bcc],
 ];
 
+class UnservedEventError extends Error {
+  readonly family: ConsumedFamily;
+  readonly type: ReaderEvent["type"];
+
+  constructor(family: ConsumedFamily, type: ReaderEvent["type"]) {
+    super(`the ${family} queue has no consumer for ${type} in this Worker yet`);
+    this.name = "UnservedEventError";
+    this.family = family;
+    this.type = type;
+  }
+}
+
+const consumeFanout = (event: ReaderEvent, client: RemitClient<ServedQueues>): Promise<void> => {
+  switch (event.type) {
+    case "OrganizeJob":
+    case "SenderCategoryBackApply":
+      return processAccountFanoutEvent(event, { client });
+    default:
+      throw new UnservedEventError("fanout", event.type);
+  }
+};
+
 const sightingIn = (mailbox: MailboxItem): Sighting => {
   const uses = mailbox.specialUse ?? [];
   if (uses.includes("Junk")) return "junk";
@@ -102,8 +122,21 @@ export class TenantMail extends DurableObject<Env> {
 
   async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
     return withLogContext({ correlationId, tenantId: identity.sub }, () =>
-      serveTenantApi(request, identity, this.clientFor(identity.sub), correlationId),
+      serveTenantApi(request, identity, this.clientFor(identity.sub, correlationId), correlationId),
     );
+  }
+
+  async consume(family: ConsumedFamily, envelope: QueueEnvelope, attempts: number): Promise<void> {
+    const { tenantId, correlationId, event } = envelope;
+    return withLogContext({ correlationId, tenantId, family, attempt: attempts }, () => {
+      switch (family) {
+        case "fanout":
+          return consumeFanout(event, this.clientFor(tenantId, correlationId));
+        case "mutation":
+        case "smtp":
+          throw new UnservedEventError(family, event.type);
+      }
+    });
   }
 
   async upsertMailboxes(
@@ -295,13 +328,29 @@ export class TenantMail extends DurableObject<Env> {
     );
   }
 
-  private clientFor(tenantId: string): RemitClient<never> {
+  private clientFor(tenantId: string, correlationId: string): RemitClient<ServedQueues> {
     const core = createRemitCore({
       repositories: this.mail,
       storage: r2Storage(this.env.MAIL),
       secrets: tenantSecrets(this.env, tenantId),
+      connectionScope: workersConnectionScope,
     });
-    return { ...core, queues: {} };
+    const stamp = { tenantId, correlationId };
+    return {
+      ...core,
+      queues: {
+        accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(
+          "Standard",
+          this.env,
+          stamp,
+        ),
+        messageManagement: queueProducer<"Standard", EventOn<"messageManagement">>(
+          "Standard",
+          this.env,
+          stamp,
+        ),
+      },
+    };
   }
 
   async listAddresses(accountConfigId: string): Promise<AddressItem[]> {
@@ -314,14 +363,6 @@ export class TenantMail extends DurableObject<Env> {
 
   async upsertAddress(input: CreateAddressInput): Promise<AddressItem> {
     return this.mail.address.upsertAddress(input);
-  }
-
-  async mergeAddressFlags(
-    accountConfigId: string,
-    addressId: string,
-    patch: FlagsMergePatch,
-  ): Promise<AddressItem> {
-    return this.mail.address.mergeFlags(accountConfigId, addressId, patch);
   }
 
   private async saveMessage(

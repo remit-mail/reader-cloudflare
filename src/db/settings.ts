@@ -17,7 +17,7 @@ import { openAppDb } from "./client";
 export interface MailPorts {
   readonly address: Pick<
     IAddressRepository,
-    "listAllByAccountConfig" | "listAllByAccountConfigPage" | "upsertAddress" | "mergeFlags"
+    "listAllByAccountConfig" | "listAllByAccountConfigPage" | "upsertAddress"
   >;
   readonly mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 }
@@ -46,8 +46,6 @@ export const tenantMailPorts = (env: Env, tenantId: string): MailPorts => {
       listAllByAccountConfig: (accountConfigId) => mail.listAddresses(accountConfigId),
       listAllByAccountConfigPage: (page) => mail.listAddressPage(page),
       upsertAddress: (input) => mail.upsertAddress(input),
-      mergeFlags: (accountConfigId, addressId, patch) =>
-        mail.mergeAddressFlags(accountConfigId, addressId, patch),
     },
     mailbox: {
       listAllByAccount: async (accountId) => [...(await mail.listMailboxItems([accountId]))],

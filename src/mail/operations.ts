@@ -2,9 +2,8 @@ import type { AddressFlags } from "@remit/api-openapi-types";
 import type { RemitClientCore } from "@remit/backend/create-remit-client";
 import type { AddressItem } from "@remit/data-ports";
 import { log } from "../log";
-import { type AddressFlagsPatch, mergeAddressFlags, storedFlags } from "./address-flags";
+import { storedFlags } from "./address-flags";
 import type {
-  AddressUpdate,
   FlagChange,
   FlagState,
   MailResult,
@@ -155,23 +154,6 @@ export const flagState = async (
   const thread = await mail.threadMessage.findByMessageId(accountConfigId, messageId);
   if (thread === null) return null;
   return { messageId, isRead: thread.isRead, isStarred: thread.hasStars };
-};
-
-export const updateAddressFlags = async (
-  mail: MailStore,
-  accountConfigId: string,
-  addressId: string,
-  patch: AddressFlagsPatch,
-): Promise<AddressUpdate> => {
-  const [current] = await mail.address.getAddress(accountConfigId, [addressId]);
-  if (current === undefined) return { kind: "NotFound" };
-  const merged = mergeAddressFlags(flagsOf(current), patch);
-  if (!merged.ok) return { kind: "Invalid", reason: merged.reason };
-  const address = await mail.address.updateAddress(accountConfigId, addressId, {
-    flags: merged.flags,
-  });
-  log.info("address flags set", { addressId, flags: Object.keys(merged.flags) });
-  return { kind: "Updated", address };
 };
 
 export const createOutbox = (mail: MailStore, input: NewOutbox): Promise<OutboxRecord> =>
