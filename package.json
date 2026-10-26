@@ -26,6 +26,7 @@
     "db:generate:mail": "drizzle-kit generate --config drizzle.mail.config.ts",
     "db:generate:search": "drizzle-kit generate --config drizzle.search.config.ts",
     "db:migrate": "node npm-scripts/db-migrate.mjs",
+    "db:migrate:build": "node npm-scripts/db-migrate.mjs --build",
     "wrangler": "node npm-scripts/wrangler.mjs",
     "build": "npm run build:schema && npm run build --workspace packages/web",
     "generate": "tsp format \"typespec/**/*.tsp\" && tsp compile ./typespec && biome check --write packages/app-db-schema",
