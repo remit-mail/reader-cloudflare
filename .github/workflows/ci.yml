@@ -1,14 +1,20 @@
 name: ci
 
 on:
+  pull_request:
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
+    name: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
