@@ -65,6 +65,7 @@
     "@remit/logger": "0.0.2",
     "@remit/mailbox-service": "0.0.116",
     "@remit/secrets-service": "0.0.11",
+    "@remit/smtp-service": "0.0.20",
     "@remit/smtp-worker": "0.0.31",
     "@remit/storage-service": "0.0.13",
     "app-db-schema": "0.0.0",
