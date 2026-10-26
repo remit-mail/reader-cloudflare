@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { createSign, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { base36uuidv5, REMIT_NAMESPACE } from "@remit/data-ports/id";
 import { Miniflare, Response } from "miniflare";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -25,19 +26,21 @@ const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "s
 
 const base64Url = (value) => Buffer.from(value).toString("base64url");
 const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
-const sub = "5f3c8e2a-9b1d-4e7f-a6c4-2d8b0e9f1a37";
-const claims = base64Url(
-  JSON.stringify({
-    sub,
-    email: "smoke@example.com",
-    iss: `https://${teamDomain}`,
-    aud: audience,
-    exp: Math.floor(Date.now() / 1000) + 600,
-  }),
-);
-const signer = createSign("RSA-SHA256");
-signer.update(`${header}.${claims}`);
-const token = `${header}.${claims}.${signer.sign(privateKey).toString("base64url")}`;
+const tokenFor = (sub) => {
+  const claims = base64Url(
+    JSON.stringify({
+      sub,
+      email: "smoke@example.com",
+      iss: `https://${teamDomain}`,
+      aud: audience,
+      exp: Math.floor(Date.now() / 1000) + 600,
+    }),
+  );
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${claims}`);
+  return `${header}.${claims}.${signer.sign(privateKey).toString("base64url")}`;
+};
+const token = tokenFor("5f3c8e2a-9b1d-4e7f-a6c4-2d8b0e9f1a37");
 
 const mf = new Miniflare({
   workers: [
@@ -81,10 +84,10 @@ for (const file of readdirSync(`${root}migrations`).filter((name) => name.endsWi
   }
 }
 
-const call = async (method, path, body) => {
+const call = async (method, path, body, as = token) => {
   const response = await mf.dispatchFetch(`https://smoke.test${path}`, {
     method,
-    headers: { "cf-access-jwt-assertion": token, "content-type": "application/json" },
+    headers: { "cf-access-jwt-assertion": as, "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { status: response.status, body: await response.json() };
@@ -159,4 +162,21 @@ console.log(
     addressFlags: exported.body.document?.addressFlags?.length,
   }),
 );
+
+const prototypeSub = "0b6f2d4e-7a1c-4e9b-8d3f-5c2a9e7b1f60";
+const prototypeConfigId = "prototypeconfig0000000001";
+const now = Date.now();
+await db
+  .prepare(
+    "insert into account_config (account_config_id, user_id, state, created_at, updated_at) values (?, ?, 'active', ?, ?)",
+  )
+  .bind(prototypeConfigId, base36uuidv5(`user:${prototypeSub}`, REMIT_NAMESPACE), now, now)
+  .run();
+const prototype = await call("GET", "/api/config", undefined, tokenFor(prototypeSub));
+const resolved = prototype.body.accountConfig?.accountConfigId;
+console.log(JSON.stringify({ step: "prototype tenant", status: prototype.status, resolved }));
 await mf.dispose();
+if (resolved !== prototypeConfigId) {
+  console.error(`prototype tenant resolved to ${resolved}, not ${prototypeConfigId}`);
+  process.exit(1);
+}
