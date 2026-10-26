@@ -16,27 +16,26 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 
 ## Scripts
 
-| Script                               | Does                                                                                      |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `npm run dev`                        | `wrangler dev` on port 8790, bound to `0.0.0.0`                                           |
-| `npm run deploy -- --bootstrap`      | `wrangler deploy` from this machine, before Workers Builds runs; refuses without the flag |
-| `npm run build`                      | Vite builds the web client into `packages/web/dist`                                       |
-| `npm run dashboards`                 | Create or update the Observability saved queries in `npm-scripts/dashboards.mjs`          |
-| `npm run tail`                       | `wrangler tail --format pretty` on the deployed Worker                                    |
-| `npm run logs -- <minutes> [text]`   | Workers Observability events from the last minutes, one JSON line each                    |
-| `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                           |
-| `npm run fix`                        | Biome rewrites files                                                                      |
-| `npm run check`                      | Biome format and lint check                                                               |
-| `npm run typecheck`                  | `tsc` over `src` and every package, against declarations `build:vendor-types` emits       |
-| `npm run smoke:config-import`        | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1)   |
-| `npm run ci`                         | `check` then `typecheck`; run before every push                                           |
-| `npm run e2e`                        | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it   |
-| `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`                                             |
-| `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                      |
-| `npm run db:generate:mail`           | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`      |
-| `npm run db:migrate`                 | `wrangler d1 migrations apply` on the remote D1                                           |
-| `npm run wrangler -- <args>`         | `wrangler` with the Cloudflare token from `cf-env`                                        |
-| `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`                                                      |
+| Script                               | Does                                                                                    |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `npm run dev`                        | `wrangler dev` on port 8790, bound to `0.0.0.0`                                         |
+| `npm run build`                      | Vite builds the web client into `packages/web/dist`                                     |
+| `npm run dashboards`                 | Create or update the Observability saved queries in `npm-scripts/dashboards.mjs`        |
+| `npm run tail`                       | `wrangler tail --format pretty` on the deployed Worker                                  |
+| `npm run logs -- <minutes> [text]`   | Workers Observability events from the last minutes, one JSON line each                  |
+| `npm run commit`                     | Write `src/commit.ts` with the commit sha baked into the Worker                         |
+| `npm run fix`                        | Biome rewrites files                                                                    |
+| `npm run check`                      | Biome format and lint check                                                             |
+| `npm run typecheck`                  | `tsc` over `src` and every package, against declarations `build:vendor-types` emits     |
+| `npm run smoke:config-import`        | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1) |
+| `npm run ci`                         | `check` then `typecheck`; run before every push                                         |
+| `npm run e2e`                        | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it |
+| `npm run infra:plan` / `infra:apply` | `tofu init` and `plan` or `apply` in `infra/`                                           |
+| `npm run db:generate`                | drizzle-kit writes SQL migrations into `migrations/`                                    |
+| `npm run db:generate:mail`           | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`    |
+| `npm run db:migrate`                 | `wrangler d1 migrations apply` on the remote D1                                         |
+| `npm run wrangler -- <args>`         | `wrangler` with the Cloudflare token from `cf-env`                                      |
+| `npm run deploy -- --bootstrap`      | `db:migrate`, then `wrangler deploy`                                                    |
 
 ## Infra
 
