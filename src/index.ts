@@ -22,6 +22,7 @@ import {
   parseEnvelope,
   SHARED_DLQ,
 } from "./queue/routing";
+import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
 
 export { TenantMail as TenantMailV3 } from "./mail/tenant-mail";
@@ -228,5 +229,9 @@ export default {
     }
     log.error("queue refused", { queue, size: batch.messages.length });
     throw new UnknownQueueError(queue);
+  },
+
+  scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    return tickEveryTenant(env, controller.scheduledTime);
   },
 } satisfies ExportedHandler<Env, unknown>;
