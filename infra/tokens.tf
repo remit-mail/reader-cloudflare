@@ -8,7 +8,14 @@ data "cloudflare_account_api_token_permission_groups_list" "zone" {
   scope      = "com.cloudflare.api.account.zone"
 }
 
+data "cloudflare_account_api_token_permission_groups_list" "tfstate_read" {
+  account_id = var.account_id
+  name       = "Workers R2 Storage Bucket Item Read"
+}
+
 locals {
+  tfstate_bucket = "${local.name}-tfstate"
+
   account_permission_ids = {
     for group in data.cloudflare_account_api_token_permission_groups_list.account.result : group.name => group.id
   }
@@ -18,6 +25,8 @@ locals {
   }
 
   account_resources = jsonencode({ "com.cloudflare.api.account.${var.account_id}" = "*" })
+
+  tfstate_bucket_resources = jsonencode({ "com.cloudflare.edge.r2.bucket.${var.account_id}_default_${local.tfstate_bucket}" = "*" })
 
   account_zone_resources = jsonencode({ "com.cloudflare.api.account.${var.account_id}" = { "com.cloudflare.api.account.zone.*" = "*" } })
 
@@ -53,6 +62,11 @@ resource "cloudflare_account_token" "debug" {
       effect            = "allow"
       resources         = local.account_zone_resources
       permission_groups = [for name in local.debug_zone_permissions : { id = local.zone_permission_ids[name] }]
+    },
+    {
+      effect            = "allow"
+      resources         = local.tfstate_bucket_resources
+      permission_groups = [{ id = one(data.cloudflare_account_api_token_permission_groups_list.tfstate_read.result).id }]
     },
   ]
 
