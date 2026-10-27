@@ -1,11 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
-import { processAccountFanoutEvent } from "@remit/account-worker/process";
+import {
+  type AccountPurgeContext,
+  processAccountFanoutEvent,
+  processAccountPurgeEvent,
+} from "@remit/account-worker/process";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
 import {
   composeSqliteRepositories,
   type SqliteRepositories,
+  type SqliteStores,
   syncStore,
 } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
@@ -24,6 +29,7 @@ import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
+import { purgeContext } from "./account-purge";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
@@ -47,16 +53,20 @@ interface Composed {
   readonly client: RemitClient;
   readonly process: ProcessContext;
   readonly send: SendMessageContext;
+  readonly purge: AccountPurgeContext;
 }
 
 const accountOf = (event: ReaderEvent): Record<string, string> =>
   "accountId" in event && typeof event.accountId === "string" ? { accountId: event.accountId } : {};
 
-const consumeFanout = (event: ReaderEvent, client: RemitClient): Promise<void> => {
+const consumeFanout = (event: ReaderEvent, composed: Composed): Promise<void> => {
   switch (event.type) {
     case "OrganizeJob":
     case "SenderCategoryBackApply":
-      return processAccountFanoutEvent(event, { client });
+      return processAccountFanoutEvent(event, { client: composed.client });
+    case "AccountDataPurge":
+    case "FinalizeAccountDataPurge":
+      return processAccountPurgeEvent(event, composed.purge);
     default:
       throw new UnservedEventError("fanout", event.type);
   }
@@ -115,6 +125,7 @@ const consumeSmtp = (
 
 export class TenantMail extends DurableObject<Env> {
   private readonly mail: SqliteRepositories;
+  private readonly stores: SqliteStores;
   private readonly pool: ConnectionPool;
   private composed: Composed | null = null;
 
@@ -122,11 +133,8 @@ export class TenantMail extends DurableObject<Env> {
     super(ctx, env);
     const db = drizzle(ctx.storage);
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
-    this.mail = composeSqliteRepositories({
-      app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS),
-      mail,
-      search: mail,
-    });
+    this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
+    this.mail = composeSqliteRepositories(this.stores);
     this.pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap);
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }
@@ -178,7 +186,7 @@ export class TenantMail extends DurableObject<Env> {
     const composed = this.compose(tenantId);
     switch (family) {
       case "fanout":
-        return consumeFanout(event, composed.client);
+        return consumeFanout(event, composed);
       case "sync":
         return consumeSync(event, composed.process, attempts);
       case "mutation":
@@ -201,6 +209,7 @@ export class TenantMail extends DurableObject<Env> {
       client,
       process: processContext(this.env, tenantId, client, this.pool),
       send: sendContext(this.env, tenantId, this.mail, client),
+      purge: purgeContext(this.env, tenantId, client, this.stores),
     };
     return this.composed;
   }
