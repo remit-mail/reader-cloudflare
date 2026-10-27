@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACCESS_ENV, TOFU_INIT } from "./env.mjs";
+import { pushSecret, restoreSecret } from "./dotfiles-secret.mjs";
+import { ACCESS_ENV, TFSTATE, TOFU_INIT } from "./env.mjs";
 
 const infraDir = join(dirname(fileURLToPath(import.meta.url)), "..", "infra");
 
@@ -20,6 +21,7 @@ const tofu = (args, stdout) => {
   return run.stdout;
 };
 
+restoreSecret("reader-cloudflare-tfstate", TFSTATE, "state");
 tofu(TOFU_INIT, "ignore");
 const output = (name) => {
   const value = tofu(["output", "-raw", name], "pipe");
@@ -39,3 +41,9 @@ writeFileSync(
 );
 chmodSync(ACCESS_ENV, 0o600);
 console.log(`wrote ${ACCESS_ENV}`);
+pushSecret(
+  "reader-cloudflare-access-env",
+  ACCESS_ENV,
+  "access-env",
+  "secrets: reader-cloudflare access-env after access-env:write",
+);
