@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import type { ApiConfig } from "@remit/backend/serve";
+import type { SqliteLimits } from "@remit/drizzle-service";
 import { commit } from "../commit";
 
 const NO_UPDATE_CONTROL = "";
@@ -15,3 +16,5 @@ export const apiConfig: ApiConfig = {
   commit,
   responseValidation: "Skip",
 };
+
+export const CLOUDFLARE_SQLITE_LIMITS: SqliteLimits = { maxBoundParameters: 100 };
