@@ -105,6 +105,11 @@ resource "cloudflare_secrets_store_secret" "master_key" {
   }
 }
 
+import {
+  to = cloudflare_worker.reader
+  id = "${var.account_id}/${var.project}"
+}
+
 resource "cloudflare_worker" "reader" {
   account_id = var.account_id
   name       = local.name
@@ -167,10 +172,6 @@ resource "cloudflare_zero_trust_access_application" "reader" {
     precondition {
       condition     = local.otp_idp_id != null
       error_message = "No onetimepin identity provider is visible; the tofu token needs Access: Organizations, Identity Providers, and Groups Read, or allowed_idps would widen to every IdP."
-    }
-    precondition {
-      condition     = var.app_hostname == var.zone_name || endswith(var.app_hostname, ".${var.zone_name}")
-      error_message = "app_hostname must sit in zone_name."
     }
   }
 }

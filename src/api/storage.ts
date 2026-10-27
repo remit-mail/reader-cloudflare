@@ -18,7 +18,7 @@ import {
 } from "@remit/storage-service";
 import { z } from "zod";
 
-const MAIL_BUCKET = "reader-cloudflare-mail";
+const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
 const DELETE_CHUNK = 1000;
 
 const parsedBodySchema = z.object({
@@ -70,9 +70,9 @@ const listFolders = async (bucket: R2Bucket, prefix: string): Promise<string[]> 
 
 export const r2Storage = (bucket: R2Bucket): StorageService => {
   const referenceOf = (key: string, content: Uint8Array): StorageReference => ({
-    uri: buildStorageUri(StorageType.S3, MAIL_BUCKET, key),
+    uri: buildStorageUri(StorageType.S3, STORAGE_URI_BUCKET_LABEL, key),
     storageType: StorageType.S3,
-    storageLocation: MAIL_BUCKET,
+    storageLocation: STORAGE_URI_BUCKET_LABEL,
     storageKey: key,
     sizeBytes: content.byteLength,
     checksumSha256: computeChecksum(Buffer.from(content)),
@@ -96,7 +96,7 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
 
   const readExisting = async (key: string): Promise<Buffer> => {
     const content = await read(key);
-    if (content === null) throw new Error(`object ${key} not found in ${MAIL_BUCKET}`);
+    if (content === null) throw new Error(`object ${key} not found in ${STORAGE_URI_BUCKET_LABEL}`);
     return content;
   };
 

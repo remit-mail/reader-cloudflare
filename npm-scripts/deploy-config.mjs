@@ -11,14 +11,12 @@ const hostname = z
 
 export const deployConfigSchema = z
   .object({
-    project: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, "lower case letters, digits and dashes"),
     account_id: z.string().regex(/^[0-9a-f]{32}$/, "a 32 character Cloudflare account id"),
     zone_name: hostname,
     app_hostname: hostname,
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
   })
-  .strict()
   .refine(
     (config) =>
       config.app_hostname === config.zone_name ||
@@ -40,19 +38,22 @@ export const parseDeployConfig = (text, source) => {
     console.error(`${source} is not a valid deploy config:\n  ${problems.join("\n  ")}`);
     process.exit(1);
   }
-  if (parsed.data.project !== PROJECT) {
-    console.error(
-      `${source} is for project ${parsed.data.project}, this build deploys ${PROJECT}; set DEPLOY_PROJECT`,
-    );
-    process.exit(1);
-  }
   return parsed.data;
 };
 
-export const tofuVars = (config) =>
-  Object.fromEntries(
+export const tofuVars = (config) => ({
+  TF_VAR_project: PROJECT,
+  ...Object.fromEntries(
     Object.entries(config).map(([key, value]) => [
       `TF_VAR_${key}`,
       typeof value === "string" ? value : JSON.stringify(value),
     ]),
-  );
+  ),
+});
+
+export const configLiterals = ({ owner_emails, alert_email, ...rest }) => {
+  const emails = [...owner_emails, alert_email];
+  return [
+    ...new Set([...Object.values(rest), ...emails, ...emails.map((email) => email.split("@")[1])]),
+  ];
+};

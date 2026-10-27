@@ -51,7 +51,7 @@ export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] +
 
 export const DEAD_LETTER_SUFFIX = "dlq";
 
-const suffixOf = (queue: string): string => queue.slice(queue.lastIndexOf("-") + 1);
+export const queueFamilyOf = (queue: string): string => queue.slice(queue.lastIndexOf("-") + 1);
 
 const isQueueFamily = (suffix: string): suffix is QueueFamily => Object.hasOwn(MAX_RETRIES, suffix);
 
@@ -61,7 +61,7 @@ export type QueueRole =
   | { readonly kind: "unknown" };
 
 export const roleOfQueue = (queue: string): QueueRole => {
-  const suffix = suffixOf(queue);
+  const suffix = queueFamilyOf(queue);
   if (isQueueFamily(suffix)) return { kind: "consumed", family: suffix };
   if (suffix === DEAD_LETTER_SUFFIX) return { kind: "deadLetter" };
   return { kind: "unknown" };

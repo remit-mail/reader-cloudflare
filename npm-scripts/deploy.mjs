@@ -1,10 +1,16 @@
 import { inWorkersBuilds, wrangler } from "./cf.mjs";
 import { r2ObjectText, resolveAccountId } from "./cf-api.mjs";
+import { failOnHits, scanRepo } from "./check-no-config.mjs";
 import { migrate } from "./db-migrate.mjs";
-import { DEPLOY_CONFIG_OBJECT, parseDeployConfig, tofuVars } from "./deploy-config.mjs";
+import {
+  configLiterals,
+  DEPLOY_CONFIG_OBJECT,
+  parseDeployConfig,
+  tofuVars,
+} from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, TOFU_INIT, tofuEnv, tofuRunner } from "./tofu.mjs";
-import { WRANGLER_DEPLOY_CONFIG, writeDeployConfig } from "./wrangler-config.mjs";
+import { WRANGLER_DEPLOY_CONFIG, writeWranglerDeploy } from "./wrangler-config.mjs";
 
 const BUILDER_OBJECTS = [
   "CLOUDFLARE_TOFU_TOKEN",
@@ -56,6 +62,7 @@ if (config.account_id !== accountId) {
   );
   process.exit(1);
 }
+failOnHits(scanRepo(configLiterals(config)));
 
 const tofu = await tofuRunner(
   tofuEnv({
@@ -75,7 +82,7 @@ const outputs = Object.fromEntries(
   ]),
 );
 
-const rendered = writeDeployConfig(outputs, config);
+const rendered = writeWranglerDeploy(outputs, config);
 console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${outputs.app_hostname}`);
 
 const migrated = migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name);

@@ -25,7 +25,7 @@ const jwk = { ...publicKey.export({ format: "jwk" }), kid, alg: "RS256", use: "s
 
 const base64Url = (value) => Buffer.from(value).toString("base64url");
 const header = base64Url(JSON.stringify({ alg: "RS256", kid, typ: "JWT" }));
-const sub = "5f3c8e2a-9b1d-4e7f-a6c4-2d8b0e9f1a37";
+const sub = "00000000-0000-0000-0000-000000000000";
 const claims = base64Url(
   JSON.stringify({
     sub,

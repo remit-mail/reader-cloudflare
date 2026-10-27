@@ -1,30 +1,12 @@
 import { CONSUMER_SETTINGS } from "../src/api/host-limits.ts";
-import { DEAD_LETTER_SUFFIX, MAX_RETRIES } from "../src/queue/routing.ts";
-import { queueFamilyOf, readJsonc, renderWrangler, WRANGLER_CONFIG } from "./wrangler-config.mjs";
+import { DEAD_LETTER_SUFFIX, MAX_RETRIES, queueFamilyOf } from "../src/queue/routing.ts";
+import { readJsonc, WRANGLER_CONFIG } from "./wrangler-config.mjs";
 
 const config = readJsonc(WRANGLER_CONFIG);
 const families = [...Object.keys(MAX_RETRIES), DEAD_LETTER_SUFFIX];
-const sample = "check-retries-sample";
-const rendered = renderWrangler(
-  config,
-  {
-    worker_name: sample,
-    app_hostname: "app.example.com",
-    d1_database_name: sample,
-    d1_database_id: "00000000-0000-0000-0000-000000000000",
-    r2_bucket_name: `${sample}-mail`,
-    queues: Object.fromEntries(families.map((family) => [family, `${sample}-${family}`])),
-    secrets_store_id: "0".repeat(32),
-    access_aud: "0".repeat(64),
-    access_team_domain: "example.cloudflareaccess.com",
-  },
-  { account_id: "0".repeat(32), zone_name: "example.com" },
-);
-
 const scopes = [
   ["top level", config],
   ...Object.entries(config.env ?? {}).map(([name, scope]) => [`env.${name}`, scope]),
-  ["rendered wrangler.deploy.jsonc", rendered],
 ];
 
 const problems = [];
@@ -72,10 +54,6 @@ for (const [scope, { queues }] of scopes) {
       problems.push(`${scope}: ${queue} has a consumer but no family in src/queue/routing.ts`);
     }
   }
-}
-for (const { queue } of [...rendered.queues.producers, ...rendered.queues.consumers]) {
-  if (!queue.startsWith(`${sample}-`))
-    problems.push(`rendered wrangler.deploy.jsonc keeps ${queue}`);
 }
 for (const family of Object.keys(MAX_RETRIES)) {
   if (!checked.has(family)) problems.push(`MAX_RETRIES.${family} names no queue to check`);

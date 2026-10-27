@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { queueFamilyOf } from "../src/queue/routing.ts";
 
 const root = join(import.meta.dirname, "..");
 
@@ -39,8 +40,6 @@ const stripJsonc = (text) => {
 };
 
 export const readJsonc = (path) => JSON.parse(stripJsonc(readFileSync(path, "utf8")));
-
-export const queueFamilyOf = (queue) => queue.slice(queue.lastIndexOf("-") + 1);
 
 const only = (entries, binding, what) => {
   if (entries?.length !== 1 || entries[0].binding !== binding) {
@@ -91,7 +90,7 @@ export const renderWrangler = (base, outputs, config) => {
   };
 };
 
-export const writeDeployConfig = (outputs, config) => {
+export const writeWranglerDeploy = (outputs, config) => {
   const rendered = renderWrangler(readJsonc(WRANGLER_CONFIG), outputs, config);
   writeFileSync(WRANGLER_DEPLOY_CONFIG, `${JSON.stringify(rendered, null, 2)}\n`);
   return rendered;
