@@ -4,7 +4,6 @@ import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
 import {
-  asyncBatch,
   composeSqliteRepositories,
   type SqliteRepositories,
   syncStore,
@@ -14,10 +13,11 @@ import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
+import { CLOUDFLARE_SQLITE_LIMITS } from "../api/config";
 import { serveTenantApi } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { tenantSecrets } from "../crypto/envelope";
-import { openAppDb } from "../db/client";
+import { openAppStore } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
@@ -121,10 +121,9 @@ export class TenantMail extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const db = drizzle(ctx.storage);
-    const mail = syncStore(db);
-    const appDb = openAppDb(env.DB);
+    const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
     this.mail = composeSqliteRepositories({
-      app: { db: appDb, batch: asyncBatch(appDb) },
+      app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS),
       mail,
       search: mail,
     });
