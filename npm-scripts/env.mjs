@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export const CONFIG_DIR = join(homedir(), ".config", "reader-cloudflare");
 export const CF_ENV = join(CONFIG_DIR, "cf-env");
+export const CF_USER_ENV = join(CONFIG_DIR, "cf-user-env");
 export const DEBUG_TOKEN_SECRET = "reader-cloudflare-debug-token";
 export const ACCESS_ENV = join(CONFIG_DIR, "access-env");
 export const TEST_ACCOUNT_ENV = join(CONFIG_DIR, "test-account-env");

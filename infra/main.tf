@@ -36,6 +36,9 @@ resource "cloudflare_d1_database" "app" {
   account_id            = var.account_id
   name                  = local.name
   primary_location_hint = "weur"
+  read_replication = {
+    mode = "disabled"
+  }
 
   lifecycle {
     prevent_destroy = true
@@ -107,6 +110,7 @@ resource "cloudflare_secrets_store_secret" "master_key" {
 resource "cloudflare_worker" "reader" {
   account_id = var.account_id
   name       = local.name
+  tags       = ["cf:service=${local.name}"]
 
   observability = {
     enabled = true
@@ -160,4 +164,11 @@ resource "cloudflare_zero_trust_access_application" "reader" {
     id         = cloudflare_zero_trust_access_policy.agent.id
     precedence = 2
   }]
+
+  lifecycle {
+    precondition {
+      condition     = local.otp_idp_id != null
+      error_message = "No onetimepin identity provider is visible; the tofu token needs Access: Organizations, Identity Providers, and Groups Read, or allowed_idps would widen to every IdP."
+    }
+  }
 }
