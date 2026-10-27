@@ -17,6 +17,7 @@ export const deployConfigSchema = z
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
   })
+  .strict()
   .refine(
     (config) =>
       config.app_hostname === config.zone_name ||
