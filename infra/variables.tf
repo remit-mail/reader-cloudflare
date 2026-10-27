@@ -1,24 +1,31 @@
+variable "project" {
+  type        = string
+  description = "Name every resource derives from: the Worker, D1 database, Secrets Store, Access application and policies, and the prefix of the bucket, queues and tokens. project in deploy.config.json."
+}
+
 variable "account_id" {
   type        = string
-  description = "Cloudflare account that owns the Worker and its storage; set from CLOUDFLARE_ACCOUNT_ID by npm-scripts/infra.mjs."
+  description = "Cloudflare account that owns the Worker and its storage. account_id in deploy.config.json."
 }
 
-variable "app_domain" {
+variable "zone_name" {
   type        = string
-  description = "Custom domain of the reader-cloudflare Worker (routes in wrangler.jsonc), guarded by Access."
-  default     = "app.remit.email"
+  description = "Cloudflare zone that holds app_hostname. zone_name in deploy.config.json."
 }
 
-variable "allowed_emails" {
+variable "app_hostname" {
+  type        = string
+  description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json."
+}
+
+variable "owner_emails" {
   type        = list(string)
-  description = "Addresses Access lets through with a one-time PIN."
-  default     = ["matthijs@ischen.nl"]
+  description = "Addresses Access lets through with a one-time PIN. owner_emails in deploy.config.json."
 }
 
 variable "alert_email" {
   type        = string
-  description = "Address that receives every notification policy in notifications.tf."
-  default     = "matthijs@ischen.nl"
+  description = "Address that receives every notification policy in notifications.tf. alert_email in deploy.config.json."
 }
 
 variable "usage_alert_limits" {

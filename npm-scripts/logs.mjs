@@ -1,4 +1,4 @@
-import { CF_ENV, readEnvFile } from "./env.mjs";
+import { CF_ENV, PROJECT, readEnvFile } from "./env.mjs";
 
 const minutes = Number(process.argv[2] ?? "15");
 const needle = process.argv[3] ?? "";
@@ -11,9 +11,7 @@ if (!token || !account) {
 }
 
 const to = Date.now();
-const filters = [
-  { key: "$metadata.service", operation: "eq", type: "string", value: "reader-cloudflare" },
-];
+const filters = [{ key: "$metadata.service", operation: "eq", type: "string", value: PROJECT }];
 if (needle !== "") {
   filters.push({ key: "$metadata.message", operation: "includes", type: "string", value: needle });
 }
@@ -24,7 +22,7 @@ const response = await fetch(
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({
-      queryId: "reader-cloudflare-logs",
+      queryId: `${PROJECT}-logs`,
       timeframe: { from: to - minutes * 60_000, to },
       view: "events",
       limit: 2000,

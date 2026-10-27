@@ -1,12 +1,13 @@
-import { ACCESS_ENV, APP_URL, readEnvFile } from "./env.mjs";
+import { ACCESS_ENV, readEnvFile } from "./env.mjs";
 
 export const appApi = () => {
   const env = readEnvFile(ACCESS_ENV);
   const clientId = env.CF_ACCESS_CLIENT_ID;
   const clientSecret = env.CF_ACCESS_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const appUrl = env.APP_URL;
+  if (!clientId || !clientSecret || !appUrl) {
     console.error(
-      `${ACCESS_ENV} does not set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET; run npm run access-env:write`,
+      `${ACCESS_ENV} does not set APP_URL, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET; run npm run access-env:write`,
     );
     process.exit(1);
   }
@@ -18,7 +19,7 @@ export const appApi = () => {
     };
     if (body !== undefined) headers["content-type"] = "application/json";
     const started = Date.now();
-    const response = await fetch(new URL(path, APP_URL), {
+    const response = await fetch(new URL(path, appUrl), {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),

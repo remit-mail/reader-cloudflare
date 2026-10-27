@@ -6,3 +6,5 @@ dist/
 src/commit.ts
 .types/
 e2e/.reader/
+wrangler.deploy.jsonc
+deploy.config.json

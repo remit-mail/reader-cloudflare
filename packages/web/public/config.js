@@ -1,6 +1,6 @@
 window.__REMIT_CONFIG__ = {
   apiUrl: "/api",
-  appOrigin: "https://app.remit.email",
+  appOrigin: window.location.origin,
   betterAuthEnabled: false,
   rum: { appMonitorId: "" },
   disableDevtools: true,

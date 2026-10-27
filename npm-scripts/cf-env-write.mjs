@@ -1,6 +1,6 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { pushSecret } from "./dotfiles-secret.mjs";
-import { CF_ENV, CONFIG_DIR, DEBUG_TOKEN_SECRET } from "./env.mjs";
+import { CF_ENV, CONFIG_DIR, DEBUG_TOKEN_SECRET, PROJECT } from "./env.mjs";
 import { debugStateOutputs } from "./state-outputs.mjs";
 
 const { accountId, output } = await debugStateOutputs();
@@ -16,9 +16,4 @@ writeFileSync(CF_ENV, `CLOUDFLARE_API_TOKEN=${token}\nCLOUDFLARE_ACCOUNT_ID=${ac
 });
 chmodSync(CF_ENV, 0o600);
 console.log(`wrote ${CF_ENV}`);
-pushSecret(
-  DEBUG_TOKEN_SECRET,
-  CF_ENV,
-  "cf-env",
-  "secrets: reader-cloudflare cf-env after cf-env:write",
-);
+pushSecret(DEBUG_TOKEN_SECRET, CF_ENV, "cf-env", `secrets: ${PROJECT} cf-env after cf-env:write`);

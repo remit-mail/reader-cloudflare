@@ -14,14 +14,7 @@ import {
   logQueueDeadLetter,
   withLogContext,
 } from "./log";
-import {
-  CONSUMED_QUEUES,
-  type ConsumedQueue,
-  FAMILY_OF,
-  isConsumedQueue,
-  parseEnvelope,
-  SHARED_DLQ,
-} from "./queue/routing";
+import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
 
@@ -52,10 +45,9 @@ class UnknownQueueError extends Error {
 
 const consumeEnveloped = async (
   env: Env,
-  queue: ConsumedQueue,
+  family: QueueFamily,
   message: Message<unknown>,
 ): Promise<void> => {
-  const family = CONSUMED_QUEUES[queue];
   const parsed = parseEnvelope(message.body);
   if (!parsed.ok) {
     message.retry();
@@ -219,11 +211,12 @@ export default {
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     const { queue } = batch;
-    if (isConsumedQueue(queue)) {
-      for (const message of batch.messages) await consumeEnveloped(env, queue, message);
+    const role = roleOfQueue(queue);
+    if (role.kind === "consumed") {
+      for (const message of batch.messages) await consumeEnveloped(env, role.family, message);
       return;
     }
-    if (queue === SHARED_DLQ) {
+    if (role.kind === "deadLetter") {
       for (const message of batch.messages) deadLetter(message);
       return;
     }
