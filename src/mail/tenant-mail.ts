@@ -18,7 +18,7 @@ import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
-import { CLOUDFLARE_SQLITE_LIMITS } from "../api/config";
+import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { serveTenantApi } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { tenantSecrets } from "../crypto/envelope";
@@ -80,10 +80,22 @@ const consumeSync = (
   switch (event.type) {
     case "SYNC_MAILBOXES":
     case "SYNC_MESSAGES":
-    case "SYNC_MESSAGE_BODY":
       return processEvent(event, context, attempts);
     default:
       throw new UnservedEventError("sync", event.type);
+  }
+};
+
+const consumeBody = (
+  event: ReaderEvent,
+  context: ProcessContext,
+  attempts: number,
+): Promise<void> => {
+  switch (event.type) {
+    case "SYNC_MESSAGE_BODY":
+      return processEvent(event, context, attempts);
+    default:
+      throw new UnservedEventError("body", event.type);
   }
 };
 
@@ -189,6 +201,8 @@ export class TenantMail extends DurableObject<Env> {
         return consumeFanout(event, composed);
       case "sync":
         return consumeSync(event, composed.process, attempts);
+      case "body":
+        return consumeBody(event, composed.process, attempts);
       case "mutation":
         return consumeMutation(event, composed.process, attempts);
       case "smtp":

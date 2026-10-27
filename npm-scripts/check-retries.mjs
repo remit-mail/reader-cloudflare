@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { CONSUMER_SETTINGS } from "../src/api/host-limits.ts";
 import { CONSUMED_QUEUES, MAX_RETRIES, SHARED_DLQ } from "../src/queue/routing.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -59,6 +60,18 @@ for (const [scope, { queues }] of scopes) {
         `${scope}: ${queue} has max_retries ${consumer.max_retries}, MAX_RETRIES.${family} in src/queue/routing.ts is ${MAX_RETRIES[family]}`,
       );
     }
+    const settings = CONSUMER_SETTINGS[family];
+    if (consumer.max_batch_size !== settings.maxBatchSize) {
+      problems.push(
+        `${scope}: ${queue} has max_batch_size ${consumer.max_batch_size}, CONSUMER_SETTINGS.${family} in src/api/host-limits.ts is ${settings.maxBatchSize}`,
+      );
+    }
+    const concurrency = consumer.max_concurrency ?? "Auto";
+    if (concurrency !== settings.maxConcurrency) {
+      problems.push(
+        `${scope}: ${queue} has max_concurrency ${concurrency}, CONSUMER_SETTINGS.${family} in src/api/host-limits.ts is ${settings.maxConcurrency}`,
+      );
+    }
     if (consumer.dead_letter_queue !== SHARED_DLQ) {
       problems.push(
         `${scope}: ${queue} dead-letters to ${consumer.dead_letter_queue}, not ${SHARED_DLQ}`,
@@ -79,4 +92,6 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`check:retries: ${problem}`);
   process.exit(1);
 }
-console.log(`check:retries: ${scopes.length} scopes agree with MAX_RETRIES and ${SHARED_DLQ}`);
+console.log(
+  `check:retries: ${scopes.length} scopes agree with MAX_RETRIES, CONSUMER_SETTINGS and ${SHARED_DLQ}`,
+);
