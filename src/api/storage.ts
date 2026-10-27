@@ -109,8 +109,6 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
   return {
     storeMessageBody: ({ accountConfigId, accountId, messageId, content }) =>
       put(buildMessageBodyKey(accountConfigId, accountId, messageId), content),
-    storeMessageBodyStream: async ({ accountConfigId, accountId, messageId, content }) =>
-      put(buildMessageBodyKey(accountConfigId, accountId, messageId), await collect(content)),
     storeBodyPart: ({ accountConfigId, accountId, messageId, partPath, content, contentType }) =>
       put(
         buildBodyPartKey(accountConfigId, accountId, messageId, partPath),

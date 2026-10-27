@@ -19,7 +19,11 @@ import type {
   SendMessageContext,
   SmtpDataPorts,
 } from "@remit/smtp-worker/process";
-import { BODY_BATCH_SIZE } from "../api/host-limits";
+import {
+  BODY_BATCH_SIZE,
+  BODY_PROCESS_BYTES_IN_FLIGHT,
+  BODY_PROCESS_CONCURRENCY,
+} from "../api/host-limits";
 import { commit } from "../commit";
 import type { Env } from "../env";
 import { NotComposedError } from "../error-kind";
@@ -42,6 +46,8 @@ const config: ImapWorkerConfig = {
     messageCopy: mutationAttempts,
   },
   bodyBatchSize: BODY_BATCH_SIZE,
+  bodyProcessConcurrency: BODY_PROCESS_CONCURRENCY,
+  bodyProcessBytesInFlight: BODY_PROCESS_BYTES_IN_FLIGHT,
   workerVersion: commit,
 };
 
