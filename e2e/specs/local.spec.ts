@@ -178,6 +178,22 @@ const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
     .filter(isRecord)
     .filter((record) => typeof record.time === "string" && Date.parse(record.time) >= since);
 
+const PURGE_EVENTS = new Set(["AccountDataPurge", "FinalizeAccountDataPurge"]);
+
+const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
+  wranglerLog()
+    .split("\n")
+    .filter((line) => line.includes('"queue.consume"'))
+    .map(jsonLineOf)
+    .filter(isRecord)
+    .filter(
+      (record) =>
+        typeof record.type === "string" &&
+        PURGE_EVENTS.has(record.type) &&
+        typeof record.time === "string" &&
+        Date.parse(record.time) >= since,
+    );
+
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
   await expect(page.locator("a[data-message-row]").first()).toBeVisible({ timeout: 30_000 });
@@ -498,5 +514,27 @@ test.describe("reader on a local Worker", () => {
     await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(REFUSED_SUBJECT), {
       what: `"${REFUSED_SUBJECT}" in Sent after the corrected send`,
     });
+  });
+
+  test("deleting the account purges its mail and takes it off GET /config", async () => {
+    const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
+    const deletedAt = Date.now();
+    const deleted = await api.request("DELETE", `/accounts/${shared.accountId}`);
+    expect(deleted.status).toBe(200);
+
+    const config: unknown = await (await api.request("GET", "/config")).json();
+    expect(isRecord(config) && config.accounts).toEqual([]);
+    const sync = await api.request("POST", `/accounts/${shared.accountId}/sync`);
+    expect(sync.status).toBe(404);
+
+    const purges = await waitFor(
+      async () => purgeConsumesSince(deletedAt),
+      (records) =>
+        records.filter((record) => record.type === "FinalizeAccountDataPurge").length >= 2,
+      { timeoutMs: 60_000, what: "the purge fanout, its subtree batch and its container step" },
+    );
+    expect(purges.map((record) => record.outcome)).toEqual(purges.map(() => "Acked"));
+    const described = await api.request("GET", `/messages/${messageId}`);
+    expect(described.status).toBe(404);
   });
 });

@@ -12,7 +12,6 @@ type Handlers = ApiRegistry<QueueName>["handlers"];
 type Handler = NonNullable<Handlers[keyof Handlers]>;
 
 const unservedOperations = [
-  "AccountDetailOperations_deleteAccount",
   "FilterOperations_createFilter",
   "MailboxDetailOperations_deleteMailbox",
   "MailboxDetailOperations_renameMailbox",
