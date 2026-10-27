@@ -34,6 +34,8 @@
     "build:vendor-types": "tsc -p tsconfig.vendor.json",
     "smoke:config-import": "node npm-scripts/smoke-config-import.mjs",
     "logs": "node npm-scripts/logs.mjs",
+    "builds": "node npm-scripts/builds.mjs list",
+    "builds:log": "node npm-scripts/builds.mjs log",
     "e2e": "node npm-scripts/e2e.mjs",
     "dashboards": "node npm-scripts/dashboards.mjs",
     "access-env:write": "node npm-scripts/access-env-write.mjs",
