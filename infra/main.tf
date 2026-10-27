@@ -67,6 +67,11 @@ resource "cloudflare_queue" "smtp" {
   queue_name = "${local.name}-smtp"
 }
 
+resource "cloudflare_queue" "body" {
+  account_id = var.account_id
+  queue_name = "${local.name}-body"
+}
+
 resource "cloudflare_queue" "fanout" {
   account_id = var.account_id
   queue_name = "${local.name}-fanout"

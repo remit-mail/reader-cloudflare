@@ -13,12 +13,12 @@ export type ReaderEvent = EventOn<QueueName> | WorkerEvent | AccountDataPurgeFin
 
 export type ReaderEventType = ReaderEvent["type"];
 
-export type QueueFamily = "sync" | "mutation" | "smtp" | "fanout";
+export type QueueFamily = "sync" | "body" | "mutation" | "smtp" | "fanout";
 
 export const FAMILY_OF = {
   SYNC_MAILBOXES: "sync",
   SYNC_MESSAGES: "sync",
-  SYNC_MESSAGE_BODY: "sync",
+  SYNC_MESSAGE_BODY: "body",
   FLAG_PUSH: "mutation",
   PLACEMENT_MOVE_PUSH: "mutation",
   MAILBOX_CREATE: "mutation",
@@ -41,6 +41,7 @@ export const FAMILY_OF = {
 
 export const MAX_RETRIES = {
   sync: 3,
+  body: 3,
   mutation: 2,
   smtp: 2,
   fanout: 2,
@@ -50,6 +51,7 @@ export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] +
 
 export const CONSUMED_QUEUES = {
   "reader-cloudflare-sync": "sync",
+  "reader-cloudflare-body": "body",
   "reader-cloudflare-mutation": "mutation",
   "reader-cloudflare-smtp": "smtp",
   "reader-cloudflare-fanout": "fanout",

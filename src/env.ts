@@ -9,6 +9,7 @@ export interface Env {
   readonly MUTATION_QUEUE: Queue<QueueEnvelope>;
   readonly SMTP_QUEUE: Queue<QueueEnvelope>;
   readonly FANOUT_QUEUE: Queue<QueueEnvelope>;
+  readonly BODY_QUEUE: Queue<QueueEnvelope>;
   readonly MASTER_KEY: SecretsStoreSecret;
   readonly TENANT_MAIL: DurableObjectNamespace<TenantMail>;
   readonly ACCESS_TEAM_DOMAIN: string;

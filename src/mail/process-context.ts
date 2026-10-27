@@ -19,6 +19,7 @@ import type {
   SendMessageContext,
   SmtpDataPorts,
 } from "@remit/smtp-worker/process";
+import { BODY_BATCH_SIZE } from "../api/host-limits";
 import { commit } from "../commit";
 import type { Env } from "../env";
 import { NotComposedError } from "../error-kind";
@@ -32,7 +33,7 @@ const mutationAttempts = attemptsOn("mutation");
 const config: ImapWorkerConfig = {
   ...defaultImapWorkerConfig,
   attempts: {
-    body: attemptsOn("sync"),
+    body: attemptsOn("body"),
     placementMove: mutationAttempts,
     flagPush: mutationAttempts,
     appendSent: mutationAttempts,
@@ -40,7 +41,7 @@ const config: ImapWorkerConfig = {
     messageDelete: mutationAttempts,
     messageCopy: mutationAttempts,
   },
-  bodyBatchSize: 25,
+  bodyBatchSize: BODY_BATCH_SIZE,
   workerVersion: commit,
 };
 

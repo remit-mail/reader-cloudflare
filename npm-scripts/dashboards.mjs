@@ -69,6 +69,14 @@ const queries = [
     orderBy: "count",
   },
   {
+    name: "body sync failures per tenant",
+    description: "Failed body queue deliveries per tenant and error kind.",
+    filters: [eq("event", "queue.consume"), eq("family", "body"), eq("outcome", "Retried")],
+    calculations: [count],
+    groupBys: ["tenantId", "type", "errorKind"],
+    orderBy: "count",
+  },
+  {
     name: "imap failures",
     description: "IMAP failures reader's workers report, by operation and failure kind.",
     filters: [eq("event", "imap.failure")],

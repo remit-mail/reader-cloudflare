@@ -14,6 +14,8 @@ const bindingFor = (env: Env, family: QueueFamily): Queue<QueueEnvelope> => {
   switch (family) {
     case "sync":
       return env.SYNC;
+    case "body":
+      return env.BODY_QUEUE;
     case "mutation":
       return env.MUTATION_QUEUE;
     case "smtp":
