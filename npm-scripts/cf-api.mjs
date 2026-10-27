@@ -27,3 +27,15 @@ export const r2Credentials = async (token, accountId) => {
   const { id } = await cfApi(token, "GET", `/accounts/${accountId}/tokens/verify`);
   return { accessKeyId: id, secretAccessKey: createHash("sha256").update(token).digest("hex") };
 };
+
+export const r2ObjectText = async (token, accountId, bucket, key) => {
+  const response = await fetch(
+    `${API}/accounts/${accountId}/r2/buckets/${bucket}/objects/${encodeURIComponent(key)}`,
+    { headers: { authorization: `Bearer ${token}` } },
+  );
+  return {
+    ok: response.ok,
+    status: response.status,
+    text: response.ok ? await response.text() : "",
+  };
+};

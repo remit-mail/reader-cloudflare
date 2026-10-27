@@ -1,7 +1,13 @@
 import { inWorkersBuilds, wrangler } from "./cf.mjs";
-import { resolveAccountId } from "./cf-api.mjs";
+import { r2ObjectText, resolveAccountId } from "./cf-api.mjs";
 import { migrate } from "./db-migrate.mjs";
-import { requireEnv, TOFU_INIT, tofuEnv, tofuRunner } from "./tofu.mjs";
+import { BUILDER_SECRETS_BUCKET, requireEnv, TOFU_INIT, tofuEnv, tofuRunner } from "./tofu.mjs";
+
+const BUILDER_SECRETS = [
+  "CLOUDFLARE_TOFU_TOKEN",
+  "TFSTATE_ACCESS_KEY_ID",
+  "TFSTATE_SECRET_ACCESS_KEY",
+];
 
 if (!inWorkersBuilds) {
   console.error(
@@ -17,22 +23,30 @@ if (process.env.WORKERS_CI_BRANCH !== "main") {
   process.exit(2);
 }
 
-requireEnv(
-  [
-    "CLOUDFLARE_API_TOKEN",
-    "CLOUDFLARE_TOFU_TOKEN",
-    "TFSTATE_ACCESS_KEY_ID",
-    "TFSTATE_SECRET_ACCESS_KEY",
-  ],
-  "set them as Workers Builds build variables from tofu-bootstrap reader-cloudflare",
-);
+requireEnv(["CLOUDFLARE_API_TOKEN"], "Workers Builds injects it into the deploy step");
+
+const buildsToken = process.env.CLOUDFLARE_API_TOKEN;
+const accountId = await resolveAccountId(buildsToken);
+const secrets = {};
+for (const key of BUILDER_SECRETS) {
+  const object = await r2ObjectText(buildsToken, accountId, BUILDER_SECRETS_BUCKET, key);
+  if (object.status === 404) {
+    console.error(`${BUILDER_SECRETS_BUCKET} has no ${key}; run tofu-bootstrap reader-cloudflare`);
+    process.exit(1);
+  }
+  if (!object.ok) {
+    console.error(`reading ${key} from ${BUILDER_SECRETS_BUCKET} returned ${object.status}`);
+    process.exit(1);
+  }
+  secrets[key] = object.text.trim();
+}
 
 const tofu = await tofuRunner(
   tofuEnv({
-    accountId: await resolveAccountId(process.env.CLOUDFLARE_TOFU_TOKEN),
-    apiToken: process.env.CLOUDFLARE_TOFU_TOKEN,
-    accessKeyId: process.env.TFSTATE_ACCESS_KEY_ID,
-    secretAccessKey: process.env.TFSTATE_SECRET_ACCESS_KEY,
+    accountId,
+    apiToken: secrets.CLOUDFLARE_TOFU_TOKEN,
+    accessKeyId: secrets.TFSTATE_ACCESS_KEY_ID,
+    secretAccessKey: secrets.TFSTATE_SECRET_ACCESS_KEY,
   }),
 );
 tofu(TOFU_INIT);

@@ -9,6 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const INFRA_DIR = join(root, "infra");
 export const TFSTATE_BUCKET = "reader-cloudflare-tfstate";
 export const TFSTATE_KEY = "reader-cloudflare.tfstate";
+export const BUILDER_SECRETS_BUCKET = "reader-cloudflare-builder-secrets";
 export const TOFU_VERSION = "1.13.2";
 
 const TOFU_SHA256 = {
