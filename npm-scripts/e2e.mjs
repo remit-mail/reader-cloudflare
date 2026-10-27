@@ -14,7 +14,7 @@ const READER_PATHS = [
   "docker/test/",
   "packages/e2e/src/",
 ];
-const MASTER_KEY_STORE = "0376668ade8548e5a44a2d63d0a7f537";
+const MASTER_KEY_STORE = "00000000000000000000000000000000";
 const READY_TIMEOUT_MS = 180_000;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");

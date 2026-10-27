@@ -3,16 +3,17 @@ import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PROJECT } from "./env.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const INFRA_DIR = join(root, "infra");
-export const TFSTATE_BUCKET = "reader-cloudflare-tfstate";
-export const TFSTATE_KEY = "reader-cloudflare.tfstate";
-export const BUILDER_SECRETS_BUCKET = "reader-cloudflare-builder-secrets";
+export const TFSTATE_BUCKET = `${PROJECT}-tfstate`;
+export const TFSTATE_KEY = `${PROJECT}.tfstate`;
+export const BUILDER_SECRETS_BUCKET = `${PROJECT}-builder-secrets`;
 export const TOFU_VERSION = "1.13.2";
 
-const TOFU_SHA256 = {
+export const TOFU_SHA256 = {
   amd64: "ac05d9952662c7db28dd57e93f0a68018837bfdf9342384ec0987977c16a9645",
   arm64: "88e2d9e3f94f97b76ab2faf55ade87578f56aed19c5e45fa139d70e994366d1f",
 };
@@ -53,8 +54,9 @@ const tofuBinary = async () => {
   return binary;
 };
 
-export const tofuEnv = ({ accountId, apiToken, accessKeyId, secretAccessKey }) => ({
+export const tofuEnv = ({ accountId, apiToken, accessKeyId, secretAccessKey, vars }) => ({
   ...process.env,
+  ...vars,
   TF_IN_AUTOMATION: "1",
   TF_VAR_account_id: accountId,
   CLOUDFLARE_API_TOKEN: apiToken,
@@ -81,7 +83,13 @@ export const tofuRunner = async (env) => {
   };
 };
 
-export const TOFU_INIT = ["init", "-input=false", "-reconfigure"];
+export const TOFU_INIT = [
+  "init",
+  "-input=false",
+  "-reconfigure",
+  `-backend-config=bucket=${TFSTATE_BUCKET}`,
+  `-backend-config=key=${TFSTATE_KEY}`,
+];
 
 const hmac = (key, text) => createHmac("sha256", key).update(text).digest();
 

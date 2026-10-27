@@ -9,7 +9,7 @@ Each decision below carries a number. Disagree by number.
 ## Platform and tenants
 
 1. The build runs on Cloudflare: Workers, D1, Durable Objects, R2, Queues, Secrets Store and Access. The repo carries no UI, no API handlers and no database layer for the shared parts (decision 16).
-2. Cloudflare Access is the only sign-in. The Access JWT, from the cookie or a bearer header, is the identity. Switching the provider (one-time PIN today, Google or GitHub later) is a Tofu change. Access admits matthijs@ischen.nl only.
+2. Cloudflare Access is the only sign-in. The Access JWT, from the cookie or a bearer header, is the identity. Switching the provider (one-time PIN today, Google or GitHub later) is a Tofu change. Access admits the `owner_emails` in the deployment config only.
 
 ## Storage
 
@@ -30,7 +30,7 @@ Each decision below carries a number. Disagree by number.
 
 ## Delivery
 
-11. OpenTofu in `infra/` manages the account resources. `wrangler.jsonc` configures the Worker. Workers Builds will deploy every push to main, but the repo is not connected to it yet. Until then, the bootstrap deploy runs from the dev machine.
+11. OpenTofu in `infra/` manages the account resources, named from the deployment config, which lives outside the repo. `wrangler.jsonc` carries the portable Worker settings, and the deploy renders the bindings from the Tofu outputs. Workers Builds deploys every push to main.
 12. Until a real end-to-end user test works, the prototype pushes straight to main with no PRs. CI runs lint and typecheck only. `npm run e2e` runs reader's flows against the Worker under `wrangler dev`. Workers Logs and `wrangler tail` cover the deployed Worker.
 
 ## Shared code

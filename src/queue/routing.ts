@@ -49,20 +49,23 @@ export const MAX_RETRIES = {
 
 export const attemptsOn = (family: QueueFamily): number => MAX_RETRIES[family] + 1;
 
-export const CONSUMED_QUEUES = {
-  "reader-cloudflare-sync": "sync",
-  "reader-cloudflare-body": "body",
-  "reader-cloudflare-mutation": "mutation",
-  "reader-cloudflare-smtp": "smtp",
-  "reader-cloudflare-fanout": "fanout",
-} as const satisfies Record<string, QueueFamily>;
+export const DEAD_LETTER_SUFFIX = "dlq";
 
-export type ConsumedQueue = keyof typeof CONSUMED_QUEUES;
+export const queueFamilyOf = (queue: string): string => queue.slice(queue.lastIndexOf("-") + 1);
 
-export const SHARED_DLQ = "reader-cloudflare-dlq";
+const isQueueFamily = (suffix: string): suffix is QueueFamily => Object.hasOwn(MAX_RETRIES, suffix);
 
-export const isConsumedQueue = (queue: string): queue is ConsumedQueue =>
-  Object.hasOwn(CONSUMED_QUEUES, queue);
+export type QueueRole =
+  | { readonly kind: "consumed"; readonly family: QueueFamily }
+  | { readonly kind: "deadLetter" }
+  | { readonly kind: "unknown" };
+
+export const roleOfQueue = (queue: string): QueueRole => {
+  const suffix = queueFamilyOf(queue);
+  if (isQueueFamily(suffix)) return { kind: "consumed", family: suffix };
+  if (suffix === DEAD_LETTER_SUFFIX) return { kind: "deadLetter" };
+  return { kind: "unknown" };
+};
 
 export interface QueueEnvelope {
   readonly v: 1;

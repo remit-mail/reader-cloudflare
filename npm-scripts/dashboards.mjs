@@ -1,7 +1,7 @@
-import { CF_ENV, readEnvFile } from "./env.mjs";
+import { CF_ENV, PROJECT, readEnvFile } from "./env.mjs";
 
-const SERVICE = "reader-cloudflare";
-const PREFIX = "reader-cloudflare: ";
+const SERVICE = PROJECT;
+const PREFIX = `${PROJECT}: `;
 
 const env = readEnvFile(CF_ENV);
 const token = env.CLOUDFLARE_API_TOKEN;

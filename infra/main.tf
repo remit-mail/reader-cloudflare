@@ -13,8 +13,6 @@ terraform {
   }
 
   backend "s3" {
-    bucket                      = "reader-cloudflare-tfstate"
-    key                         = "reader-cloudflare.tfstate"
     region                      = "auto"
     use_lockfile                = true
     use_path_style              = true
@@ -29,7 +27,7 @@ terraform {
 provider "cloudflare" {}
 
 locals {
-  name = "reader-cloudflare"
+  name = var.project
 }
 
 resource "cloudflare_d1_database" "app" {
@@ -100,11 +98,16 @@ resource "cloudflare_secrets_store_secret" "master_key" {
   name       = "MASTER_KEY"
   value      = random_bytes.master_key.base64
   scopes     = ["workers"]
-  comment    = "Master encryption key for reader-cloudflare"
+  comment    = "Master encryption key for ${local.name}"
 
   lifecycle {
     prevent_destroy = true
   }
+}
+
+import {
+  to = cloudflare_worker.reader
+  id = "${var.account_id}/${var.project}"
 }
 
 resource "cloudflare_worker" "reader" {
@@ -136,7 +139,7 @@ resource "cloudflare_zero_trust_access_policy" "owner" {
   account_id = var.account_id
   name       = "${local.name}-owner"
   decision   = "allow"
-  include = [for email in var.allowed_emails : {
+  include = [for email in var.owner_emails : {
     email = {
       email = email
     }
@@ -147,10 +150,10 @@ resource "cloudflare_zero_trust_access_application" "reader" {
   account_id = var.account_id
   name       = local.name
   type       = "self_hosted"
-  domain     = var.app_domain
+  domain     = var.app_hostname
   destinations = [{
     type = "public"
-    uri  = var.app_domain
+    uri  = var.app_hostname
   }]
   session_duration          = "720h"
   auto_redirect_to_identity = true
@@ -171,4 +174,8 @@ resource "cloudflare_zero_trust_access_application" "reader" {
       error_message = "No onetimepin identity provider is visible; the tofu token needs Access: Organizations, Identity Providers, and Groups Read, or allowed_idps would widen to every IdP."
     }
   }
+}
+
+data "cloudflare_zero_trust_organization" "this" {
+  account_id = var.account_id
 }

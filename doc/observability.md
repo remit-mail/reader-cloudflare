@@ -1,6 +1,6 @@
 # Observability
 
-Account `f496802dcadb597e5939f6449c759a43`, Worker `reader-cloudflare`.
+Account `<account-id>`, Worker `reader-cloudflare`, the default `project` in `deploy.config.json`; another deployment substitutes its own account id and project name.
 
 ## Dashboard paths
 
@@ -21,12 +21,12 @@ Account `f496802dcadb597e5939f6449c759a43`, Worker `reader-cloudflare`.
 
 ## Bookmarks
 
-| What                            | URL                                                                                                                     |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Worker metrics                  | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/services/view/reader-cloudflare/production/metrics |
-| Observability and saved queries | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers-and-pages/observability                            |
-| Durable Objects                 | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/durable-objects                                    |
-| Queues                          | https://dash.cloudflare.com/f496802dcadb597e5939f6449c759a43/workers/queues                                             |
+| What                            | URL                                                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Worker metrics                  | https://dash.cloudflare.com/<account-id>/workers/services/view/reader-cloudflare/production/metrics |
+| Observability and saved queries | https://dash.cloudflare.com/<account-id>/workers-and-pages/observability                            |
+| Durable Objects                 | https://dash.cloudflare.com/<account-id>/workers/durable-objects                                    |
+| Queues                          | https://dash.cloudflare.com/<account-id>/workers/queues                                             |
 
 ## Log fields
 
@@ -76,7 +76,7 @@ The Worker has no CPU clock, so per-batch CPU is read from `$workers.cpuTimeMs` 
 
 ## GraphQL
 
-Queries 5 and 6 go into the GraphQL explorer with variables `{"accountTag": "f496802dcadb597e5939f6449c759a43", "since": "2026-10-01T00:00:00Z", "until": "2026-11-01T00:00:00Z"}`.
+Queries 5 and 6 go into the GraphQL explorer with variables `{"accountTag": "<account-id>", "since": "2026-10-01T00:00:00Z", "until": "2026-11-01T00:00:00Z"}`.
 
 ### 5. Durable Object requests
 

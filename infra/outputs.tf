@@ -1,20 +1,42 @@
+output "worker_name" {
+  description = "name in the rendered wrangler.deploy.jsonc."
+  value       = cloudflare_worker.reader.name
+}
+
+output "app_hostname" {
+  description = "Custom domain route and PUBLIC_ORIGIN host in the rendered wrangler.deploy.jsonc."
+  value       = cloudflare_zero_trust_access_application.reader.domain
+}
+
+output "d1_database_name" {
+  description = "database_name of the DB binding in the rendered wrangler.deploy.jsonc."
+  value       = cloudflare_d1_database.app.name
+}
+
 output "d1_database_id" {
-  description = "database_id of the DB binding in wrangler.jsonc."
+  description = "database_id of the DB binding in the rendered wrangler.deploy.jsonc."
   value       = cloudflare_d1_database.app.uuid
 }
 
 output "r2_bucket_name" {
-  description = "bucket_name of the MAIL binding in wrangler.jsonc."
+  description = "bucket_name of the MAIL binding in the rendered wrangler.deploy.jsonc."
   value       = cloudflare_r2_bucket.mail.name
 }
 
-output "queue_name" {
-  description = "Queue of the SYNC producer and consumer in wrangler.jsonc."
-  value       = cloudflare_queue.sync.queue_name
+output "queues" {
+  description = "Queue name per family, for every producer and consumer in the rendered wrangler.deploy.jsonc."
+  value = {
+    sync     = cloudflare_queue.sync.queue_name
+    body     = cloudflare_queue.body.queue_name
+    mutation = cloudflare_queue.mutation.queue_name
+    smtp     = cloudflare_queue.smtp.queue_name
+    fanout   = cloudflare_queue.fanout.queue_name
+    dlq      = cloudflare_queue.dlq.queue_name
+  }
 }
 
 output "secrets_store_id" {
-  description = "store_id of the MASTER_KEY binding in wrangler.jsonc."
+  description = "store_id of the MASTER_KEY binding in the rendered wrangler.deploy.jsonc."
   value       = cloudflare_secrets_store.this.id
 }
 
@@ -24,8 +46,13 @@ output "worker_id" {
 }
 
 output "access_aud" {
-  description = "Application audience tag for ACCESS_AUD."
+  description = "Application audience tag, ACCESS_AUD in the rendered wrangler.deploy.jsonc."
   value       = cloudflare_zero_trust_access_application.reader.aud
+}
+
+output "access_team_domain" {
+  description = "Access team domain, ACCESS_TEAM_DOMAIN in the rendered wrangler.deploy.jsonc."
+  value       = data.cloudflare_zero_trust_organization.this.auth_domain
 }
 
 output "debug_token" {

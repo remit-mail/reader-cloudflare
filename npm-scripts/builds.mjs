@@ -1,7 +1,7 @@
-import { CF_ENV, CF_USER_ENV, readEnvFile } from "./env.mjs";
+import { CF_ENV, CF_USER_ENV, PROJECT, readEnvFile } from "./env.mjs";
 
 const API = "https://api.cloudflare.com/client/v4";
-const WORKER = "reader-cloudflare";
+const WORKER = PROJECT;
 
 const [command, buildArg] = process.argv.slice(2);
 if (command !== "list" && command !== "log") {
