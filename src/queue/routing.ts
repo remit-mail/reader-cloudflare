@@ -1,4 +1,4 @@
-import type { AccountDataPurgeFinalizeEvent } from "@remit/account-worker/process";
+import type { AccountFinalizeEvent } from "@remit/account-worker/process";
 import type { RemitClientDeps } from "@remit/backend/create-remit-client";
 import type { WorkerEvent } from "@remit/imap-worker/process";
 import { z } from "zod";
@@ -9,7 +9,7 @@ export type QueueName = keyof ClientQueues;
 
 export type EventOn<Q extends QueueName> = Parameters<ClientQueues[Q]["send"]>[0]["body"];
 
-export type ReaderEvent = EventOn<QueueName> | WorkerEvent | AccountDataPurgeFinalizeEvent;
+export type ReaderEvent = EventOn<QueueName> | WorkerEvent | AccountFinalizeEvent;
 
 export type ReaderEventType = ReaderEvent["type"];
 
@@ -34,6 +34,7 @@ export const FAMILY_OF = {
   AccountDelete: "fanout",
   AccountDataPurge: "fanout",
   FinalizeAccountDataPurge: "fanout",
+  FinalizeAccountDelete: "fanout",
   AccountExport: "fanout",
   OrganizeJob: "fanout",
   SenderCategoryBackApply: "fanout",

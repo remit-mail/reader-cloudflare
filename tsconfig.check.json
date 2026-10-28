@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "paths": {
+      "@remit/account-worker/process": ["./.types/account-worker/src/process.d.ts"],
       "@remit/config-format": ["./.types/config-format/src/index.d.ts"],
       "@remit/config-transfer": ["./.types/config-transfer/src/index.d.ts"],
       "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"],

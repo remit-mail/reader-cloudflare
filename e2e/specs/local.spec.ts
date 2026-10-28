@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
+import { strFromU8, unzipSync } from "fflate";
 import { z } from "zod";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
@@ -100,9 +101,10 @@ const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-ident
 interface Shared {
   accountId: string;
   inboxId: string;
+  exportUrl: string;
 }
 
-const shared: Shared = { accountId: "", inboxId: "" };
+const shared: Shared = { accountId: "", inboxId: "", exportUrl: "" };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -196,7 +198,8 @@ const wranglerLog = (): string => {
   return readFileSync(path, "utf8");
 };
 
-const jsonLineOf = (line: string): unknown => JSON.parse(line.slice(line.indexOf("{")));
+const jsonLineOf = (line: string): unknown =>
+  JSON.parse(line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1));
 
 const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
   wranglerLog()
@@ -208,7 +211,7 @@ const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
 
 const PURGE_EVENTS = new Set(["AccountDataPurge", "FinalizeAccountDataPurge"]);
 
-const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
+const consumesSince = (types: ReadonlySet<string>, since: number): Record<string, unknown>[] =>
   wranglerLog()
     .split("\n")
     .filter((line) => line.includes('"queue.consume"'))
@@ -217,12 +220,20 @@ const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
     .filter(
       (record) =>
         typeof record.type === "string" &&
-        PURGE_EVENTS.has(record.type) &&
+        types.has(record.type) &&
         typeof record.time === "string" &&
         Date.parse(record.time) >= since,
     );
 
+const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
+  consumesSince(PURGE_EVENTS, since);
+
 const draftSchema = z.object({ outboxMessageId: z.string() });
+const queuedExportSchema = z.object({ exportId: z.string() });
+const exportSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("Ready"), downloadUrl: z.string() }),
+  z.object({ state: z.enum(["Pending", "Processing", "Failed"]) }),
+]);
 const rawSourceSchema = z.object({ raw: z.string() });
 const queuedOrganizeJobSchema = z.object({ organizeJobId: z.string() });
 const organizeJobSchema = z.object({
@@ -760,6 +771,28 @@ test.describe("reader on a local Worker", () => {
     expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(FILTERED.subject);
   });
 
+  test("an export is a zip of every stored message", async () => {
+    const created = await api.request("POST", "/me/export");
+    expect(created.status).toBe(202);
+    const { exportId } = await parsedBody(created, queuedExportSchema);
+
+    const settled = await waitFor(
+      async () => parsedBody(await api.request("GET", `/me/export/${exportId}`), exportSchema),
+      (body) => body.state === "Ready" || body.state === "Failed",
+      { timeoutMs: 60_000, what: "the export to settle" },
+    );
+    if (settled.state !== "Ready") throw new Error(`the export settled as ${settled.state}`);
+
+    const download = await fetch(settled.downloadUrl);
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("application/zip");
+    const inbox = Object.entries(unzipSync(new Uint8Array(await download.arrayBuffer())))
+      .filter(([name]) => name.includes("/INBOX/") && name.endsWith(".eml"))
+      .map(([, content]) => strFromU8(content));
+    expect(inbox.some((eml) => eml.includes(`Subject: ${TOGGLED_SUBJECT}`))).toBe(true);
+    shared.exportUrl = settled.downloadUrl;
+  });
+
   test("deleting the account purges its mail and takes it off GET /config", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
     const deletedAt = Date.now();
@@ -780,5 +813,23 @@ test.describe("reader on a local Worker", () => {
     expect(purges.map((record) => record.outcome)).toEqual(purges.map(() => "Acked"));
     const described = await api.request("GET", `/messages/${messageId}`);
     expect(described.status).toBe(404);
+  });
+
+  test("deleting me erases the tenant with its filters and export archives", async () => {
+    expect((await fetch(shared.exportUrl)).status).toBe(200);
+    const deletedAt = Date.now();
+    const deleted = await api.request("DELETE", "/me", { confirmEmail: DEV_IDENTITY });
+    expect(deleted.status).toBe(202);
+
+    const consumed = await waitFor(
+      async () => consumesSince(new Set(["AccountDelete", "FinalizeAccountDelete"]), deletedAt),
+      (records) => records.some((record) => record.type === "FinalizeAccountDelete"),
+      { timeoutMs: 60_000, what: "the AccountDelete fanout and its finalize step" },
+    );
+    expect(consumed.map((record) => [record.type, record.outcome])).toEqual([
+      ["AccountDelete", "Acked"],
+      ["FinalizeAccountDelete", "Acked"],
+    ]);
+    expect((await fetch(shared.exportUrl)).status).toBe(404);
   });
 });

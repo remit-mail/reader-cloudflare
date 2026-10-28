@@ -1,10 +1,14 @@
 import type {
-  AccountDataPurgeFinalizeEvent,
+  AccountFinalizeEvent,
   AccountPurgeContext,
   DeletionCapabilities,
 } from "@remit/account-worker/process";
 import type { RemitClient } from "@remit/backend/client";
-import { runDrizzleCascadeDelete, type SqliteStores } from "@remit/drizzle-service";
+import {
+  runDrizzleAccountConfigErase,
+  runDrizzleCascadeDelete,
+  type SqliteStores,
+} from "@remit/drizzle-service";
 import type { Env } from "../env";
 import { queueProducer } from "../queue/producer";
 
@@ -30,6 +34,9 @@ const workersDeletion = (bucket: R2Bucket, stores: SqliteStores): DeletionCapabi
   invalidateContent: async () => {},
   deleteStoragePrefix: (keyPrefix) => deletePrefix(bucket, keyPrefix),
   cascadeDelete: (entities, log) => runDrizzleCascadeDelete(stores, entities, log),
+  eraseAccountConfig: (accountConfigId, _services, log) =>
+    runDrizzleAccountConfigErase(stores, accountConfigId, log),
+  deleteExportArchives: (accountConfigId) => deletePrefix(bucket, `exports/${accountConfigId}/`),
 });
 
 export const purgeContext = (
@@ -39,6 +46,6 @@ export const purgeContext = (
   stores: SqliteStores,
 ): AccountPurgeContext => ({
   client,
-  purgeQueue: queueProducer<"Grouped", AccountDataPurgeFinalizeEvent>("Grouped", env, tenantId),
+  purgeQueue: queueProducer<"Grouped", AccountFinalizeEvent>("Grouped", env, tenantId),
   capabilities: workersDeletion(env.MAIL, stores),
 });

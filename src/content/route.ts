@@ -1,23 +1,24 @@
-import { parseOutboxAttachmentKey } from "@remit/storage-service";
+import { parseExportArchiveKey, parseOutboxAttachmentKey } from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
 import { notFound } from "../http";
 
-const PREFIX = "/content/";
+export const CONTENT_PREFIX = "/content/";
 const BODY_PART_KEY =
   /^accounts\/([A-Za-z0-9]+)\/[A-Za-z0-9]+\/messages\/[A-Za-z0-9]+\/parts\/[A-Za-z0-9.-]+$/;
 const SANDBOX = "sandbox; default-src 'none'; img-src * data:; style-src 'unsafe-inline'";
 const UNTYPED = "application/octet-stream";
 
-export const isContentPath = (path: string): boolean => path.startsWith(PREFIX);
+export const isContentPath = (path: string): boolean => path.startsWith(CONTENT_PREFIX);
 
-const served = (object: R2ObjectBody): Response =>
+const served = (object: R2ObjectBody, headers: Record<string, string> = {}): Response =>
   new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? UNTYPED,
       "cache-control": "private, max-age=3600",
       "content-security-policy": SANDBOX,
       "x-content-type-options": "nosniff",
+      ...headers,
     },
   });
 
@@ -29,7 +30,17 @@ export const serveContent = async (
   env: Env,
   tenant: Tenant,
 ): Promise<Response> => {
-  const key = new URL(request.url).pathname.slice(PREFIX.length);
+  const key = new URL(request.url).pathname.slice(CONTENT_PREFIX.length);
+  const exportArchive = parseExportArchiveKey(key);
+  if (exportArchive !== null) {
+    if (exportArchive.accountConfigId !== tenant.accountConfigId) return notFound("Content");
+    const archive = await env.MAIL.get(key);
+    if (archive === null) return notFound("Export");
+    return served(archive, {
+      "cache-control": "private, no-store",
+      "content-disposition": `attachment; filename="remit-export-${exportArchive.exportRequestId}.zip"`,
+    });
+  }
   const outboxAttachment = parseOutboxAttachmentKey(key);
   if (outboxAttachment !== null) {
     if (outboxAttachment.accountConfigId !== tenant.accountConfigId) return notFound("Content");

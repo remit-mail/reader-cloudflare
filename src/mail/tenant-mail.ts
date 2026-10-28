@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   type AccountPurgeContext,
+  processAccountExportEvent,
   processAccountFanoutEvent,
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
@@ -64,6 +65,10 @@ const consumeFanout = (event: ReaderEvent, composed: Composed): Promise<void> =>
     case "OrganizeJob":
     case "SenderCategoryBackApply":
       return processAccountFanoutEvent(event, { client: composed.client });
+    case "AccountExport":
+      return processAccountExportEvent(event, { client: composed.client });
+    case "AccountDelete":
+    case "FinalizeAccountDelete":
     case "AccountDataPurge":
     case "FinalizeAccountDataPurge":
       return processAccountPurgeEvent(event, composed.purge);
