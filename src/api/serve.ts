@@ -17,9 +17,7 @@ const unservedOperations = [
   "MeOperations_deleteMe",
   "MessageOperations_getRawMessage",
   "OrganizeOperations_createOrganizeJob",
-  "OutboxAttachmentOperations_completeOutboxAttachment",
   "OutboxDetailOperations_deleteOutboxMessage",
-  "OutboxDetailOperations_mintOutboxAttachment",
 ] as const satisfies readonly (keyof typeof handlers)[];
 
 const unservedPublicOperations = [

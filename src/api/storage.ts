@@ -15,6 +15,7 @@ import {
   parseStorageUri,
   type StorageReference,
   type StorageService,
+  UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { z } from "zod";
 
@@ -36,7 +37,7 @@ const parsedBodySchema = z.object({
 });
 
 const unsupported = (what: string): never => {
-  throw new Error(`${what} is not available on the R2 binding; this host has no signed URL route`);
+  throw new Error(`${what} is not available on the R2 binding`);
 };
 
 const collect = async (stream: Readable): Promise<Buffer> => {
@@ -68,7 +69,7 @@ const listFolders = async (bucket: R2Bucket, prefix: string): Promise<string[]> 
   return folders;
 };
 
-export const r2Storage = (bucket: R2Bucket): StorageService => {
+export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
   const referenceOf = (key: string, content: Uint8Array): StorageReference => ({
     uri: buildStorageUri(StorageType.S3, STORAGE_URI_BUCKET_LABEL, key),
     storageType: StorageType.S3,
@@ -168,7 +169,14 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
       read(
         buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId),
       ),
-    createOutboxAttachmentUploadUrl: async () => unsupported("an outbox attachment upload URL"),
+    createOutboxAttachmentUploadUrl: async ({
+      accountConfigId,
+      accountId,
+      outboxMessageId,
+      outboxAttachmentId,
+    }) => ({
+      uploadUrl: `${origin}${UPLOAD_ROUTE_PREFIX}${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+    }),
     storeDeduplicated: ({ accountConfigId, accountId, content }) =>
       put(buildDeduplicatedKey(accountConfigId, accountId, computeChecksum(content)), content),
     storeParsedBody: ({ accountConfigId, accountId, messageId, parsed }) =>

@@ -231,7 +231,7 @@ export class TenantMail extends DurableObject<Env> {
   private clientOf(tenantId: string): RemitClient {
     return createRemitClient({
       repositories: this.mail,
-      storage: r2Storage(this.env.MAIL),
+      storage: r2Storage(this.env.MAIL, this.env.PUBLIC_ORIGIN),
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
       mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },

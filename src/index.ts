@@ -2,6 +2,7 @@ import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
 import { API_ROOT } from "./api/serve";
 import { isContentPath, serveContent } from "./content/route";
+import { isUploadPath, serveUpload } from "./content/upload";
 import type { Env } from "./env";
 import { errorKindOf, messageOf } from "./error-kind";
 import { apiError, quotaExceeded, unauthorized } from "./http";
@@ -159,6 +160,9 @@ const route = (request: Request, env: Env, url: URL): Promise<Response> => {
   if (isContentPath(url.pathname)) {
     return authenticated(request, env, url.pathname, serveContent);
   }
+  if (isUploadPath(url.pathname)) {
+    return authenticated(request, env, url.pathname, serveUpload);
+  }
   return env.ASSETS.fetch(request);
 };
 
@@ -175,6 +179,7 @@ const operationOf = async (method: string, url: URL): Promise<string> => {
 const routeOf = (method: string, url: URL): Promise<string> => {
   if (url.pathname.startsWith("/api/")) return operationOf(method, url);
   if (isContentPath(url.pathname)) return Promise.resolve("content");
+  if (isUploadPath(url.pathname)) return Promise.resolve("upload");
   return Promise.resolve("assets");
 };
 

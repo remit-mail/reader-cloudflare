@@ -16,6 +16,8 @@ import {
   appendMessages,
   listServerSubjects,
   type Message,
+  readMimeShape,
+  readMimeShapeOfRaw,
   serverFlagsForSubject,
   waitForServerMailbox,
 } from "../.reader/packages/e2e/src/imap.js";
@@ -61,6 +63,12 @@ const UNFETCHED: Message = {
 };
 const FIRST_SIGHT_POLL_MS = 100;
 const SENT_SUBJECT = `Sent from the local Worker ${Date.now()}`;
+const ATTACHED_SUBJECT = `Sent with an attachment ${Date.now()}`;
+const ATTACHMENT = {
+  name: "tide-table.txt",
+  mimeType: "text/plain",
+  content: "High water at 06:12 and 18:40.",
+};
 const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
 const REFUSED_RECIPIENT = "nobody@remit.test";
 const CORRECTED_RECIPIENT = "corrected@remit.test";
@@ -487,6 +495,43 @@ test.describe("reader on a local Worker", () => {
     await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(SENT_SUBJECT), {
       what: `"${SENT_SUBJECT}" in Sent`,
     });
+  });
+
+  test("a composed attachment reaches the recipient and the Sent copy", async ({ page }) => {
+    await openInbox(page);
+    await page.getByRole("button", { name: "Compose", exact: true }).first().click();
+    await page.getByPlaceholder("Recipients").fill(RECIPIENT);
+    await page.getByPlaceholder("Recipients").press("Enter");
+    await page.locator("[data-subject-field]").fill(ATTACHED_SUBJECT);
+    await page.getByTestId("compose-body").click();
+    await page.keyboard.type("The tide table is attached.");
+    await page.getByTestId("compose-attach-input").setInputFiles({
+      name: ATTACHMENT.name,
+      mimeType: ATTACHMENT.mimeType,
+      buffer: Buffer.from(ATTACHMENT.content),
+    });
+    await expect(
+      page.locator("[data-testid=compose-attachment][data-state=attached]", {
+        hasText: ATTACHMENT.name,
+      }),
+    ).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+
+    const carried = expect.arrayContaining([
+      expect.objectContaining({ filename: ATTACHMENT.name, content: ATTACHMENT.content }),
+    ]);
+    const accepted = await waitForAcceptedMessage(ATTACHED_SUBJECT, { timeoutMs: 60_000 });
+    expect((await readMimeShapeOfRaw(accepted.raw)).parts).toEqual(carried);
+
+    await waitForServerMailbox(
+      imapUser,
+      "Sent",
+      (subjects) => subjects.includes(ATTACHED_SUBJECT),
+      {
+        what: `"${ATTACHED_SUBJECT}" in Sent`,
+      },
+    );
+    expect((await readMimeShape(imapUser, "Sent", ATTACHED_SUBJECT))?.parts).toEqual(carried);
   });
 
   test("a refused send settles as failed and goes out once its recipient is corrected", async () => {
