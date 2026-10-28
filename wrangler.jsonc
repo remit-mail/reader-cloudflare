@@ -279,6 +279,11 @@
           "binding": "MASTER_KEY",
           "store_id": "00000000000000000000000000000000",
           "secret_name": "MASTER_KEY"
+        },
+        {
+          "binding": "MSOAUTH_CLIENT_SECRET",
+          "store_id": "00000000000000000000000000000000",
+          "secret_name": "MSOAUTH_CLIENT_SECRET"
         }
       ]
     }

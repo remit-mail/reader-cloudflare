@@ -1,6 +1,6 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
-import { API_ROOT } from "./api/serve";
+import { API_ROOT } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import type { Env } from "./env";
@@ -15,6 +15,7 @@ import {
   logQueueDeadLetter,
   withLogContext,
 } from "./log";
+import { loggedPath, type PublicRoute, publicRouteOf } from "./public-api";
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
@@ -153,7 +154,24 @@ const authenticated = async (
   return serve(request, env, result.tenant);
 };
 
+const servePublic = async (
+  request: Request,
+  env: Env,
+  url: URL,
+  publicRoute: PublicRoute,
+): Promise<Response> => {
+  const tenantId = await publicRoute.tenantOf(env, url);
+  if (tenantId === undefined) {
+    log.warn("public route names no tenant", { route: publicRoute.name });
+    return publicRoute.unresolved(env);
+  }
+  annotateLog({ tenantId });
+  return tenantMail(env, tenantId).publicApi(request, tenantId, currentCorrelationId());
+};
+
 const route = (request: Request, env: Env, url: URL): Promise<Response> => {
+  const publicRoute = publicRouteOf(url.pathname);
+  if (publicRoute !== undefined) return servePublic(request, env, url, publicRoute);
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
@@ -196,16 +214,17 @@ export default {
     const correlationId = correlationIdOf(request);
     return withLogContext({ correlationId }, async () => {
       const url = new URL(request.url);
+      const path = loggedPath(url.pathname);
       annotateLog({ route: await routeOf(request.method, url) });
-      log.info("request", { method: request.method, path: url.pathname });
+      log.info("request", { method: request.method, path });
       const started = Date.now();
       const response = await Promise.resolve()
         .then(() => route(request, env, url))
-        .catch(failed(request.method, url.pathname));
+        .catch(failed(request.method, path));
       log.info("response", {
         event: "http.response",
         method: request.method,
-        path: url.pathname,
+        path,
         status: response.status,
         statusClass: statusClassOf(response.status),
         durationMs: Date.now() - started,

@@ -140,7 +140,8 @@ const main = async () => {
     smtpHttpPort,
     rejectingSmtpPort,
     rejectingSmtpHttpPort,
-  ] = await Promise.all(Array.from({ length: 7 }, freePort));
+    microsoftPort,
+  ] = await Promise.all(Array.from({ length: 8 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -163,6 +164,7 @@ const main = async () => {
     E2E_SMTP_REJECT_STACK_PORT: String(rejectingSmtpPort),
     E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
+    E2E_MSOAUTH_TOKEN_PORT: String(microsoftPort),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
   };
@@ -177,7 +179,15 @@ const main = async () => {
   let wrangler;
   let log;
   try {
-    compose("up", "--detach", "--wait", "dovecot", "mailpit", "mailpit-rejecting");
+    compose(
+      "up",
+      "--detach",
+      "--wait",
+      "dovecot",
+      "mailpit",
+      "mailpit-rejecting",
+      "fake-microsoft",
+    );
     run(...withCap("npm", ["run", "build"]), { env });
     run(
       bin("wrangler"),
@@ -212,6 +222,24 @@ const main = async () => {
       ],
       { env },
     );
+    run(
+      bin("wrangler"),
+      [
+        "secrets-store",
+        "secret",
+        "create",
+        MASTER_KEY_STORE,
+        "--name",
+        "MSOAUTH_CLIENT_SECRET",
+        "--scopes",
+        "workers",
+        "--value",
+        readerEnv.MSOAUTH_CLIENT_SECRET,
+        "--persist-to",
+        stateDir,
+      ],
+      { env },
+    );
     log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
@@ -227,6 +255,10 @@ const main = async () => {
       stateDir,
       "--var",
       `PUBLIC_ORIGIN:${env.E2E_BASE_URL}`,
+      "--var",
+      `MSOAUTH_CLIENT_ID:${readerEnv.MSOAUTH_CLIENT_ID}`,
+      "--var",
+      `MSOAUTH_TOKEN_ENDPOINT:http://127.0.0.1:${microsoftPort}/token`,
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);

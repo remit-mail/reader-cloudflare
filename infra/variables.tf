@@ -49,3 +49,16 @@ variable "usage_alert_limits" {
     queues_standard_operations             = 10000
   }
 }
+
+variable "msoauth_client_id" {
+  type        = string
+  description = "Application (client) id of the Microsoft Entra app that signs Outlook accounts in. msoauth_client_id in deploy.config.json; empty turns Microsoft sign-in off."
+  default     = ""
+}
+
+variable "msoauth_client_secret" {
+  type        = string
+  description = "Client secret of that Entra app, stored as MSOAUTH_CLIENT_SECRET in the Secrets Store. msoauth_client_secret in deploy.config.json; empty turns Microsoft sign-in off."
+  default     = ""
+  sensitive   = true
+}

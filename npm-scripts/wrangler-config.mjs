@@ -58,6 +58,7 @@ export const renderWrangler = (base, outputs, config) => {
   const database = only(base.d1_databases, "DB", "D1 database");
   const bucket = only(base.r2_buckets, "MAIL", "R2 bucket");
   const secret = only(base.secrets_store_secrets, "MASTER_KEY", "Secrets Store secret");
+  const microsoft = outputs.microsoft_oauth;
   return {
     ...portable,
     name: outputs.worker_name,
@@ -68,6 +69,7 @@ export const renderWrangler = (base, outputs, config) => {
       ACCESS_TEAM_DOMAIN: outputs.access_team_domain,
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
+      ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
     },
     d1_databases: [
       { ...database, database_name: outputs.d1_database_name, database_id: outputs.d1_database_id },
@@ -86,7 +88,18 @@ export const renderWrangler = (base, outputs, config) => {
         }),
       })),
     },
-    secrets_store_secrets: [{ ...secret, store_id: outputs.secrets_store_id }],
+    secrets_store_secrets: [
+      { ...secret, store_id: outputs.secrets_store_id },
+      ...(microsoft
+        ? [
+            {
+              binding: "MSOAUTH_CLIENT_SECRET",
+              store_id: outputs.secrets_store_id,
+              secret_name: microsoft.secret_name,
+            },
+          ]
+        : []),
+    ],
   };
 };
 
