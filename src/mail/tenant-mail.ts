@@ -21,7 +21,6 @@ import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { serveTenantApi } from "../api/serve";
 import { r2Storage } from "../api/storage";
-import { uploadUrls } from "../content/upload";
 import { tenantSecrets } from "../crypto/envelope";
 import { openAppStore } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
@@ -232,7 +231,7 @@ export class TenantMail extends DurableObject<Env> {
   private clientOf(tenantId: string): RemitClient {
     return createRemitClient({
       repositories: this.mail,
-      storage: r2Storage(this.env.MAIL, uploadUrls(this.env)),
+      storage: r2Storage(this.env.MAIL, this.env.PUBLIC_ORIGIN),
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
       mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },
