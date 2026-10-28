@@ -65,6 +65,7 @@
       {
         "queue": "reader-cloudflare-sync",
         "max_batch_size": 1,
+        "max_batch_timeout": 0,
         "max_concurrency": 2,
         "max_retries": 3,
         "dead_letter_queue": "reader-cloudflare-dlq"
@@ -72,6 +73,7 @@
       {
         "queue": "reader-cloudflare-body",
         "max_batch_size": 1,
+        "max_batch_timeout": 0,
         "max_concurrency": 1,
         "max_retries": 3,
         "dead_letter_queue": "reader-cloudflare-dlq"
@@ -79,18 +81,21 @@
       {
         "queue": "reader-cloudflare-mutation",
         "max_batch_size": 10,
+        "max_batch_timeout": 0,
         "max_retries": 2,
         "dead_letter_queue": "reader-cloudflare-dlq"
       },
       {
         "queue": "reader-cloudflare-smtp",
         "max_batch_size": 1,
+        "max_batch_timeout": 0,
         "max_retries": 2,
         "dead_letter_queue": "reader-cloudflare-dlq"
       },
       {
         "queue": "reader-cloudflare-fanout",
         "max_batch_size": 10,
+        "max_batch_timeout": 0,
         "max_retries": 2,
         "dead_letter_queue": "reader-cloudflare-dlq"
       },
@@ -220,6 +225,7 @@
           {
             "queue": "reader-cloudflare-sync",
             "max_batch_size": 1,
+            "max_batch_timeout": 0,
             "max_concurrency": 2,
             "max_retries": 3,
             "dead_letter_queue": "reader-cloudflare-dlq"
@@ -227,6 +233,7 @@
           {
             "queue": "reader-cloudflare-body",
             "max_batch_size": 1,
+            "max_batch_timeout": 0,
             "max_concurrency": 1,
             "max_retries": 3,
             "dead_letter_queue": "reader-cloudflare-dlq"
@@ -234,18 +241,21 @@
           {
             "queue": "reader-cloudflare-mutation",
             "max_batch_size": 10,
+            "max_batch_timeout": 0,
             "max_retries": 2,
             "dead_letter_queue": "reader-cloudflare-dlq"
           },
           {
             "queue": "reader-cloudflare-smtp",
             "max_batch_size": 1,
+            "max_batch_timeout": 0,
             "max_retries": 2,
             "dead_letter_queue": "reader-cloudflare-dlq"
           },
           {
             "queue": "reader-cloudflare-fanout",
             "max_batch_size": 10,
+            "max_batch_timeout": 0,
             "max_retries": 2,
             "dead_letter_queue": "reader-cloudflare-dlq"
           },

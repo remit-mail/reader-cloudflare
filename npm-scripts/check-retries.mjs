@@ -37,6 +37,11 @@ for (const [scope, { queues }] of scopes) {
         `${scope}: ${queue} has max_batch_size ${consumer.max_batch_size}, CONSUMER_SETTINGS.${family} in src/api/host-limits.ts is ${settings.maxBatchSize}`,
       );
     }
+    if (consumer.max_batch_timeout !== settings.maxBatchTimeoutSeconds) {
+      problems.push(
+        `${scope}: ${queue} has max_batch_timeout ${consumer.max_batch_timeout}, CONSUMER_SETTINGS.${family} in src/api/host-limits.ts is ${settings.maxBatchTimeoutSeconds}`,
+      );
+    }
     const concurrency = consumer.max_concurrency ?? "Auto";
     if (concurrency !== settings.maxConcurrency) {
       problems.push(
