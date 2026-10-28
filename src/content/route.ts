@@ -6,7 +6,7 @@ import { notFound } from "../http";
 const PREFIX = "/content/";
 const BODY_PART_KEY =
   /^accounts\/([A-Za-z0-9]+)\/[A-Za-z0-9]+\/messages\/[A-Za-z0-9]+\/parts\/[A-Za-z0-9.-]+$/;
-const SANDBOX = "sandbox; default-src none; img-src * data:; style-src unsafe-inline";
+const SANDBOX = "sandbox; default-src 'none'; img-src * data:; style-src 'unsafe-inline'";
 const UNTYPED = "application/octet-stream";
 
 export const isContentPath = (path: string): boolean => path.startsWith(PREFIX);
