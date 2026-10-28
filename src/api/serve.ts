@@ -12,12 +12,8 @@ type Handlers = ApiRegistry<QueueName>["handlers"];
 type Handler = NonNullable<Handlers[keyof Handlers]>;
 
 const unservedOperations = [
-  "FilterOperations_createFilter",
   "MeOperations_createExport",
   "MeOperations_deleteMe",
-  "MessageOperations_getRawMessage",
-  "OrganizeOperations_createOrganizeJob",
-  "OutboxDetailOperations_deleteOutboxMessage",
 ] as const satisfies readonly (keyof typeof handlers)[];
 
 const unservedPublicOperations = [

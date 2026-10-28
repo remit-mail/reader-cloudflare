@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
+import { z } from "zod";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
   buildClassificationFixtures,
@@ -19,6 +20,7 @@ import {
   readMimeShape,
   readMimeShapeOfRaw,
   serverFlagsForSubject,
+  serverRawSourceForSubject,
   waitForServerMailbox,
 } from "../.reader/packages/e2e/src/imap.js";
 import { waitForSettledOutboxRow } from "../.reader/packages/e2e/src/outbox.js";
@@ -82,6 +84,13 @@ const UNDONE: Message = {
   from: "Spammer <undone@spam.test>",
   body: "Marked not spam before the move to Junk was delivered.",
 };
+const FILTERED: Message = {
+  subject: "Receipt 4471 from the chandlery",
+  body: "Rope, two shackles and a fender.",
+};
+const FILTERED_WORD = "chandlery";
+const DRAFT_SUBJECT = `A draft to discard ${Date.now()}`;
+const TERMINAL_JOB_STATES = new Set(["Complete", "Failed"]);
 const QUEUE_SETTLE_MS = 8_000;
 const CRON = "*/5 * * * *";
 
@@ -212,6 +221,26 @@ const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
         typeof record.time === "string" &&
         Date.parse(record.time) >= since,
     );
+
+const draftSchema = z.object({ outboxMessageId: z.string() });
+const rawSourceSchema = z.object({ raw: z.string() });
+const queuedOrganizeJobSchema = z.object({ organizeJobId: z.string() });
+const organizeJobSchema = z.object({
+  state: z.enum(["Pending", "Running", "Complete", "Failed"]),
+  matchedCount: z.number(),
+  appliedCount: z.number(),
+});
+
+const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
+  schema.parse(await response.json());
+
+const archiveMailboxId = async (): Promise<string> => {
+  const archive = (await api.listMailboxes(shared.accountId)).find(
+    (mailbox) => mailbox.fullPath === "Archive",
+  );
+  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
+  return archive.mailboxId;
+};
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -595,12 +624,8 @@ test.describe("reader on a local Worker", () => {
   });
 
   test("moving a message lands it in the destination mailbox on Dovecot", async () => {
-    const archive = (await api.listMailboxes(shared.accountId)).find(
-      (mailbox) => mailbox.fullPath === "Archive",
-    );
-    if (archive === undefined) throw new Error("no Archive mailbox in the read model");
     const messageId = await api.messageIdForSubject(shared.inboxId, LATE.subject);
-    expect(await api.moveMessages([messageId], archive.mailboxId)).toEqual({
+    expect(await api.moveMessages([messageId], await archiveMailboxId())).toEqual({
       successCount: 1,
       failureCount: 0,
     });
@@ -657,6 +682,82 @@ test.describe("reader on a local Worker", () => {
     await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
       what: "an empty Trash",
     });
+  });
+
+  test("the raw source of a message is what Dovecot holds", async () => {
+    const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
+    const response = await api.request("GET", `/messages/${messageId}/raw`);
+    expect(response.status).toBe(200);
+    const { raw } = await parsedBody(response, rawSourceSchema);
+    const onServer = await serverRawSourceForSubject(imapUser, "INBOX", TOGGLED_SUBJECT);
+    expect(onServer).not.toBeNull();
+    expect(raw).toBe(onServer);
+  });
+
+  test("a discarded draft is gone from the outbox", async () => {
+    const created = await api.request("POST", "/outbox", {
+      accountId: shared.accountId,
+      toAddresses: [RECIPIENT],
+      subject: DRAFT_SUBJECT,
+      textBody: "Never sent.",
+    });
+    expect(created.status).toBe(200);
+    const { outboxMessageId } = await parsedBody(created, draftSchema);
+
+    const deleted = await api.request("DELETE", `/outbox/${outboxMessageId}`);
+    expect(deleted.status).toBe(204);
+    await expect(api.getOutboxMessage(outboxMessageId)).rejects.toThrow(/ 404 /);
+  });
+
+  test("an organize job moves matching mail on Dovecot and completes", async () => {
+    const [harbour] = SEEDED;
+    if (harbour === undefined) throw new Error("no seeded message");
+    const created = await api.request("POST", `/accounts/${shared.accountId}/organize`, {
+      matchOperator: "And",
+      literalClauses: [{ field: "Subject", value: SEARCHED_WORD }],
+      actionLabelId: "None",
+      actionMailboxId: await archiveMailboxId(),
+    });
+    expect(created.status).toBe(202);
+    const { organizeJobId } = await parsedBody(created, queuedOrganizeJobSchema);
+
+    const job = await waitFor(
+      async () =>
+        parsedBody(
+          await api.request("GET", `/accounts/${shared.accountId}/organize/${organizeJobId}`),
+          organizeJobSchema,
+        ),
+      (body) => TERMINAL_JOB_STATES.has(body.state),
+      { timeoutMs: 60_000, what: "the organize job in a terminal state" },
+    );
+    expect(job).toMatchObject({ state: "Complete", matchedCount: 1, appliedCount: 1 });
+    await waitForServerMailbox(
+      imapUser,
+      "Archive",
+      (subjects) => subjects.includes(harbour.subject),
+      { what: `"${harbour.subject}" in Archive` },
+    );
+    expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(harbour.subject);
+  });
+
+  test("a new filter moves mail that arrives after it on Dovecot", async () => {
+    const created = await api.createFilter(shared.accountId, {
+      name: "Chandlery receipts",
+      scope: "Standing",
+      literalClauses: [{ field: "Subject", value: FILTERED_WORD }],
+      actionMailboxId: await archiveMailboxId(),
+    });
+    expect(created).toMatchObject({ state: "Active", disabledReason: "None" });
+
+    await appendMessages(imapUser, [FILTERED]);
+    await api.triggerSync(shared.accountId);
+    await waitForServerMailbox(
+      imapUser,
+      "Archive",
+      (subjects) => subjects.includes(FILTERED.subject),
+      { what: `"${FILTERED.subject}" filed into Archive` },
+    );
+    expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(FILTERED.subject);
   });
 
   test("deleting the account purges its mail and takes it off GET /config", async () => {
