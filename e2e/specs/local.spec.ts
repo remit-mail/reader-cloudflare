@@ -816,6 +816,7 @@ test.describe("reader on a local Worker", () => {
     expect((await fetch(shared.exportUrl)).status).toBe(200);
     expect(d1RowsIn("filter")).toBeGreaterThan(0);
     expect(d1RowsIn("tenant_key")).toBeGreaterThan(0);
+    expect(d1RowsIn("tenant_account_config")).toBeGreaterThan(0);
     const deletedAt = Date.now();
     const deleted = await api.request("DELETE", "/me", { confirmEmail: DEV_IDENTITY });
     expect(deleted.status).toBe(202);
@@ -833,6 +834,7 @@ test.describe("reader on a local Worker", () => {
     expect(d1RowsIn("filter")).toBe(0);
     expect(d1RowsIn("account_config")).toBe(0);
     expect(d1RowsIn("tenant_key")).toBe(0);
+    expect(d1RowsIn("tenant_account_config")).toBe(0);
 
     const tickedAt = Date.now();
     const tick = await fetch(
