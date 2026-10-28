@@ -1,3 +1,4 @@
+import { backfillTenantAccountConfigs } from "./backfill-tenant-account-config.mjs";
 import { inWorkersBuilds, wrangler } from "./cf.mjs";
 import { r2ObjectText, resolveAccountId } from "./cf-api.mjs";
 import { failOnHits, scanRepo } from "./check-no-config.mjs";
@@ -87,4 +88,6 @@ console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${output
 
 const migrated = migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name);
 if (migrated !== 0) process.exit(migrated);
+const backfilled = backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name);
+if (backfilled !== 0) process.exit(backfilled);
 process.exit(wrangler(["deploy", "--config", WRANGLER_DEPLOY_CONFIG, ...process.argv.slice(2)]));

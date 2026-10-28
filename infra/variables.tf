@@ -50,15 +50,12 @@ variable "usage_alert_limits" {
   }
 }
 
-variable "msoauth_client_id" {
-  type        = string
-  description = "Application (client) id of the Microsoft Entra app that signs Outlook accounts in. msoauth_client_id in deploy.config.json; empty turns Microsoft sign-in off."
-  default     = ""
-}
-
-variable "msoauth_client_secret" {
-  type        = string
-  description = "Client secret of that Entra app, stored as MSOAUTH_CLIENT_SECRET in the Secrets Store. msoauth_client_secret in deploy.config.json; empty turns Microsoft sign-in off."
-  default     = ""
+variable "msoauth" {
+  type = object({
+    client_id     = string
+    client_secret = string
+  })
+  description = "Microsoft Entra app that signs Outlook accounts in; its secret goes to the Secrets Store as MSOAUTH_CLIENT_SECRET. msoauth in deploy.config.json; null turns Microsoft sign-in off."
+  default     = null
   sensitive   = true
 }

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import ICAL from "ical.js";
-import { ApiClient } from "../.reader/packages/e2e/src/api.js";
+import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 
 const DEV_IDENTITY = "e2e@remit.test";
 const RESOURCE_SCOPE_MARK = "://";
@@ -63,12 +63,12 @@ test.describe("public routes", () => {
     expect(response.status).toBe(404);
   });
 
-  test("the Microsoft callback connects the account its sign-in started", async () => {
+  test("the Microsoft callback connects the account its sign-in started, and it syncs", async () => {
     const email = `outlook-${Date.now()}@outlook.test`;
     const started = await json<{ authorizationUrl: string }>(
       "POST",
       "/accounts/oauth/microsoft/start",
-      { email, services: ["Calendar"] },
+      { email, services: ["Mail"] },
     );
     const authorize = new URL(started.authorizationUrl);
     const granted = (authorize.searchParams.get("scope") ?? "")
@@ -91,11 +91,17 @@ test.describe("public routes", () => {
     const config = await json<{ accounts: ConfiguredAccount[] }>("GET", "/config");
     const account = config.accounts.find((candidate) => candidate.accountId === accountId);
     expect(account?.email).toBe(email);
-    expect(account?.syncedServices).toEqual(["Calendar"]);
+    expect(account?.syncedServices).toEqual(["Mail"]);
+    const mailboxes = await waitFor(
+      () => api.listMailboxes(accountId ?? ""),
+      (listed) => listed.some((mailbox) => mailbox.fullPath === "INBOX"),
+      { what: "the Outlook account's mailbox listing" },
+    );
+    expect(mailboxes.map((mailbox) => mailbox.fullPath)).toContain("INBOX");
     await json("DELETE", `/accounts/${accountId}`);
   });
 
-  test("a callback whose state names no tenant lands on the sign-in error", async () => {
+  test("a callback with a forged state lands on the sign-in error", async () => {
     const callback = new URL(`${baseUrl()}/api/accounts/oauth/microsoft/callback`);
     callback.searchParams.set("code", "unused");
     callback.searchParams.set("state", "forged.state");

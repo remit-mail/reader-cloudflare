@@ -19,7 +19,7 @@ import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/p
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
-import { servePublicApi, serveTenantApi } from "../api/serve";
+import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { tenantSecrets } from "../crypto/envelope";
 import { openAppStore } from "../db/client";
@@ -29,7 +29,6 @@ import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
-import { recordTenant } from "../tenant-directory";
 import { purgeContext } from "./account-purge";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { metered, meteredPool } from "./pool";
@@ -141,7 +140,6 @@ export class TenantMail extends DurableObject<Env> {
   private readonly stores: SqliteStores;
   private readonly pool: ConnectionPool;
   private composed: Composed | null = null;
-  private recorded: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -154,28 +152,15 @@ export class TenantMail extends DurableObject<Env> {
   }
 
   async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
-    return withLogContext({ correlationId, tenantId: identity.sub }, async () => {
-      await this.record(identity);
-      return serveTenantApi(request, identity, this.compose(identity.sub).client, correlationId);
-    });
+    return withLogContext({ correlationId, tenantId: identity.sub }, () =>
+      serveRequest(request, identity, this.compose(identity.sub).client, correlationId),
+    );
   }
 
   async publicApi(request: Request, tenantId: string, correlationId: string): Promise<Response> {
     return withLogContext({ correlationId, tenantId }, () =>
-      servePublicApi(request, this.compose(tenantId).client, correlationId),
+      serveRequest(request, ANONYMOUS, this.compose(tenantId).client, correlationId),
     );
-  }
-
-  private record(identity: UserIdentity): Promise<void> {
-    if (this.recorded === null) {
-      this.recorded = recordTenant(this.env.DB, identity.accountConfigId, identity.sub).catch(
-        (error: unknown) => {
-          this.recorded = null;
-          throw error;
-        },
-      );
-    }
-    return this.recorded;
   }
 
   async consume(

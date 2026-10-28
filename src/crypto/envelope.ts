@@ -1,15 +1,13 @@
-import type { AccountItem } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
   createCachedDataKeyProvider,
   createSecretsService,
   type DataKeyProvider,
-  deserializeEncryptedPayload,
   type SecretsService,
 } from "@remit/secrets-service";
 import { and, eq } from "drizzle-orm";
-import { z } from "zod";
 import { type AppDb, openAppDb } from "../db/client";
-import { tenantKeys } from "../db/schema";
+import { tenantAccountConfigs, tenantKeys } from "../db/schema";
 import type { Env } from "../env";
 
 const MASTER_KEY_VERSION = 1;
@@ -21,13 +19,6 @@ const AES_GCM = "AES-GCM";
 type TenantKeyRow = typeof tenantKeys.$inferSelect;
 
 const encoder = new TextEncoder();
-
-const serializedPayload = z.object({
-  encryptedDek: z.string(),
-  encryptedData: z.string(),
-  iv: z.string(),
-  authTag: z.string(),
-});
 
 const decodeBase64 = (value: string): Uint8Array =>
   Uint8Array.from(atob(value.trim()), (char) => char.charCodeAt(0));
@@ -72,8 +63,12 @@ const ensureTenantKey = async (
   const [existing] = await selectTenantKey(db, tenantId, MASTER_KEY_VERSION);
   if (existing !== undefined) return existing;
   const candidate = await wrapNewDataKey(masterKey, tenantId);
-  const [, [stored]] = await db.batch([
+  const [, , [stored]] = await db.batch([
     db.insert(tenantKeys).values(candidate).onConflictDoNothing(),
+    db
+      .insert(tenantAccountConfigs)
+      .values({ accountConfigId: deriveAccountConfigId(tenantId), tenantId })
+      .onConflictDoNothing(),
     selectTenantKey(db, tenantId, MASTER_KEY_VERSION),
   ]);
   if (stored === undefined) throw new Error("tenant key missing after insert");
@@ -120,14 +115,3 @@ const tenantDataKeys = (env: Env, tenantId: string): DataKeyProvider => ({
 
 export const tenantSecrets = (env: Env, tenantId: string): SecretsService =>
   createSecretsService(createCachedDataKeyProvider(tenantDataKeys(env, tenantId)));
-
-export const accountPassword = async (
-  secrets: SecretsService,
-  account: Pick<AccountItem, "accountId" | "passwordHash">,
-): Promise<string> => {
-  if (account.passwordHash === undefined || account.passwordHash === "") {
-    throw new Error(`credential not found for account ${account.accountId}`);
-  }
-  const payload: unknown = JSON.parse(account.passwordHash);
-  return secrets.decrypt(deserializeEncryptedPayload(serializedPayload.parse(payload)));
-};

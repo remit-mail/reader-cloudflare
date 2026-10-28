@@ -16,18 +16,12 @@ export const deployConfigSchema = z
     app_hostname: hostname,
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
-    msoauth_client_id: z.string().min(1).optional(),
-    msoauth_client_secret: z.string().min(1).optional(),
+    msoauth: z
+      .object({ client_id: z.string().min(1), client_secret: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict()
-  .refine(
-    (config) =>
-      (config.msoauth_client_id === undefined) === (config.msoauth_client_secret === undefined),
-    {
-      message: "msoauth_client_id and msoauth_client_secret come together or not at all",
-      path: ["msoauth_client_secret"],
-    },
-  )
   .refine(
     (config) =>
       config.app_hostname === config.zone_name ||
@@ -62,9 +56,14 @@ export const tofuVars = (config) => ({
   ),
 });
 
-export const configLiterals = ({ owner_emails, alert_email, ...rest }) => {
+export const configLiterals = ({ owner_emails, alert_email, msoauth, ...rest }) => {
   const emails = [...owner_emails, alert_email];
   return [
-    ...new Set([...Object.values(rest), ...emails, ...emails.map((email) => email.split("@")[1])]),
+    ...new Set([
+      ...Object.values(rest),
+      ...Object.values(msoauth ?? {}),
+      ...emails,
+      ...emails.map((email) => email.split("@")[1]),
+    ]),
   ];
 };

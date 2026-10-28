@@ -2,17 +2,6 @@ import { eq } from "drizzle-orm";
 import { openAppDb } from "./db/client";
 import { calendarFeedTokens, tenantAccountConfigs } from "./db/schema";
 
-export const recordTenant = async (
-  binding: D1Database,
-  accountConfigId: string,
-  tenantId: string,
-): Promise<void> => {
-  await openAppDb(binding)
-    .insert(tenantAccountConfigs)
-    .values({ accountConfigId, tenantId })
-    .onConflictDoNothing();
-};
-
 export const tenantOfAccountConfig = async (
   binding: D1Database,
   accountConfigId: string,

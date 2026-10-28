@@ -1,6 +1,6 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
-import { API_ROOT } from "./api/paths";
+import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import type { Env } from "./env";
@@ -15,7 +15,13 @@ import {
   logQueueDeadLetter,
   withLogContext,
 } from "./log";
-import { loggedPath, type PublicRoute, publicRouteOf } from "./public-api";
+import {
+  calendarFeedTenant,
+  feedNotFound,
+  loggedPath,
+  microsoftCallbackTenant,
+  oauthRefused,
+} from "./public-api";
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
@@ -154,24 +160,25 @@ const authenticated = async (
   return serve(request, env, result.tenant);
 };
 
-const servePublic = async (
-  request: Request,
-  env: Env,
-  url: URL,
-  publicRoute: PublicRoute,
-): Promise<Response> => {
-  const tenantId = await publicRoute.tenantOf(env, url);
-  if (tenantId === undefined) {
-    log.warn("public route names no tenant", { route: publicRoute.name });
-    return publicRoute.unresolved(env);
-  }
+const servePublic = (request: Request, env: Env, tenantId: string): Promise<Response> => {
   annotateLog({ tenantId });
   return tenantMail(env, tenantId).publicApi(request, tenantId, currentCorrelationId());
 };
 
-const route = (request: Request, env: Env, url: URL): Promise<Response> => {
-  const publicRoute = publicRouteOf(url.pathname);
-  if (publicRoute !== undefined) return servePublic(request, env, url, publicRoute);
+const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  if (url.pathname.startsWith(CALENDAR_FEED_ROOT)) {
+    const tenantId = await calendarFeedTenant(env, url);
+    if (tenantId === undefined) return feedNotFound();
+    return servePublic(request, env, tenantId);
+  }
+  if (url.pathname === MICROSOFT_OAUTH_CALLBACK) {
+    const callback = await microsoftCallbackTenant(env, url);
+    if (!callback.ok) {
+      log.warn("oauth callback refused", { oauthError: callback.oauthError });
+      return oauthRefused(env, callback.oauthError);
+    }
+    return servePublic(request, env, callback.tenantId);
+  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }

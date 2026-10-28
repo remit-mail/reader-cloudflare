@@ -75,7 +75,7 @@ const isAccessClaims = (value: unknown): value is AccessClaims =>
   typeof value.exp === "number" &&
   (value.nbf === undefined || typeof value.nbf === "number");
 
-export const base64UrlDecode = (text: string): Uint8Array<ArrayBuffer> | undefined => {
+const base64UrlDecode = (text: string): Uint8Array<ArrayBuffer> | undefined => {
   if (!/^[A-Za-z0-9_-]*$/.test(text) || text.length % 4 === 1) return undefined;
   const padded = text
     .replace(/-/g, "+")
@@ -84,7 +84,7 @@ export const base64UrlDecode = (text: string): Uint8Array<ArrayBuffer> | undefin
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 };
 
-export const parseJson = (bytes: Uint8Array | undefined): unknown => {
+const parseJson = (bytes: Uint8Array | undefined): unknown => {
   if (bytes === undefined) return undefined;
   const text = decoder.decode(bytes);
   if (!text.startsWith("{")) return undefined;

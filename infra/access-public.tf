@@ -1,5 +1,5 @@
 locals {
-  microsoft_oauth = var.msoauth_client_id != "" && nonsensitive(var.msoauth_client_secret != "")
+  microsoft_oauth = nonsensitive(var.msoauth != null)
   public_paths = [
     "${var.app_hostname}/api/feeds/calendar/*",
     "${var.app_hostname}/api/accounts/oauth/microsoft/callback",
@@ -11,7 +11,7 @@ resource "cloudflare_secrets_store_secret" "msoauth_client_secret" {
   account_id = var.account_id
   store_id   = cloudflare_secrets_store.this.id
   name       = "MSOAUTH_CLIENT_SECRET"
-  value      = var.msoauth_client_secret
+  value      = var.msoauth.client_secret
   scopes     = ["workers"]
   comment    = "Microsoft Entra client secret for ${local.name}"
 }

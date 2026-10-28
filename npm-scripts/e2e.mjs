@@ -16,6 +16,7 @@ const READER_PATHS = [
 ];
 const MASTER_KEY_STORE = "00000000000000000000000000000000";
 const READY_TIMEOUT_MS = 180_000;
+const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const e2eDir = join(root, "e2e");
@@ -141,7 +142,8 @@ const main = async () => {
     rejectingSmtpPort,
     rejectingSmtpHttpPort,
     microsoftPort,
-  ] = await Promise.all(Array.from({ length: 8 }, freePort));
+    xoauth2Port,
+  ] = await Promise.all(Array.from({ length: 9 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -165,6 +167,7 @@ const main = async () => {
     E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
     E2E_MSOAUTH_TOKEN_PORT: String(microsoftPort),
+    E2E_XOAUTH2_PORT: String(xoauth2Port),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
   };
@@ -178,6 +181,7 @@ const main = async () => {
   mkdirSync(stateDir, { recursive: true });
   let wrangler;
   let log;
+  let xoauth2;
   try {
     compose(
       "up",
@@ -240,6 +244,11 @@ const main = async () => {
       ],
       { env },
     );
+    xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-imap.mjs")], {
+      cwd: root,
+      env,
+      stdio: "inherit",
+    });
     log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
@@ -259,6 +268,8 @@ const main = async () => {
       `MSOAUTH_CLIENT_ID:${readerEnv.MSOAUTH_CLIENT_ID}`,
       "--var",
       `MSOAUTH_TOKEN_ENDPOINT:http://127.0.0.1:${microsoftPort}/token`,
+      "--var",
+      `MAIL_HOST_ALIASES:${OUTLOOK_IMAP_HOST}=127.0.0.1:${xoauth2Port}`,
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);
@@ -283,6 +294,7 @@ const main = async () => {
   } finally {
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
     if (log !== undefined) closeSync(log);
+    xoauth2?.kill();
     compose("down", "--volumes", "--remove-orphans");
     console.log(`e2e: wrangler log at ${wranglerLog}`);
   }

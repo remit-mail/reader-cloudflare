@@ -1,11 +1,6 @@
 import type { RemitClient } from "@remit/backend/client";
 import { handlers, publicHandlers } from "@remit/backend/handlers";
-import {
-  type ApiRegistry,
-  type HandlerIdentity,
-  serveApi,
-  type UserIdentity,
-} from "@remit/backend/serve";
+import { type ApiRegistry, type HandlerIdentity, serveApi } from "@remit/backend/serve";
 import { refuseQuota } from "../error-kind";
 import type { QueueName } from "../queue/routing";
 import { apiConfig } from "./config";
@@ -45,29 +40,14 @@ const quotaRefusing = (registry: Handlers): Handlers =>
     ),
   );
 
-const microsoftSignInUnconfigured: Handler = async () => ({
-  statusCode: 501,
-  body: {
-    code: "not_configured",
-    message:
-      "Microsoft sign-in is not configured on this deployment: its deploy config sets no msoauth_client_id and msoauth_client_secret.",
-  },
-});
-
-const hostHandlers = (): Handlers => {
-  const served = without(handlers, unservedOperations);
-  if (apiConfig.msOAuth.mode === "Enabled") return served;
-  return { ...served, MicrosoftOAuthOperations_microsoftOAuthStart: microsoftSignInUnconfigured };
-};
-
 const served = serveApi<QueueName>({
-  handlers: quotaRefusing(hostHandlers()),
+  handlers: quotaRefusing(without(handlers, unservedOperations)),
   publicHandlers,
 });
 
-const anonymous: HandlerIdentity = { kind: "anonymous" };
+export const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
-const serve = (
+export const serveRequest = (
   request: Request,
   identity: HandlerIdentity,
   client: RemitClient,
@@ -81,16 +61,3 @@ const serve = (
     correlationId,
   );
 };
-
-export const serveTenantApi = (
-  request: Request,
-  identity: UserIdentity,
-  client: RemitClient,
-  correlationId: string,
-): Promise<Response> => serve(request, identity, client, correlationId);
-
-export const servePublicApi = (
-  request: Request,
-  client: RemitClient,
-  correlationId: string,
-): Promise<Response> => serve(request, anonymous, client, correlationId);
