@@ -83,6 +83,8 @@ const UNDONE: Message = {
   body: "Marked not spam before the move to Junk was delivered.",
 };
 const QUEUE_SETTLE_MS = 8_000;
+// Well inside Cloudflare's default 5 s batch window, which reader's undo of a queued move cannot outwait.
+const LONE_MUTATION_DELIVERY_MS = 2_500;
 const CRON = "*/5 * * * *";
 
 const imapUser = mintImapUser();
@@ -622,9 +624,7 @@ test.describe("reader on a local Worker", () => {
       imapUser,
       "Junk",
       (subjects) => subjects.includes(REPORTED.subject),
-      {
-        what: `"${REPORTED.subject}" in Junk`,
-      },
+      { timeoutMs: LONE_MUTATION_DELIVERY_MS, what: `"${REPORTED.subject}" in Junk` },
     );
     expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(REPORTED.subject);
 
