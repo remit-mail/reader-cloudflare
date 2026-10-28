@@ -104,6 +104,10 @@ const openDataKey = async (
   return new Uint8Array(plaintext);
 };
 
+export const bootstrapTenant = async (env: Env, tenantId: string): Promise<void> => {
+  await ensureTenantKey(openAppDb(env.DB), await importMasterKey(env), tenantId);
+};
+
 const tenantDataKeys = (env: Env, tenantId: string): DataKeyProvider => ({
   generateDataKey: async () => {
     const masterKey = await importMasterKey(env);

@@ -1,11 +1,8 @@
 import { expect, test } from "@playwright/test";
 import ICAL from "ical.js";
-import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
+import { waitFor } from "../.reader/packages/e2e/src/api.js";
 
-const DEV_IDENTITY = "e2e@remit.test";
 const RESOURCE_SCOPE_MARK = "://";
-
-const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
 
 const baseUrl = (): string => {
   const url = process.env.E2E_BASE_URL;
@@ -13,13 +10,32 @@ const baseUrl = (): string => {
   return url;
 };
 
-const json = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-  const response = await api.request(method, path, body);
-  if (!response.ok) {
-    throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`);
-  }
-  return (await response.json()) as T;
+type Json = <T>(method: string, path: string, body?: unknown) => Promise<T>;
+
+// Every call names its own dev identity, so a spec starts from a tenant no
+// earlier request has created.
+const freshTenant = (): Json => {
+  const identity = `fresh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`;
+  return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const response = await fetch(`${baseUrl()}/api${path}`, {
+      method,
+      headers: {
+        "x-dev-identity": identity,
+        origin: baseUrl(),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (!response.ok) {
+      throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`);
+    }
+    return (await response.json()) as T;
+  };
 };
+
+interface ListedMailbox {
+  readonly fullPath: string;
+}
 
 interface ConfiguredAccount {
   readonly accountId: string;
@@ -33,7 +49,8 @@ const summariesOf = (ical: string): string[] =>
     .map((event) => String(event.getFirstPropertyValue("summary")));
 
 test.describe("public routes", () => {
-  test("a minted calendar feed serves its events with no Access session", async () => {
+  test("a fresh tenant's feed, minted before any account, serves its events with no Access session", async () => {
+    const json = freshTenant();
     const stamp = Date.now();
     const calendar = await json<{ calendarId: string }>("POST", "/calendars", {
       displayName: "Public feed",
@@ -63,7 +80,8 @@ test.describe("public routes", () => {
     expect(response.status).toBe(404);
   });
 
-  test("the Microsoft callback connects the account its sign-in started, and it syncs", async () => {
+  test("a fresh tenant whose first action is the Microsoft connect completes it, and it syncs", async () => {
+    const json = freshTenant();
     const email = `outlook-${Date.now()}@outlook.test`;
     const started = await json<{ authorizationUrl: string }>(
       "POST",
@@ -93,7 +111,10 @@ test.describe("public routes", () => {
     expect(account?.email).toBe(email);
     expect(account?.syncedServices).toEqual(["Mail"]);
     const mailboxes = await waitFor(
-      () => api.listMailboxes(accountId ?? ""),
+      () =>
+        json<{ items?: ListedMailbox[] }>("GET", `/accounts/${accountId}/mailboxes`).then(
+          (page) => page.items ?? [],
+        ),
       (listed) => listed.some((mailbox) => mailbox.fullPath === "INBOX"),
       { what: "the Outlook account's mailbox listing" },
     );
