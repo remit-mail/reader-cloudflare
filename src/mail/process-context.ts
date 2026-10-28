@@ -18,6 +18,7 @@ import type {
   SendMessageContext,
   SmtpDataPorts,
 } from "@remit/smtp-worker/process";
+import { microsoftTokens } from "../api/config";
 import {
   BODY_BATCH_SIZE,
   BODY_PROCESS_BYTES_IN_FLIGHT,
@@ -28,7 +29,6 @@ import type { Env } from "../env";
 import { log } from "../log";
 import { queueProducer } from "../queue/producer";
 import { attemptsOn } from "../queue/routing";
-import { microsoftTokens } from "./microsoft-tokens";
 import { workersSmtpSocket } from "./smtp-connect";
 
 const mutationAttempts = attemptsOn("mutation");

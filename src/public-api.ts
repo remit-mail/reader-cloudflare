@@ -1,4 +1,4 @@
-import { verifyState } from "@remit/backend/oauth-state";
+import { oauthRefusalUrl, verifyState } from "@remit/backend/oauth-state";
 import {
   hashCalendarFeedToken,
   isCalendarFeedToken,
@@ -41,7 +41,7 @@ export const microsoftCallbackTenant = async (env: Env, url: URL): Promise<Callb
 };
 
 export const oauthRefused = (env: Env, oauthError: string): Response =>
-  Response.redirect(`${env.PUBLIC_ORIGIN}/settings/accounts?oauthError=${oauthError}`, 302);
+  Response.redirect(oauthRefusalUrl(env.PUBLIC_ORIGIN, oauthError), 302);
 
 export const loggedPath = (pathname: string): string =>
   pathname.startsWith(`${API_ROOT}/`)

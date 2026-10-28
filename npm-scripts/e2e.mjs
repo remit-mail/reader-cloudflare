@@ -16,7 +16,6 @@ const READER_PATHS = [
 ];
 const MASTER_KEY_STORE = "00000000000000000000000000000000";
 const READY_TIMEOUT_MS = 180_000;
-const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const e2eDir = join(root, "e2e");
@@ -142,8 +141,9 @@ const main = async () => {
     rejectingSmtpPort,
     rejectingSmtpHttpPort,
     microsoftPort,
-    xoauth2Port,
-  ] = await Promise.all(Array.from({ length: 9 }, freePort));
+    xoauth2ImapPort,
+    xoauth2SmtpPort,
+  ] = await Promise.all(Array.from({ length: 10 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -167,9 +167,16 @@ const main = async () => {
     E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
     E2E_MSOAUTH_TOKEN_PORT: String(microsoftPort),
-    E2E_XOAUTH2_PORT: String(xoauth2Port),
+    E2E_XOAUTH2_IMAP_PORT: String(xoauth2ImapPort),
+    E2E_XOAUTH2_SMTP_PORT: String(xoauth2SmtpPort),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
+  };
+  const shimServer = (port) => ({ host: "127.0.0.1", port, tls: false, startTls: false });
+  const msOAuthOverrides = {
+    tokenEndpoint: `http://127.0.0.1:${microsoftPort}/token`,
+    imapServer: shimServer(xoauth2ImapPort),
+    smtpServer: shimServer(xoauth2SmtpPort),
   };
   const compose = (...args) =>
     run("docker", ["compose", "-p", project, "-f", join(e2eDir, "compose.yml"), ...args], {
@@ -244,7 +251,7 @@ const main = async () => {
       ],
       { env },
     );
-    xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-imap.mjs")], {
+    xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-shim.mjs")], {
       cwd: root,
       env,
       stdio: "inherit",
@@ -267,9 +274,7 @@ const main = async () => {
       "--var",
       `MSOAUTH_CLIENT_ID:${readerEnv.MSOAUTH_CLIENT_ID}`,
       "--var",
-      `MSOAUTH_TOKEN_ENDPOINT:http://127.0.0.1:${microsoftPort}/token`,
-      "--var",
-      `MAIL_HOST_ALIASES:${OUTLOOK_IMAP_HOST}=127.0.0.1:${xoauth2Port}`,
+      `MSOAUTH_OVERRIDES:${JSON.stringify(msOAuthOverrides)}`,
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);

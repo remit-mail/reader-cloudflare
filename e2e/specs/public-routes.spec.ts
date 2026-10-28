@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import ICAL from "ical.js";
 import { waitFor } from "../.reader/packages/e2e/src/api.js";
+import {
+  readAcceptedEnvelope,
+  waitForAcceptedMessage,
+} from "../.reader/packages/e2e/src/smtp-sink.js";
 
 const RESOURCE_SCOPE_MARK = "://";
 
@@ -80,7 +84,7 @@ test.describe("public routes", () => {
     expect(response.status).toBe(404);
   });
 
-  test("a fresh tenant whose first action is the Microsoft connect completes it, and it syncs", async () => {
+  test("a fresh tenant whose first action is the Microsoft connect completes it, and it syncs and sends", async () => {
     const json = freshTenant();
     const email = `outlook-${Date.now()}@outlook.test`;
     const started = await json<{ authorizationUrl: string }>(
@@ -119,6 +123,16 @@ test.describe("public routes", () => {
       { what: "the Outlook account's mailbox listing" },
     );
     expect(mailboxes.map((mailbox) => mailbox.fullPath)).toContain("INBOX");
+    const subject = `Sent over Outlook OAuth ${Date.now()}`;
+    await json("POST", "/outbox", {
+      accountId,
+      toAddresses: ["sender@remit.test"],
+      subject,
+      textBody: "Signed in with a token the fake Microsoft minted.",
+      sendImmediately: true,
+    });
+    const accepted = await waitForAcceptedMessage(subject, { timeoutMs: 60_000 });
+    expect((await readAcceptedEnvelope(accepted.id)).from).toBe(email.toLowerCase());
     await json("DELETE", `/accounts/${accountId}`);
   });
 
