@@ -53,6 +53,22 @@ resource "cloudflare_r2_bucket" "mail" {
   }
 }
 
+resource "cloudflare_r2_bucket_lifecycle" "mail" {
+  account_id  = var.account_id
+  bucket_name = cloudflare_r2_bucket.mail.name
+  rules = [{
+    id         = "expire-exports"
+    enabled    = true
+    conditions = { prefix = "exports/" }
+    delete_objects_transition = {
+      condition = { type = "Age", max_age = 30 * 24 * 60 * 60 }
+    }
+    abort_multipart_uploads_transition = {
+      condition = { type = "Age", max_age = 24 * 60 * 60 }
+    }
+  }]
+}
+
 resource "cloudflare_queue" "sync" {
   account_id = var.account_id
   queue_name = "${local.name}-sync"

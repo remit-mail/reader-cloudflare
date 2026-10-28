@@ -10,6 +10,7 @@ import {
   runDrizzleCascadeDelete,
   type SqliteStores,
 } from "@remit/drizzle-service";
+import { eraseTenantRows } from "../db/tenant-erase";
 import type { Env } from "../env";
 import { queueProducer } from "../queue/producer";
 
@@ -32,6 +33,7 @@ const deletePrefix = async (bucket: R2Bucket, prefix: string): Promise<void> => 
 // it wipes the object's storage instead of deleting its rows one by one.
 const workersDeletion = (
   bucket: R2Bucket,
+  tenantId: string,
   stores: SqliteStores,
   wipeTenantObject: () => Promise<void>,
 ): DeletionCapabilities => ({
@@ -41,10 +43,13 @@ const workersDeletion = (
   invalidateContent: async () => {},
   deleteStoragePrefix: (keyPrefix) => deletePrefix(bucket, keyPrefix),
   cascadeDelete: (entities, log) => runDrizzleCascadeDelete(stores, entities, log),
+  // D1 goes first: once the tenant rows are gone no scheduler tick or sync can
+  // refill the object between its wipe and a retry.
   eraseAccountConfig: async (accountConfigId) => {
     const accountIds = await accountIdsOf(stores.app, accountConfigId);
-    await wipeTenantObject();
     await eraseAccountConfigAppRows(stores.app, accountConfigId, accountIds);
+    await eraseTenantRows(stores.app, tenantId);
+    await wipeTenantObject();
   },
 });
 
@@ -57,5 +62,5 @@ export const purgeContext = (
 ): AccountPurgeContext => ({
   client,
   purgeQueue: queueProducer<"Grouped", AccountFinalizeEvent>("Grouped", env, tenantId),
-  capabilities: workersDeletion(env.MAIL, stores, wipeTenantObject),
+  capabilities: workersDeletion(env.MAIL, tenantId, stores, wipeTenantObject),
 });

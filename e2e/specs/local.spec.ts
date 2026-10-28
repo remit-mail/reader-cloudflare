@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, type Page, test } from "@playwright/test";
 import { strFromU8, unzipSync } from "fflate";
 import { z } from "zod";
@@ -192,10 +194,28 @@ const connectionTestOf = (password: string): Record<string, unknown> => ({
   smtpStartTls: false,
 });
 
-const wranglerLog = (): string => {
+const wranglerLogPath = (): string => {
   const path = process.env.E2E_WRANGLER_LOG;
   if (path === undefined) throw new Error("E2E_WRANGLER_LOG is not set; run `npm run e2e`");
-  return readFileSync(path, "utf8");
+  return path;
+};
+
+const wranglerLog = (): string => readFileSync(wranglerLogPath(), "utf8");
+
+const countSchema = z.object({ rows: z.number() });
+
+const d1RowsIn = (table: string): number => {
+  const dir = join(dirname(wranglerLogPath()), "v3", "d1", "miniflare-D1DatabaseObject");
+  const [file] = readdirSync(dir).filter(
+    (name) => name.endsWith(".sqlite") && name !== "metadata.sqlite",
+  );
+  if (file === undefined) throw new Error(`no local D1 database under ${dir}`);
+  const db = new DatabaseSync(join(dir, file), { readOnly: true });
+  try {
+    return countSchema.parse(db.prepare(`select count(*) as rows from ${table}`).get()).rows;
+  } finally {
+    db.close();
+  }
 };
 
 const jsonLineOf = (line: string): unknown =>
@@ -224,9 +244,6 @@ const consumesSince = (types: ReadonlySet<string>, since: number): Record<string
         typeof record.time === "string" &&
         Date.parse(record.time) >= since,
     );
-
-const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
-  consumesSince(PURGE_EVENTS, since);
 
 const queuedExportSchema = z.object({ exportId: z.string() });
 const exportSchema = z.discriminatedUnion("state", [
@@ -751,7 +768,7 @@ test.describe("reader on a local Worker", () => {
     expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(FILTERED.subject);
   });
 
-  test("an export is a zip of every stored message", async () => {
+  test("an export downloads as a zip that holds a synced message", async () => {
     const created = await api.request("POST", "/me/export");
     expect(created.status).toBe(202);
     const { exportId } = await parsedBody(created, queuedExportSchema);
@@ -785,7 +802,7 @@ test.describe("reader on a local Worker", () => {
     expect(sync.status).toBe(404);
 
     const purges = await waitFor(
-      async () => purgeConsumesSince(deletedAt),
+      async () => consumesSince(PURGE_EVENTS, deletedAt),
       (records) =>
         records.filter((record) => record.type === "FinalizeAccountDataPurge").length >= 2,
       { timeoutMs: 60_000, what: "the purge fanout, its subtree batch and its container step" },
@@ -795,8 +812,10 @@ test.describe("reader on a local Worker", () => {
     expect(described.status).toBe(404);
   });
 
-  test("deleting me erases the tenant with its filters and export archives", async () => {
+  test("deleting me erases the tenant, its filters and its export archives", async () => {
     expect((await fetch(shared.exportUrl)).status).toBe(200);
+    expect(d1RowsIn("filter")).toBeGreaterThan(0);
+    expect(d1RowsIn("tenant_key")).toBeGreaterThan(0);
     const deletedAt = Date.now();
     const deleted = await api.request("DELETE", "/me", { confirmEmail: DEV_IDENTITY });
     expect(deleted.status).toBe(202);
@@ -811,5 +830,16 @@ test.describe("reader on a local Worker", () => {
       ["FinalizeAccountDelete", "Acked"],
     ]);
     expect((await fetch(shared.exportUrl)).status).toBe(404);
+    expect(d1RowsIn("filter")).toBe(0);
+    expect(d1RowsIn("account_config")).toBe(0);
+    expect(d1RowsIn("tenant_key")).toBe(0);
+
+    const tickedAt = Date.now();
+    const tick = await fetch(
+      `${process.env.E2E_BASE_URL}/__scheduled?cron=${encodeURIComponent(CRON)}`,
+    );
+    expect(tick.status).toBe(200);
+    await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
+    expect(schedulerTicksSince(tickedAt)).toEqual([]);
   });
 });

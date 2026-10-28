@@ -3,7 +3,10 @@ import type { QueueFamily } from "../queue/routing";
 
 export const CLOUDFLARE_SQLITE_LIMITS: SqliteLimits = { maxBoundParameters: 100 };
 
-// A body costs about 1 s of CPU and one delivery gets 30 s, so 25 leaves headroom for large messages.
+// Workers Paid lets one invocation run up to 5 minutes of CPU; an export compresses a whole mailbox in one.
+export const CPU_MS_PER_INVOCATION = 300_000;
+
+// A body costs about 1 s of CPU, so 25 per job leaves headroom for large messages.
 export const BODY_BATCH_SIZE = 25;
 
 // An isolate has 128 MB and an in-flight body costs about 3-4x its size while it is parsed.

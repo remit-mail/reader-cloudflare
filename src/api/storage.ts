@@ -22,7 +22,6 @@ import { CONTENT_PREFIX } from "../content/route";
 
 const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
 const DELETE_CHUNK = 1000;
-// R2 needs every multipart part but the last to be the same size, at least 5 MiB.
 const EXPORT_PART_BYTES = 8 * 1024 * 1024;
 
 const parsedBodySchema = z.object({
@@ -49,21 +48,21 @@ const uploadInParts = async (bucket: R2Bucket, key: string, body: Readable): Pro
   const uploadPart = async (bytes: Uint8Array): Promise<void> => {
     parts.push(await upload.uploadPart(parts.length + 1, bytes));
   };
-  let pending: Uint8Array[] = [];
-  let pendingBytes = 0;
+  const part = new Uint8Array(EXPORT_PART_BYTES);
+  let filled = 0;
   for await (const chunk of body) {
-    pending.push(chunk);
-    pendingBytes += chunk.byteLength;
-    if (pendingBytes < EXPORT_PART_BYTES) continue;
-    let joined = Buffer.concat(pending);
-    while (joined.byteLength >= EXPORT_PART_BYTES) {
-      await uploadPart(joined.subarray(0, EXPORT_PART_BYTES));
-      joined = joined.subarray(EXPORT_PART_BYTES);
+    let offset = 0;
+    while (offset < chunk.byteLength) {
+      const taken = Math.min(chunk.byteLength - offset, EXPORT_PART_BYTES - filled);
+      part.set(chunk.subarray(offset, offset + taken), filled);
+      filled += taken;
+      offset += taken;
+      if (filled < EXPORT_PART_BYTES) continue;
+      await uploadPart(part);
+      filled = 0;
     }
-    pending = [joined];
-    pendingBytes = joined.byteLength;
   }
-  if (pendingBytes > 0 || parts.length === 0) await uploadPart(Buffer.concat(pending));
+  if (filled > 0 || parts.length === 0) await uploadPart(part.subarray(0, filled));
   await upload.complete(parts);
 };
 
