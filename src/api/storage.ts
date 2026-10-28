@@ -15,6 +15,9 @@ import {
   parseStorageUri,
   type StorageReference,
   type StorageService,
+  signStoragePath,
+  UPLOAD_ROUTE_PREFIX,
+  UPLOAD_URL_SIGNING_LABEL,
 } from "@remit/storage-service";
 import { z } from "zod";
 
@@ -36,8 +39,13 @@ const parsedBodySchema = z.object({
 });
 
 const unsupported = (what: string): never => {
-  throw new Error(`${what} is not available on the R2 binding; this host has no signed URL route`);
+  throw new Error(`${what} is not available on the R2 binding`);
 };
+
+export interface UploadUrls {
+  readonly origin: string;
+  readonly signingSecret: () => Promise<string>;
+}
 
 const collect = async (stream: Readable): Promise<Buffer> => {
   const chunks: Uint8Array[] = [];
@@ -68,7 +76,7 @@ const listFolders = async (bucket: R2Bucket, prefix: string): Promise<string[]> 
   return folders;
 };
 
-export const r2Storage = (bucket: R2Bucket): StorageService => {
+export const r2Storage = (bucket: R2Bucket, uploadUrls: UploadUrls): StorageService => {
   const referenceOf = (key: string, content: Uint8Array): StorageReference => ({
     uri: buildStorageUri(StorageType.S3, STORAGE_URI_BUCKET_LABEL, key),
     storageType: StorageType.S3,
@@ -168,7 +176,29 @@ export const r2Storage = (bucket: R2Bucket): StorageService => {
       read(
         buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId),
       ),
-    createOutboxAttachmentUploadUrl: async () => unsupported("an outbox attachment upload URL"),
+    createOutboxAttachmentUploadUrl: async ({
+      accountConfigId,
+      accountId,
+      outboxMessageId,
+      outboxAttachmentId,
+      sizeBytes,
+      expiresAt,
+    }) => {
+      const key = buildOutboxAttachmentKey(
+        accountConfigId,
+        accountId,
+        outboxMessageId,
+        outboxAttachmentId,
+      );
+      const sig = signStoragePath(
+        await uploadUrls.signingSecret(),
+        UPLOAD_URL_SIGNING_LABEL,
+        key,
+        [expiresAt, sizeBytes],
+      );
+      const query = new URLSearchParams({ exp: String(expiresAt), max: String(sizeBytes), sig });
+      return { uploadUrl: `${uploadUrls.origin}${UPLOAD_ROUTE_PREFIX}${key}?${query.toString()}` };
+    },
     storeDeduplicated: ({ accountConfigId, accountId, content }) =>
       put(buildDeduplicatedKey(accountConfigId, accountId, computeChecksum(content)), content),
     storeParsedBody: ({ accountConfigId, accountId, messageId, parsed }) =>

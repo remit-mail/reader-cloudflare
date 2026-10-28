@@ -1,4 +1,4 @@
-import { buildBodyPartKey } from "@remit/storage-service";
+import { buildBodyPartKey, parseOutboxAttachmentKey } from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
 import { notFound } from "../http";
@@ -11,6 +11,31 @@ const UNTYPED = "application/octet-stream";
 
 export const isContentPath = (path: string): boolean => path.startsWith(PREFIX);
 
+const served = (object: R2ObjectBody): Response =>
+  new Response(object.body, {
+    headers: {
+      "content-type": object.httpMetadata?.contentType ?? UNTYPED,
+      "cache-control": "private, max-age=3600",
+      "content-security-policy": SANDBOX,
+      "x-content-type-options": "nosniff",
+    },
+  });
+
+const serveOutboxAttachment = async (
+  path: string,
+  env: Env,
+  tenant: Tenant,
+): Promise<Response> => {
+  const key = path.slice(PREFIX.length);
+  const target = parseOutboxAttachmentKey(key);
+  if (target === null || target.accountConfigId !== tenant.accountConfigId) {
+    return notFound("Content");
+  }
+  const attachment = await env.MAIL.get(key);
+  if (attachment === null) return notFound("Attachment");
+  return served(attachment);
+};
+
 const notReady = (): Response =>
   new Response("body not yet synced", { status: 202, headers: { "retry-after": "5" } });
 
@@ -19,8 +44,10 @@ export const serveContent = async (
   env: Env,
   tenant: Tenant,
 ): Promise<Response> => {
-  const match = CONTENT_PATH.exec(new URL(request.url).pathname);
-  const [, accountConfigId, accountId, messageId, partPath] = match ?? [];
+  const path = new URL(request.url).pathname;
+  const match = CONTENT_PATH.exec(path);
+  if (match === null) return serveOutboxAttachment(path, env, tenant);
+  const [, accountConfigId, accountId, messageId, partPath] = match;
   if (
     accountConfigId === undefined ||
     accountId === undefined ||
@@ -34,12 +61,5 @@ export const serveContent = async (
     buildBodyPartKey(accountConfigId, accountId, messageId, partPath),
   );
   if (part === null) return notReady();
-  return new Response(part.body, {
-    headers: {
-      "content-type": part.httpMetadata?.contentType ?? UNTYPED,
-      "cache-control": "private, max-age=3600",
-      "content-security-policy": SANDBOX,
-      "x-content-type-options": "nosniff",
-    },
-  });
+  return served(part);
 };
