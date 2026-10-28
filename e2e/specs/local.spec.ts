@@ -47,6 +47,7 @@ const SEEDED: Message[] = [
   NEWSLETTER.message,
 ];
 const TOGGLED_SUBJECT = "Lunch on Thursday?";
+const DELETED_SUBJECT = "Invoice for October";
 const SEEN = "\\Seen";
 const FLAGGED = "\\Flagged";
 const SEEDED_SUBJECTS = SEEDED.map((message) => message.subject).sort();
@@ -513,6 +514,54 @@ test.describe("reader on a local Worker", () => {
     expect(resent.status).toBe(200);
     await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(REFUSED_SUBJECT), {
       what: `"${REFUSED_SUBJECT}" in Sent after the corrected send`,
+    });
+  });
+
+  test("deleting a message moves it to Trash on Dovecot", async () => {
+    const messageId = await api.messageIdForSubject(shared.inboxId, DELETED_SUBJECT);
+    expect(await api.deleteMessages([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+
+    await waitForServerMailbox(
+      imapUser,
+      "INBOX",
+      (subjects) => !subjects.includes(DELETED_SUBJECT),
+      {
+        what: `"${DELETED_SUBJECT}" gone from INBOX`,
+      },
+    );
+    await waitForServerMailbox(
+      imapUser,
+      "Trash",
+      (subjects) => subjects.includes(DELETED_SUBJECT),
+      {
+        what: `"${DELETED_SUBJECT}" in Trash`,
+      },
+    );
+  });
+
+  test("moving a message lands it in the destination mailbox on Dovecot", async () => {
+    const archive = (await api.listMailboxes(shared.accountId)).find(
+      (mailbox) => mailbox.fullPath === "Archive",
+    );
+    if (archive === undefined) throw new Error("no Archive mailbox in the read model");
+    const messageId = await api.messageIdForSubject(shared.inboxId, LATE.subject);
+    expect(await api.moveMessages([messageId], archive.mailboxId)).toEqual({
+      successCount: 1,
+      failureCount: 0,
+    });
+
+    await waitForServerMailbox(imapUser, "Archive", (subjects) => subjects.includes(LATE.subject), {
+      what: `"${LATE.subject}" in Archive`,
+    });
+    expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(LATE.subject);
+  });
+
+  test("emptying Trash expunges it on Dovecot", async () => {
+    expect(await listServerSubjects(imapUser, "Trash")).toContain(DELETED_SUBJECT);
+    const emptied = await api.emptyTrash(shared.accountId);
+    expect(emptied.deletedCount).toBeGreaterThan(0);
+    await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
+      what: "an empty Trash",
     });
   });
 

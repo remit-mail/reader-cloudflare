@@ -13,22 +13,13 @@ type Handler = NonNullable<Handlers[keyof Handlers]>;
 
 const unservedOperations = [
   "FilterOperations_createFilter",
-  "MailboxDetailOperations_deleteMailbox",
-  "MailboxDetailOperations_renameMailbox",
-  "MailboxOperations_createMailbox",
   "MeOperations_createExport",
   "MeOperations_deleteMe",
-  "MessageBulkOperations_copyMessages",
-  "MessageBulkOperations_deleteMessages",
-  "MessageBulkOperations_moveMessages",
-  "MessageBulkOperations_notSpam",
-  "MessageBulkOperations_reportSpam",
   "MessageOperations_getRawMessage",
   "OrganizeOperations_createOrganizeJob",
   "OutboxAttachmentOperations_completeOutboxAttachment",
   "OutboxDetailOperations_deleteOutboxMessage",
   "OutboxDetailOperations_mintOutboxAttachment",
-  "TrashOperations_emptyTrash",
 ] as const satisfies readonly (keyof typeof handlers)[];
 
 const unservedPublicOperations = [
