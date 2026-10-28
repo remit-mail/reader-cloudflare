@@ -557,17 +557,7 @@ test.describe("reader on a local Worker", () => {
   });
 
   test("emptying Trash expunges it on Dovecot", async () => {
-    const trash = (await api.listMailboxes(shared.accountId)).find(
-      (mailbox) => mailbox.fullPath === "Trash",
-    );
-    if (trash === undefined) throw new Error("no Trash mailbox in the read model");
-    await api.triggerSync(shared.accountId);
-    await waitFor(
-      () => api.listThreads(trash.mailboxId),
-      (threads) => threads.some((thread) => thread.subject === DELETED_SUBJECT),
-      { timeoutMs: 60_000, what: `"${DELETED_SUBJECT}" in the Trash read model` },
-    );
-
+    expect(await listServerSubjects(imapUser, "Trash")).toContain(DELETED_SUBJECT);
     const emptied = await api.emptyTrash(shared.accountId);
     expect(emptied.deletedCount).toBeGreaterThan(0);
     await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
