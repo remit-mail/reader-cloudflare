@@ -18,9 +18,11 @@ import {
   UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { z } from "zod";
+import { CONTENT_PREFIX } from "../content/route";
 
 const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
 const DELETE_CHUNK = 1000;
+const EXPORT_PART_BYTES = 8 * 1024 * 1024;
 
 const parsedBodySchema = z.object({
   text: z.string().nullable(),
@@ -36,14 +38,32 @@ const parsedBodySchema = z.object({
   ),
 });
 
-const unsupported = (what: string): never => {
-  throw new Error(`${what} is not available on the R2 binding`);
-};
-
-const collect = async (stream: Readable): Promise<Buffer> => {
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  return Buffer.concat(chunks);
+// R2 stores a stream only when its length is known up front, which a zip being
+// written is not, so the archive goes up as a multipart upload.
+const uploadInParts = async (bucket: R2Bucket, key: string, body: Readable): Promise<void> => {
+  const upload = await bucket.createMultipartUpload(key, {
+    httpMetadata: { contentType: "application/zip" },
+  });
+  const parts: R2UploadedPart[] = [];
+  const uploadPart = async (bytes: Uint8Array): Promise<void> => {
+    parts.push(await upload.uploadPart(parts.length + 1, bytes));
+  };
+  const part = new Uint8Array(EXPORT_PART_BYTES);
+  let filled = 0;
+  for await (const chunk of body) {
+    let offset = 0;
+    while (offset < chunk.byteLength) {
+      const taken = Math.min(chunk.byteLength - offset, EXPORT_PART_BYTES - filled);
+      part.set(chunk.subarray(offset, offset + taken), filled);
+      filled += taken;
+      offset += taken;
+      if (filled < EXPORT_PART_BYTES) continue;
+      await uploadPart(part);
+      filled = 0;
+    }
+  }
+  if (filled > 0 || parts.length === 0) await uploadPart(part.subarray(0, filled));
+  await upload.complete(parts);
 };
 
 const listKeys = async (bucket: R2Bucket, prefix: string): Promise<R2Object[]> => {
@@ -204,9 +224,11 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     delete: (uri) => bucket.delete(parseStorageUri(uri).storageKey),
     storeExportArchiveStream: async (accountConfigId, exportRequestId, body) => {
       const key = buildExportArchiveKey(accountConfigId, exportRequestId);
-      await bucket.put(key, await collect(body));
+      await uploadInParts(bucket, key, body);
       return key;
     },
-    getPresignedDownloadUrl: async () => unsupported("a presigned download URL"),
+    deleteExportArchive: (accountConfigId, exportRequestId) =>
+      bucket.delete(buildExportArchiveKey(accountConfigId, exportRequestId)),
+    getPresignedDownloadUrl: async (key) => `${origin}${CONTENT_PREFIX}${key}`,
   };
 };

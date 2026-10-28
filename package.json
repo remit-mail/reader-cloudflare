@@ -55,7 +55,7 @@
     "wrangler": "^4.152.0"
   },
   "dependencies": {
-    "@remit/account-worker": "0.0.33",
+    "@remit/account-worker": "0.0.34",
     "@remit/api-http-client": "0.0.78",
     "@remit/api-openapi-spec": "0.0.79",
     "@remit/api-openapi-types": "0.0.82",
@@ -65,7 +65,7 @@
     "@remit/config-transfer": "0.0.13",
     "@remit/data-ports": "0.0.89",
     "@remit/domain-enums": "0.0.29",
-    "@remit/drizzle-service": "0.0.105",
+    "@remit/drizzle-service": "0.0.106",
     "@remit/drizzle-sqlite-schema": "0.0.36",
     "@remit/imap-worker": "0.0.94",
     "@remit/logger": "0.0.2",
@@ -74,7 +74,7 @@
     "@remit/secrets-service": "0.0.11",
     "@remit/smtp-service": "0.0.20",
     "@remit/smtp-worker": "0.0.32",
-    "@remit/storage-service": "0.0.14",
+    "@remit/storage-service": "0.0.15",
     "app-db-schema": "0.0.0",
     "drizzle-orm": "^0.45.4",
     "imapflow": "^2.9.1",

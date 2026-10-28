@@ -1,4 +1,4 @@
-import { CONSUMER_SETTINGS } from "../src/api/host-limits.ts";
+import { CONSUMER_SETTINGS, CPU_MS_PER_INVOCATION } from "../src/api/host-limits.ts";
 import { DEAD_LETTER_SUFFIX, MAX_RETRIES, queueFamilyOf } from "../src/queue/routing.ts";
 import { readJsonc, WRANGLER_CONFIG } from "./wrangler-config.mjs";
 
@@ -11,7 +11,13 @@ const scopes = [
 
 const problems = [];
 const checked = new Set();
-for (const [scope, { queues }] of scopes) {
+for (const [scope, { queues, limits }] of scopes) {
+  const cpuMs = (limits ?? config.limits)?.cpu_ms;
+  if (cpuMs !== CPU_MS_PER_INVOCATION) {
+    problems.push(
+      `${scope}: limits.cpu_ms is ${cpuMs}, CPU_MS_PER_INVOCATION in src/api/host-limits.ts is ${CPU_MS_PER_INVOCATION}`,
+    );
+  }
   const consumers = new Map(
     (queues?.consumers ?? []).map((entry) => [queueFamilyOf(entry.queue), entry]),
   );
@@ -69,5 +75,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  `check:retries: ${scopes.length} scopes agree with MAX_RETRIES, CONSUMER_SETTINGS and one shared dead-letter queue`,
+  `check:retries: ${scopes.length} scopes agree with MAX_RETRIES, CONSUMER_SETTINGS, CPU_MS_PER_INVOCATION and one shared dead-letter queue`,
 );

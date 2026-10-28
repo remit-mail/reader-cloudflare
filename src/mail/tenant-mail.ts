@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   type AccountPurgeContext,
+  processAccountExportEvent,
   processAccountFanoutEvent,
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
@@ -16,7 +17,7 @@ import {
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
-import { drizzle } from "drizzle-orm/durable-sqlite";
+import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { ANONYMOUS, serveRequest } from "../api/serve";
@@ -64,6 +65,10 @@ const consumeFanout = (event: ReaderEvent, composed: Composed): Promise<void> =>
     case "OrganizeJob":
     case "SenderCategoryBackApply":
       return processAccountFanoutEvent(event, { client: composed.client });
+    case "AccountExport":
+      return processAccountExportEvent(event, { client: composed.client });
+    case "AccountDelete":
+    case "FinalizeAccountDelete":
     case "AccountDataPurge":
     case "FinalizeAccountDataPurge":
       return processAccountPurgeEvent(event, composed.purge);
@@ -139,12 +144,14 @@ export class TenantMail extends DurableObject<Env> {
   private readonly mail: SqliteRepositories;
   private readonly stores: SqliteStores;
   private readonly pool: ConnectionPool;
+  private readonly db: DrizzleSqliteDODatabase;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const db = drizzle(ctx.storage);
+    this.db = db;
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
     this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
     this.mail = composeSqliteRepositories(this.stores);
@@ -230,6 +237,13 @@ export class TenantMail extends DurableObject<Env> {
     }
   }
 
+  private wipe(): Promise<void> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.deleteAll();
+      await migrateDurableObject(this.db, migrations);
+    });
+  }
+
   private compose(tenantId: string): Composed {
     if (this.composed !== null) {
       if (this.composed.tenantId !== tenantId) {
@@ -243,7 +257,7 @@ export class TenantMail extends DurableObject<Env> {
       client,
       process: processContext(this.env, tenantId, client, this.pool),
       send: sendContext(this.env, tenantId, this.mail, client),
-      purge: purgeContext(this.env, tenantId, client, this.stores),
+      purge: purgeContext(this.env, tenantId, client, this.stores, () => this.wipe()),
     };
     return this.composed;
   }

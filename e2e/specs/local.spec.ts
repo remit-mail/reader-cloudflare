@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, type Page, test } from "@playwright/test";
+import { strFromU8, unzipSync } from "fflate";
 import { z } from "zod";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
@@ -100,9 +103,10 @@ const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-ident
 interface Shared {
   accountId: string;
   inboxId: string;
+  exportUrl: string;
 }
 
-const shared: Shared = { accountId: "", inboxId: "" };
+const shared: Shared = { accountId: "", inboxId: "", exportUrl: "" };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -190,13 +194,32 @@ const connectionTestOf = (password: string): Record<string, unknown> => ({
   smtpStartTls: false,
 });
 
-const wranglerLog = (): string => {
+const wranglerLogPath = (): string => {
   const path = process.env.E2E_WRANGLER_LOG;
   if (path === undefined) throw new Error("E2E_WRANGLER_LOG is not set; run `npm run e2e`");
-  return readFileSync(path, "utf8");
+  return path;
 };
 
-const jsonLineOf = (line: string): unknown => JSON.parse(line.slice(line.indexOf("{")));
+const wranglerLog = (): string => readFileSync(wranglerLogPath(), "utf8");
+
+const countSchema = z.object({ rows: z.number() });
+
+const d1RowsIn = (table: string): number => {
+  const dir = join(dirname(wranglerLogPath()), "v3", "d1", "miniflare-D1DatabaseObject");
+  const [file] = readdirSync(dir).filter(
+    (name) => name.endsWith(".sqlite") && name !== "metadata.sqlite",
+  );
+  if (file === undefined) throw new Error(`no local D1 database under ${dir}`);
+  const db = new DatabaseSync(join(dir, file), { readOnly: true });
+  try {
+    return countSchema.parse(db.prepare(`select count(*) as rows from ${table}`).get()).rows;
+  } finally {
+    db.close();
+  }
+};
+
+const jsonLineOf = (line: string): unknown =>
+  JSON.parse(line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1));
 
 const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
   wranglerLog()
@@ -208,7 +231,7 @@ const schedulerTicksSince = (since: number): Record<string, unknown>[] =>
 
 const PURGE_EVENTS = new Set(["AccountDataPurge", "FinalizeAccountDataPurge"]);
 
-const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
+const consumesSince = (types: ReadonlySet<string>, since: number): Record<string, unknown>[] =>
   wranglerLog()
     .split("\n")
     .filter((line) => line.includes('"queue.consume"'))
@@ -217,19 +240,16 @@ const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
     .filter(
       (record) =>
         typeof record.type === "string" &&
-        PURGE_EVENTS.has(record.type) &&
+        types.has(record.type) &&
         typeof record.time === "string" &&
         Date.parse(record.time) >= since,
     );
 
-const draftSchema = z.object({ outboxMessageId: z.string() });
-const rawSourceSchema = z.object({ raw: z.string() });
-const queuedOrganizeJobSchema = z.object({ organizeJobId: z.string() });
-const organizeJobSchema = z.object({
-  state: z.enum(["Pending", "Running", "Complete", "Failed"]),
-  matchedCount: z.number(),
-  appliedCount: z.number(),
-});
+const queuedExportSchema = z.object({ exportId: z.string() });
+const exportSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("Ready"), downloadUrl: z.string() }),
+  z.object({ state: z.enum(["Pending", "Processing", "Failed"]) }),
+]);
 
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
@@ -686,23 +706,19 @@ test.describe("reader on a local Worker", () => {
 
   test("the raw source of a message is what Dovecot holds", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
-    const response = await api.request("GET", `/messages/${messageId}/raw`);
-    expect(response.status).toBe(200);
-    const { raw } = await parsedBody(response, rawSourceSchema);
+    const raw = await api.getRawMessage(messageId);
     const onServer = await serverRawSourceForSubject(imapUser, "INBOX", TOGGLED_SUBJECT);
     expect(onServer).not.toBeNull();
     expect(raw).toBe(onServer);
   });
 
   test("a discarded draft is gone from the outbox", async () => {
-    const created = await api.request("POST", "/outbox", {
+    const { outboxMessageId } = await api.createDraft({
       accountId: shared.accountId,
       toAddresses: [RECIPIENT],
       subject: DRAFT_SUBJECT,
       textBody: "Never sent.",
     });
-    expect(created.status).toBe(200);
-    const { outboxMessageId } = await parsedBody(created, draftSchema);
 
     const deleted = await api.request("DELETE", `/outbox/${outboxMessageId}`);
     expect(deleted.status).toBe(204);
@@ -712,21 +728,13 @@ test.describe("reader on a local Worker", () => {
   test("an organize job moves matching mail on Dovecot and completes", async () => {
     const [harbour] = SEEDED;
     if (harbour === undefined) throw new Error("no seeded message");
-    const created = await api.request("POST", `/accounts/${shared.accountId}/organize`, {
-      matchOperator: "And",
+    const { organizeJobId } = await api.createOrganizeJob(shared.accountId, {
       literalClauses: [{ field: "Subject", value: SEARCHED_WORD }],
-      actionLabelId: "None",
       actionMailboxId: await archiveMailboxId(),
     });
-    expect(created.status).toBe(202);
-    const { organizeJobId } = await parsedBody(created, queuedOrganizeJobSchema);
 
     const job = await waitFor(
-      async () =>
-        parsedBody(
-          await api.request("GET", `/accounts/${shared.accountId}/organize/${organizeJobId}`),
-          organizeJobSchema,
-        ),
+      () => api.getOrganizeJob(shared.accountId, organizeJobId),
       (body) => TERMINAL_JOB_STATES.has(body.state),
       { timeoutMs: 60_000, what: "the organize job in a terminal state" },
     );
@@ -760,6 +768,28 @@ test.describe("reader on a local Worker", () => {
     expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(FILTERED.subject);
   });
 
+  test("an export downloads as a zip that holds a synced message", async () => {
+    const created = await api.request("POST", "/me/export");
+    expect(created.status).toBe(202);
+    const { exportId } = await parsedBody(created, queuedExportSchema);
+
+    const settled = await waitFor(
+      async () => parsedBody(await api.request("GET", `/me/export/${exportId}`), exportSchema),
+      (body) => body.state === "Ready" || body.state === "Failed",
+      { timeoutMs: 60_000, what: "the export to settle" },
+    );
+    if (settled.state !== "Ready") throw new Error(`the export settled as ${settled.state}`);
+
+    const download = await fetch(settled.downloadUrl);
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-type")).toBe("application/zip");
+    const inbox = Object.entries(unzipSync(new Uint8Array(await download.arrayBuffer())))
+      .filter(([name]) => name.includes("/INBOX/") && name.endsWith(".eml"))
+      .map(([, content]) => strFromU8(content));
+    expect(inbox.some((eml) => eml.includes(`Subject: ${TOGGLED_SUBJECT}`))).toBe(true);
+    shared.exportUrl = settled.downloadUrl;
+  });
+
   test("deleting the account purges its mail and takes it off GET /config", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
     const deletedAt = Date.now();
@@ -772,7 +802,7 @@ test.describe("reader on a local Worker", () => {
     expect(sync.status).toBe(404);
 
     const purges = await waitFor(
-      async () => purgeConsumesSince(deletedAt),
+      async () => consumesSince(PURGE_EVENTS, deletedAt),
       (records) =>
         records.filter((record) => record.type === "FinalizeAccountDataPurge").length >= 2,
       { timeoutMs: 60_000, what: "the purge fanout, its subtree batch and its container step" },
@@ -780,5 +810,38 @@ test.describe("reader on a local Worker", () => {
     expect(purges.map((record) => record.outcome)).toEqual(purges.map(() => "Acked"));
     const described = await api.request("GET", `/messages/${messageId}`);
     expect(described.status).toBe(404);
+  });
+
+  test("deleting me erases the tenant, its filters and its export archives", async () => {
+    expect((await fetch(shared.exportUrl)).status).toBe(200);
+    expect(d1RowsIn("filter")).toBeGreaterThan(0);
+    expect(d1RowsIn("tenant_key")).toBeGreaterThan(0);
+    expect(d1RowsIn("tenant_account_config")).toBeGreaterThan(0);
+    const deletedAt = Date.now();
+    const deleted = await api.request("DELETE", "/me", { confirmEmail: DEV_IDENTITY });
+    expect(deleted.status).toBe(202);
+
+    const consumed = await waitFor(
+      async () => consumesSince(new Set(["AccountDelete", "FinalizeAccountDelete"]), deletedAt),
+      (records) => records.some((record) => record.type === "FinalizeAccountDelete"),
+      { timeoutMs: 60_000, what: "the AccountDelete fanout and its finalize step" },
+    );
+    expect(consumed.map((record) => [record.type, record.outcome])).toEqual([
+      ["AccountDelete", "Acked"],
+      ["FinalizeAccountDelete", "Acked"],
+    ]);
+    expect((await fetch(shared.exportUrl)).status).toBe(404);
+    expect(d1RowsIn("filter")).toBe(0);
+    expect(d1RowsIn("account_config")).toBe(0);
+    expect(d1RowsIn("tenant_key")).toBe(0);
+    expect(d1RowsIn("tenant_account_config")).toBe(0);
+
+    const tickedAt = Date.now();
+    const tick = await fetch(
+      `${process.env.E2E_BASE_URL}/__scheduled?cron=${encodeURIComponent(CRON)}`,
+    );
+    expect(tick.status).toBe(200);
+    await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
+    expect(schedulerTicksSince(tickedAt)).toEqual([]);
   });
 });

@@ -10,20 +10,6 @@ type Handlers = ApiRegistry<QueueName>["handlers"];
 
 type Handler = NonNullable<Handlers[keyof Handlers]>;
 
-const unservedOperations = [
-  "MeOperations_createExport",
-  "MeOperations_deleteMe",
-] as const satisfies readonly (keyof typeof handlers)[];
-
-const without = <T extends object, K extends keyof T>(
-  registry: T,
-  keys: readonly K[],
-): Partial<T> => {
-  const kept: Partial<T> = { ...registry };
-  for (const key of keys) delete kept[key];
-  return kept;
-};
-
 const refusingQuota =
   (handler: Handler): Handler =>
   (context, ctx) =>
@@ -37,7 +23,7 @@ const quotaRefusing = (registry: Handlers): Handlers =>
   );
 
 const served = serveApi<QueueName>({
-  handlers: quotaRefusing(without(handlers, unservedOperations)),
+  handlers: quotaRefusing(handlers),
   publicHandlers,
 });
 
