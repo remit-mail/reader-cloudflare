@@ -19,9 +19,9 @@ import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/p
 import { drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
-import { serveTenantApi } from "../api/serve";
+import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
-import { tenantSecrets } from "../crypto/envelope";
+import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
 import { openAppStore } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
@@ -140,6 +140,7 @@ export class TenantMail extends DurableObject<Env> {
   private readonly stores: SqliteStores;
   private readonly pool: ConnectionPool;
   private composed: Composed | null = null;
+  private bootstrapped: Promise<void> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -152,8 +153,27 @@ export class TenantMail extends DurableObject<Env> {
   }
 
   async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
-    return withLogContext({ correlationId, tenantId: identity.sub }, () =>
-      serveTenantApi(request, identity, this.compose(identity.sub).client, correlationId),
+    return withLogContext({ correlationId, tenantId: identity.sub }, async () => {
+      await this.bootstrap(identity.sub);
+      return serveRequest(request, identity, this.compose(identity.sub).client, correlationId);
+    });
+  }
+
+  // A tenant comes into being on its first signed-in request: its data key and
+  // the account config row the public routes find it by are written together.
+  private bootstrap(tenantId: string): Promise<void> {
+    if (this.bootstrapped === null) {
+      this.bootstrapped = bootstrapTenant(this.env, tenantId).catch((error: unknown) => {
+        this.bootstrapped = null;
+        throw error;
+      });
+    }
+    return this.bootstrapped;
+  }
+
+  async publicApi(request: Request, tenantId: string, correlationId: string): Promise<Response> {
+    return withLogContext({ correlationId, tenantId }, () =>
+      serveRequest(request, ANONYMOUS, this.compose(tenantId).client, correlationId),
     );
   }
 

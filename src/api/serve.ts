@@ -1,11 +1,10 @@
 import type { RemitClient } from "@remit/backend/client";
 import { handlers, publicHandlers } from "@remit/backend/handlers";
-import { type ApiRegistry, serveApi, type UserIdentity } from "@remit/backend/serve";
+import { type ApiRegistry, type HandlerIdentity, serveApi } from "@remit/backend/serve";
 import { refuseQuota } from "../error-kind";
 import type { QueueName } from "../queue/routing";
 import { apiConfig } from "./config";
-
-export const API_ROOT = "/api";
+import { API_ROOT } from "./paths";
 
 type Handlers = ApiRegistry<QueueName>["handlers"];
 
@@ -15,11 +14,6 @@ const unservedOperations = [
   "MeOperations_createExport",
   "MeOperations_deleteMe",
 ] as const satisfies readonly (keyof typeof handlers)[];
-
-const unservedPublicOperations = [
-  "CalendarFeedOperations_getCalendarFeedIcal",
-  "MicrosoftOAuthOperations_microsoftOAuthCallback",
-] as const satisfies readonly (keyof typeof publicHandlers)[];
 
 const without = <T extends object, K extends keyof T>(
   registry: T,
@@ -44,12 +38,14 @@ const quotaRefusing = (registry: Handlers): Handlers =>
 
 const served = serveApi<QueueName>({
   handlers: quotaRefusing(without(handlers, unservedOperations)),
-  publicHandlers: without(publicHandlers, unservedPublicOperations),
+  publicHandlers,
 });
 
-export const serveTenantApi = (
+export const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
+
+export const serveRequest = (
   request: Request,
-  identity: UserIdentity,
+  identity: HandlerIdentity,
   client: RemitClient,
   correlationId: string,
 ): Promise<Response> => {

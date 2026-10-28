@@ -10,3 +10,8 @@ export const tenantKeys = sqliteTable(
   },
   (table) => [primaryKey({ name: "tenant_key_pk", columns: [table.tenantId, table.keyVersion] })],
 );
+
+export const tenantAccountConfigs = sqliteTable("tenant_account_config", {
+  accountConfigId: text("account_config_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+});

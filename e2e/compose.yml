@@ -11,3 +11,7 @@ services:
     extends:
       file: ./.reader/deploy/vps/docker-compose.dovecot.yml
       service: mailpit-rejecting
+  fake-microsoft:
+    extends:
+      file: ./.reader/deploy/vps/docker-compose.dovecot.yml
+      service: fake-microsoft

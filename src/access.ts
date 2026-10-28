@@ -160,6 +160,8 @@ export const identityOf = (tenant: Tenant): UserIdentity => ({
   email: tenant.email,
 });
 
+const DEV_IDENTITY_HEADER = "x-dev-identity";
+
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 const toHex = (bytes: ArrayBuffer): string =>
@@ -174,7 +176,9 @@ const devTenant = async (request: Request, email: string): Promise<TenantResult>
 };
 
 export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
-  if (env.ACCESS_DEV_IDENTITY !== undefined) return devTenant(request, env.ACCESS_DEV_IDENTITY);
+  if (env.ACCESS_DEV_IDENTITY !== undefined) {
+    return devTenant(request, request.headers.get(DEV_IDENTITY_HEADER) ?? env.ACCESS_DEV_IDENTITY);
+  }
   const token = readToken(request);
   if (token === undefined) return denied("missing Access token");
   const parts = token.split(".");

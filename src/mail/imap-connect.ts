@@ -1,9 +1,14 @@
 import { connect } from "cloudflare:sockets";
 import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
-import type { ConnectImap, ConnectionPool } from "@remit/imap-worker/process";
+import {
+  type ConnectImap,
+  type ConnectionPool,
+  lifecycleConnectionScope,
+} from "@remit/imap-worker/process";
+import { logger } from "@remit/logger";
 import { connectionScope, type ImapTransport } from "@remit/mailbox-service";
 import { createSocketsTransport } from "imapflow";
-import { accountPassword } from "../crypto/envelope";
+import { microsoftTokens } from "../api/config";
 import { allowsPlaintext } from "./plaintext";
 
 const workersSockets = (): ImapTransport =>
@@ -43,21 +48,19 @@ export const connectImap: ConnectImap = (account, credentials) =>
     transport: workersTransport(account.imapHost, account.imapTls),
   });
 
-export const pooledConnectionScope =
-  (pool: ConnectionPool): ConnectionScopeFactory =>
-  (accounts, secrets) =>
-  async (accountId) => {
-    const account = await accounts.get(accountId);
-    const lease = pool.borrow(account, {
-      kind: "password",
-      password: await accountPassword(secrets, account),
-    });
-    return {
-      getConnection: () =>
-        lease.getConnection().catch(async (error: unknown) => {
-          await lease.release();
-          throw error;
-        }),
-      disconnect: () => lease.release(),
-    };
-  };
+export const pooledConnectionScope = (pool: ConnectionPool): ConnectionScopeFactory =>
+  lifecycleConnectionScope(
+    microsoftTokens,
+    (account, credentials) => {
+      const lease = pool.borrow(account, credentials);
+      return {
+        getConnection: () =>
+          lease.getConnection().catch(async (error: unknown) => {
+            await lease.release();
+            throw error;
+          }),
+        disconnect: () => lease.release(),
+      };
+    },
+    logger,
+  );

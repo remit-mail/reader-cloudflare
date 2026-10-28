@@ -11,4 +11,4 @@ export {
   filters,
   labels,
 } from "@remit/drizzle-sqlite-schema";
-export { tenantKeys } from "app-db-schema";
+export { tenantAccountConfigs, tenantKeys } from "app-db-schema";

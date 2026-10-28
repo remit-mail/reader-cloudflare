@@ -8,7 +8,6 @@ import {
   type ImapEvent,
   type ImapWorkerConfig,
   type ProcessContext,
-  type TokenService,
   type WorkerEvent,
   type WorkerMetrics,
   type WorkerQueues,
@@ -19,6 +18,7 @@ import type {
   SendMessageContext,
   SmtpDataPorts,
 } from "@remit/smtp-worker/process";
+import { microsoftTokens } from "../api/config";
 import {
   BODY_BATCH_SIZE,
   BODY_PROCESS_BYTES_IN_FLIGHT,
@@ -26,7 +26,6 @@ import {
 } from "../api/host-limits";
 import { commit } from "../commit";
 import type { Env } from "../env";
-import { NotComposedError } from "../error-kind";
 import { log } from "../log";
 import { queueProducer } from "../queue/producer";
 import { attemptsOn } from "../queue/routing";
@@ -54,13 +53,6 @@ const config: ImapWorkerConfig = {
 const metrics: WorkerMetrics = {
   imapFailure: (operation, kind, count) =>
     log.warn("imap failure", { event: "imap.failure", operation, failureKind: kind, count }),
-};
-
-const oauth: TokenService = {
-  getAccessToken: () =>
-    Promise.reject(
-      new NotComposedError("oauth", "reconnect the account with an app password instead"),
-    ),
 };
 
 const r2AccountObjects = (bucket: R2Bucket): AccountObjectStore => ({
@@ -97,7 +89,7 @@ export const processContext = (
   metrics,
   config,
   log: logger,
-  oauth,
+  oauth: microsoftTokens,
   accountObjects: r2AccountObjects(env.MAIL),
 });
 
@@ -123,7 +115,7 @@ export const sendContext = (
   secrets: client.secrets,
   storage: client.storage,
   messageManagement: queueProducer<"Standard", AppendSentMessageEvent>("Standard", env, tenantId),
-  tokenService: oauth,
+  tokenService: microsoftTokens,
   getSocket: workersSmtpSocket,
   maxAttempts: attemptsOn("smtp"),
   recordSmtpFailure,

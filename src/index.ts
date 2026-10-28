@@ -1,6 +1,6 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
-import { API_ROOT } from "./api/serve";
+import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import type { Env } from "./env";
@@ -15,6 +15,13 @@ import {
   logQueueDeadLetter,
   withLogContext,
 } from "./log";
+import {
+  calendarFeedTenant,
+  feedNotFound,
+  loggedPath,
+  microsoftCallbackTenant,
+  oauthRefused,
+} from "./public-api";
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
@@ -153,7 +160,25 @@ const authenticated = async (
   return serve(request, env, result.tenant);
 };
 
-const route = (request: Request, env: Env, url: URL): Promise<Response> => {
+const servePublic = (request: Request, env: Env, tenantId: string): Promise<Response> => {
+  annotateLog({ tenantId });
+  return tenantMail(env, tenantId).publicApi(request, tenantId, currentCorrelationId());
+};
+
+const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  if (url.pathname.startsWith(CALENDAR_FEED_ROOT)) {
+    const tenantId = await calendarFeedTenant(env, url);
+    if (tenantId === undefined) return feedNotFound();
+    return servePublic(request, env, tenantId);
+  }
+  if (url.pathname === MICROSOFT_OAUTH_CALLBACK) {
+    const callback = await microsoftCallbackTenant(env, url);
+    if (!callback.ok) {
+      log.warn("oauth callback refused", { oauthError: callback.oauthError });
+      return oauthRefused(env, callback.oauthError);
+    }
+    return servePublic(request, env, callback.tenantId);
+  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
@@ -196,16 +221,17 @@ export default {
     const correlationId = correlationIdOf(request);
     return withLogContext({ correlationId }, async () => {
       const url = new URL(request.url);
+      const path = loggedPath(url.pathname);
       annotateLog({ route: await routeOf(request.method, url) });
-      log.info("request", { method: request.method, path: url.pathname });
+      log.info("request", { method: request.method, path });
       const started = Date.now();
       const response = await Promise.resolve()
         .then(() => route(request, env, url))
-        .catch(failed(request.method, url.pathname));
+        .catch(failed(request.method, path));
       log.info("response", {
         event: "http.response",
         method: request.method,
-        path: url.pathname,
+        path,
         status: response.status,
         statusClass: statusClassOf(response.status),
         durationMs: Date.now() - started,

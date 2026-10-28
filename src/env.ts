@@ -17,6 +17,9 @@ export interface Env {
   readonly PUBLIC_ORIGIN: string;
   readonly ACCESS_DEV_IDENTITY?: string;
   readonly PLAINTEXT_MAIL_HOSTS?: string;
+  readonly MSOAUTH_CLIENT_ID?: string;
+  readonly MSOAUTH_CLIENT_SECRET?: SecretsStoreSecret;
+  readonly MSOAUTH_OVERRIDES?: string;
 }
 
 type WorkerEnv = Env;

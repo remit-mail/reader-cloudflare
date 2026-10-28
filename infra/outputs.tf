@@ -72,3 +72,11 @@ output "agent_client_secret" {
   value       = cloudflare_zero_trust_access_service_token.agent.client_secret
   sensitive   = true
 }
+
+output "microsoft_oauth" {
+  description = "MSOAUTH_CLIENT_ID and the MSOAUTH_CLIENT_SECRET binding in the rendered wrangler.deploy.jsonc; null when the deploy config sets no Microsoft app."
+  value = local.microsoft_oauth ? {
+    client_id   = nonsensitive(var.msoauth.client_id)
+    secret_name = cloudflare_secrets_store_secret.msoauth_client_secret[0].name
+  } : null
+}

@@ -140,7 +140,10 @@ const main = async () => {
     smtpHttpPort,
     rejectingSmtpPort,
     rejectingSmtpHttpPort,
-  ] = await Promise.all(Array.from({ length: 7 }, freePort));
+    microsoftPort,
+    xoauth2ImapPort,
+    xoauth2SmtpPort,
+  ] = await Promise.all(Array.from({ length: 10 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -163,8 +166,17 @@ const main = async () => {
     E2E_SMTP_REJECT_STACK_PORT: String(rejectingSmtpPort),
     E2E_SMTP_REJECT_HTTP_PORT: String(rejectingSmtpHttpPort),
     E2E_SMTP_REJECT_ALLOWED_RECIPIENTS: readerEnv.E2E_SMTP_REJECT_ALLOWED_RECIPIENTS,
+    E2E_MSOAUTH_TOKEN_PORT: String(microsoftPort),
+    E2E_XOAUTH2_IMAP_PORT: String(xoauth2ImapPort),
+    E2E_XOAUTH2_SMTP_PORT: String(xoauth2SmtpPort),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
+  };
+  const shimServer = (port) => ({ host: "127.0.0.1", port, tls: false, startTls: false });
+  const msOAuthOverrides = {
+    tokenEndpoint: `http://127.0.0.1:${microsoftPort}/token`,
+    imapServer: shimServer(xoauth2ImapPort),
+    smtpServer: shimServer(xoauth2SmtpPort),
   };
   const compose = (...args) =>
     run("docker", ["compose", "-p", project, "-f", join(e2eDir, "compose.yml"), ...args], {
@@ -176,8 +188,17 @@ const main = async () => {
   mkdirSync(stateDir, { recursive: true });
   let wrangler;
   let log;
+  let xoauth2;
   try {
-    compose("up", "--detach", "--wait", "dovecot", "mailpit", "mailpit-rejecting");
+    compose(
+      "up",
+      "--detach",
+      "--wait",
+      "dovecot",
+      "mailpit",
+      "mailpit-rejecting",
+      "fake-microsoft",
+    );
     run(...withCap("npm", ["run", "build"]), { env });
     run(
       bin("wrangler"),
@@ -212,6 +233,29 @@ const main = async () => {
       ],
       { env },
     );
+    run(
+      bin("wrangler"),
+      [
+        "secrets-store",
+        "secret",
+        "create",
+        MASTER_KEY_STORE,
+        "--name",
+        "MSOAUTH_CLIENT_SECRET",
+        "--scopes",
+        "workers",
+        "--value",
+        readerEnv.MSOAUTH_CLIENT_SECRET,
+        "--persist-to",
+        stateDir,
+      ],
+      { env },
+    );
+    xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-shim.mjs")], {
+      cwd: root,
+      env,
+      stdio: "inherit",
+    });
     log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
@@ -227,6 +271,10 @@ const main = async () => {
       stateDir,
       "--var",
       `PUBLIC_ORIGIN:${env.E2E_BASE_URL}`,
+      "--var",
+      `MSOAUTH_CLIENT_ID:${readerEnv.MSOAUTH_CLIENT_ID}`,
+      "--var",
+      `MSOAUTH_OVERRIDES:${JSON.stringify(msOAuthOverrides)}`,
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);
@@ -251,6 +299,7 @@ const main = async () => {
   } finally {
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
     if (log !== undefined) closeSync(log);
+    xoauth2?.kill();
     compose("down", "--volumes", "--remove-orphans");
     console.log(`e2e: wrangler log at ${wranglerLog}`);
   }
