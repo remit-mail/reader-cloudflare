@@ -14,13 +14,16 @@ export type ConsumerConcurrency = number | "Auto";
 
 export interface ConsumerSettings {
   readonly maxBatchSize: number;
+  readonly maxBatchTimeoutSeconds: number;
   readonly maxConcurrency: ConsumerConcurrency;
 }
 
+// Cloudflare holds a batch that is not full for up to 5 s by default. Reader's undo of a
+// queued move waits only 5 s for that move to settle, so every family delivers at once.
 export const CONSUMER_SETTINGS = {
-  sync: { maxBatchSize: 1, maxConcurrency: 2 },
-  body: { maxBatchSize: 1, maxConcurrency: 1 },
-  mutation: { maxBatchSize: 10, maxConcurrency: "Auto" },
-  smtp: { maxBatchSize: 1, maxConcurrency: "Auto" },
-  fanout: { maxBatchSize: 10, maxConcurrency: "Auto" },
+  sync: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: 2 },
+  body: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: 1 },
+  mutation: { maxBatchSize: 10, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
+  smtp: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
+  fanout: { maxBatchSize: 10, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
 } as const satisfies Record<QueueFamily, ConsumerSettings>;

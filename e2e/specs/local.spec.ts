@@ -72,6 +72,16 @@ const ATTACHMENT = {
 const REFUSED_SUBJECT = `Refused by the outgoing server ${Date.now()}`;
 const REFUSED_RECIPIENT = "nobody@remit.test";
 const CORRECTED_RECIPIENT = "corrected@remit.test";
+const REPORTED: Message = {
+  subject: "Reported as spam, then restored",
+  from: "Spammer <reported@spam.test>",
+  body: "Reported, then marked not spam once it reached Junk.",
+};
+const UNDONE: Message = {
+  subject: "Reported as spam and undone at once",
+  from: "Spammer <undone@spam.test>",
+  body: "Marked not spam before the move to Junk was delivered.",
+};
 const QUEUE_SETTLE_MS = 8_000;
 const CRON = "*/5 * * * *";
 
@@ -599,6 +609,47 @@ test.describe("reader on a local Worker", () => {
       what: `"${LATE.subject}" in Archive`,
     });
     expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(LATE.subject);
+  });
+
+  test("reporting spam lands the message in Junk on Dovecot and not spam restores it", async () => {
+    await appendMessages(imapUser, [REPORTED, UNDONE]);
+    await api.triggerSync(shared.accountId);
+    const messageId = await api.messageIdForSubject(shared.inboxId, REPORTED.subject);
+    await api.messageIdForSubject(shared.inboxId, UNDONE.subject);
+
+    expect(await api.reportSpam([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+    await waitForServerMailbox(
+      imapUser,
+      "Junk",
+      (subjects) => subjects.includes(REPORTED.subject),
+      {
+        what: `"${REPORTED.subject}" in Junk`,
+      },
+    );
+    expect(await listServerSubjects(imapUser, "INBOX")).not.toContain(REPORTED.subject);
+
+    expect(await api.notSpam([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+    await waitForServerMailbox(
+      imapUser,
+      "INBOX",
+      (subjects) => subjects.includes(REPORTED.subject),
+      { what: `"${REPORTED.subject}" back in INBOX` },
+    );
+    expect(await listServerSubjects(imapUser, "Junk")).not.toContain(REPORTED.subject);
+  });
+
+  test("marking a message not spam right after reporting it leaves it in INBOX on Dovecot", async () => {
+    const messageId = await api.messageIdForSubject(shared.inboxId, UNDONE.subject);
+
+    expect(await api.reportSpam([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+    expect(await api.notSpam([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+
+    await waitForServerMailbox(imapUser, "INBOX", (subjects) => subjects.includes(UNDONE.subject), {
+      what: `"${UNDONE.subject}" in INBOX after the undo`,
+    });
+    await waitForServerMailbox(imapUser, "Junk", (subjects) => !subjects.includes(UNDONE.subject), {
+      what: `"${UNDONE.subject}" not in Junk after the undo`,
+    });
   });
 
   test("emptying Trash expunges it on Dovecot", async () => {
