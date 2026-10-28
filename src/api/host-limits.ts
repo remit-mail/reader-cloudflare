@@ -18,8 +18,6 @@ export interface ConsumerSettings {
   readonly maxConcurrency: ConsumerConcurrency;
 }
 
-// Cloudflare holds a batch that is not full for up to 5 s by default. Reader's undo of a
-// queued move waits only 5 s for that move to settle, so every family delivers at once.
 export const CONSUMER_SETTINGS = {
   sync: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: 2 },
   body: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: 1 },
