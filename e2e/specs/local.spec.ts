@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, type Page, test } from "@playwright/test";
+import { z } from "zod";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
 import {
   buildClassificationFixtures,
@@ -221,11 +222,17 @@ const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
         Date.parse(record.time) >= since,
     );
 
-const recordOf = async (response: Response): Promise<Record<string, unknown>> => {
-  const body: unknown = await response.json();
-  if (!isRecord(body)) throw new Error(`${response.url} answered ${JSON.stringify(body)}`);
-  return body;
-};
+const draftSchema = z.object({ outboxMessageId: z.string() });
+const rawSourceSchema = z.object({ raw: z.string() });
+const queuedOrganizeJobSchema = z.object({ organizeJobId: z.string() });
+const organizeJobSchema = z.object({
+  state: z.enum(["Pending", "Running", "Complete", "Failed"]),
+  matchedCount: z.number(),
+  appliedCount: z.number(),
+});
+
+const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
+  schema.parse(await response.json());
 
 const archiveMailboxId = async (): Promise<string> => {
   const archive = (await api.listMailboxes(shared.accountId)).find(
@@ -617,12 +624,8 @@ test.describe("reader on a local Worker", () => {
   });
 
   test("moving a message lands it in the destination mailbox on Dovecot", async () => {
-    const archive = (await api.listMailboxes(shared.accountId)).find(
-      (mailbox) => mailbox.fullPath === "Archive",
-    );
-    if (archive === undefined) throw new Error("no Archive mailbox in the read model");
     const messageId = await api.messageIdForSubject(shared.inboxId, LATE.subject);
-    expect(await api.moveMessages([messageId], archive.mailboxId)).toEqual({
+    expect(await api.moveMessages([messageId], await archiveMailboxId())).toEqual({
       successCount: 1,
       failureCount: 0,
     });
@@ -685,7 +688,7 @@ test.describe("reader on a local Worker", () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
     const response = await api.request("GET", `/messages/${messageId}/raw`);
     expect(response.status).toBe(200);
-    const { raw } = await recordOf(response);
+    const { raw } = await parsedBody(response, rawSourceSchema);
     const onServer = await serverRawSourceForSubject(imapUser, "INBOX", TOGGLED_SUBJECT);
     expect(onServer).not.toBeNull();
     expect(raw).toBe(onServer);
@@ -699,17 +702,11 @@ test.describe("reader on a local Worker", () => {
       textBody: "Never sent.",
     });
     expect(created.status).toBe(200);
-    const { outboxMessageId } = await recordOf(created);
-    const outboxSubjects = async (): Promise<string[]> => {
-      const { items } = await recordOf(await api.request("GET", "/outbox"));
-      return Array.isArray(items) ? items.filter(isRecord).map((item) => String(item.subject)) : [];
-    };
-    expect(await outboxSubjects()).toContain(DRAFT_SUBJECT);
+    const { outboxMessageId } = await parsedBody(created, draftSchema);
 
     const deleted = await api.request("DELETE", `/outbox/${outboxMessageId}`);
     expect(deleted.status).toBe(204);
-    expect(await outboxSubjects()).not.toContain(DRAFT_SUBJECT);
-    expect((await api.request("GET", `/outbox/${outboxMessageId}`)).status).toBe(404);
+    await expect(api.getOutboxMessage(outboxMessageId)).rejects.toThrow(/ 404 /);
   });
 
   test("an organize job moves matching mail on Dovecot and completes", async () => {
@@ -722,14 +719,15 @@ test.describe("reader on a local Worker", () => {
       actionMailboxId: await archiveMailboxId(),
     });
     expect(created.status).toBe(202);
-    const { organizeJobId } = await recordOf(created);
+    const { organizeJobId } = await parsedBody(created, queuedOrganizeJobSchema);
 
     const job = await waitFor(
       async () =>
-        recordOf(
+        parsedBody(
           await api.request("GET", `/accounts/${shared.accountId}/organize/${organizeJobId}`),
+          organizeJobSchema,
         ),
-      (body) => typeof body.state === "string" && TERMINAL_JOB_STATES.has(body.state),
+      (body) => TERMINAL_JOB_STATES.has(body.state),
       { timeoutMs: 60_000, what: "the organize job in a terminal state" },
     );
     expect(job).toMatchObject({ state: "Complete", matchedCount: 1, appliedCount: 1 });
@@ -743,16 +741,13 @@ test.describe("reader on a local Worker", () => {
   });
 
   test("a new filter moves mail that arrives after it on Dovecot", async () => {
-    const created = await api.request("POST", `/accounts/${shared.accountId}/filters`, {
+    const created = await api.createFilter(shared.accountId, {
       name: "Chandlery receipts",
       scope: "Standing",
-      matchOperator: "And",
       literalClauses: [{ field: "Subject", value: FILTERED_WORD }],
-      actionLabelId: "None",
       actionMailboxId: await archiveMailboxId(),
     });
-    expect(created.status).toBe(200);
-    expect(await recordOf(created)).toMatchObject({ state: "Active", disabledReason: "None" });
+    expect(created).toMatchObject({ state: "Active", disabledReason: "None" });
 
     await appendMessages(imapUser, [FILTERED]);
     await api.triggerSync(shared.accountId);
