@@ -1,4 +1,4 @@
-import { parseExportArchiveKey, parseOutboxAttachmentKey } from "@remit/storage-service";
+import { buildExportArchiveKey, parseOutboxAttachmentKey } from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
 import { notFound } from "../http";
@@ -31,14 +31,13 @@ export const serveContent = async (
   tenant: Tenant,
 ): Promise<Response> => {
   const key = new URL(request.url).pathname.slice(CONTENT_PREFIX.length);
-  const exportArchive = parseExportArchiveKey(key);
-  if (exportArchive !== null) {
-    if (exportArchive.accountConfigId !== tenant.accountConfigId) return notFound("Content");
+  const [, , exportRequestId = ""] = key.split("/");
+  if (key === buildExportArchiveKey(tenant.accountConfigId, exportRequestId)) {
     const archive = await env.MAIL.get(key);
     if (archive === null) return notFound("Export");
     return served(archive, {
       "cache-control": "private, no-store",
-      "content-disposition": `attachment; filename="remit-export-${exportArchive.exportRequestId}.zip"`,
+      "content-disposition": `attachment; filename="remit-export-${exportRequestId}.zip"`,
     });
   }
   const outboxAttachment = parseOutboxAttachmentKey(key);

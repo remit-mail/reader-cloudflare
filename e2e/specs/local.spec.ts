@@ -228,19 +228,11 @@ const consumesSince = (types: ReadonlySet<string>, since: number): Record<string
 const purgeConsumesSince = (since: number): Record<string, unknown>[] =>
   consumesSince(PURGE_EVENTS, since);
 
-const draftSchema = z.object({ outboxMessageId: z.string() });
 const queuedExportSchema = z.object({ exportId: z.string() });
 const exportSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("Ready"), downloadUrl: z.string() }),
   z.object({ state: z.enum(["Pending", "Processing", "Failed"]) }),
 ]);
-const rawSourceSchema = z.object({ raw: z.string() });
-const queuedOrganizeJobSchema = z.object({ organizeJobId: z.string() });
-const organizeJobSchema = z.object({
-  state: z.enum(["Pending", "Running", "Complete", "Failed"]),
-  matchedCount: z.number(),
-  appliedCount: z.number(),
-});
 
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
@@ -697,23 +689,19 @@ test.describe("reader on a local Worker", () => {
 
   test("the raw source of a message is what Dovecot holds", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
-    const response = await api.request("GET", `/messages/${messageId}/raw`);
-    expect(response.status).toBe(200);
-    const { raw } = await parsedBody(response, rawSourceSchema);
+    const raw = await api.getRawMessage(messageId);
     const onServer = await serverRawSourceForSubject(imapUser, "INBOX", TOGGLED_SUBJECT);
     expect(onServer).not.toBeNull();
     expect(raw).toBe(onServer);
   });
 
   test("a discarded draft is gone from the outbox", async () => {
-    const created = await api.request("POST", "/outbox", {
+    const { outboxMessageId } = await api.createDraft({
       accountId: shared.accountId,
       toAddresses: [RECIPIENT],
       subject: DRAFT_SUBJECT,
       textBody: "Never sent.",
     });
-    expect(created.status).toBe(200);
-    const { outboxMessageId } = await parsedBody(created, draftSchema);
 
     const deleted = await api.request("DELETE", `/outbox/${outboxMessageId}`);
     expect(deleted.status).toBe(204);
@@ -723,21 +711,13 @@ test.describe("reader on a local Worker", () => {
   test("an organize job moves matching mail on Dovecot and completes", async () => {
     const [harbour] = SEEDED;
     if (harbour === undefined) throw new Error("no seeded message");
-    const created = await api.request("POST", `/accounts/${shared.accountId}/organize`, {
-      matchOperator: "And",
+    const { organizeJobId } = await api.createOrganizeJob(shared.accountId, {
       literalClauses: [{ field: "Subject", value: SEARCHED_WORD }],
-      actionLabelId: "None",
       actionMailboxId: await archiveMailboxId(),
     });
-    expect(created.status).toBe(202);
-    const { organizeJobId } = await parsedBody(created, queuedOrganizeJobSchema);
 
     const job = await waitFor(
-      async () =>
-        parsedBody(
-          await api.request("GET", `/accounts/${shared.accountId}/organize/${organizeJobId}`),
-          organizeJobSchema,
-        ),
+      () => api.getOrganizeJob(shared.accountId, organizeJobId),
       (body) => TERMINAL_JOB_STATES.has(body.state),
       { timeoutMs: 60_000, what: "the organize job in a terminal state" },
     );

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { readEnvFile } from "./env.mjs";
 
 const READER_REPO = "https://github.com/remit-mail/reader.git";
-const READER_REF = "699a1115a8d8a855aaefb905bb4eddca8cc73dd6";
+const READER_REF = "6df470b0890eda02bcddb8b95b1382da0e998e17";
 const READER_PATHS = [
   "deploy/vps/docker-compose.dovecot.yml",
   "deploy/vps/e2e.env",

@@ -5,7 +5,8 @@ import type {
 } from "@remit/account-worker/process";
 import type { RemitClient } from "@remit/backend/client";
 import {
-  runDrizzleAccountConfigErase,
+  accountIdsOf,
+  eraseAccountConfigAppRows,
   runDrizzleCascadeDelete,
   type SqliteStores,
 } from "@remit/drizzle-service";
@@ -27,16 +28,24 @@ const deletePrefix = async (bucket: R2Bucket, prefix: string): Promise<void> => 
   } while (cursor !== undefined);
 };
 
-const workersDeletion = (bucket: R2Bucket, stores: SqliteStores): DeletionCapabilities => ({
+// The tenant object holds one account config's mail and nothing else, so erasing
+// it wipes the object's storage instead of deleting its rows one by one.
+const workersDeletion = (
+  bucket: R2Bucket,
+  stores: SqliteStores,
+  wipeTenantObject: () => Promise<void>,
+): DeletionCapabilities => ({
   assertReady: async () => {},
   // Cloudflare Access owns the session, and content goes out with a private cache-control only.
   signOut: async () => {},
   invalidateContent: async () => {},
   deleteStoragePrefix: (keyPrefix) => deletePrefix(bucket, keyPrefix),
   cascadeDelete: (entities, log) => runDrizzleCascadeDelete(stores, entities, log),
-  eraseAccountConfig: (accountConfigId, _services, log) =>
-    runDrizzleAccountConfigErase(stores, accountConfigId, log),
-  deleteExportArchives: (accountConfigId) => deletePrefix(bucket, `exports/${accountConfigId}/`),
+  eraseAccountConfig: async (accountConfigId) => {
+    const accountIds = await accountIdsOf(stores.app, accountConfigId);
+    await wipeTenantObject();
+    await eraseAccountConfigAppRows(stores.app, accountConfigId, accountIds);
+  },
 });
 
 export const purgeContext = (
@@ -44,8 +53,9 @@ export const purgeContext = (
   tenantId: string,
   client: RemitClient,
   stores: SqliteStores,
+  wipeTenantObject: () => Promise<void>,
 ): AccountPurgeContext => ({
   client,
   purgeQueue: queueProducer<"Grouped", AccountFinalizeEvent>("Grouped", env, tenantId),
-  capabilities: workersDeletion(env.MAIL, stores),
+  capabilities: workersDeletion(env.MAIL, stores, wipeTenantObject),
 });
