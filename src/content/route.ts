@@ -21,11 +21,7 @@ const served = (object: R2ObjectBody): Response =>
     },
   });
 
-const serveOutboxAttachment = async (
-  path: string,
-  env: Env,
-  tenant: Tenant,
-): Promise<Response> => {
+const serveOutboxAttachment = async (path: string, env: Env, tenant: Tenant): Promise<Response> => {
   const key = path.slice(PREFIX.length);
   const target = parseOutboxAttachmentKey(key);
   if (target === null || target.accountConfigId !== tenant.accountConfigId) {

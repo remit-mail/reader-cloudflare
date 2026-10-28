@@ -523,9 +523,14 @@ test.describe("reader on a local Worker", () => {
     const accepted = await waitForAcceptedMessage(ATTACHED_SUBJECT, { timeoutMs: 60_000 });
     expect((await readMimeShapeOfRaw(accepted.raw)).parts).toEqual(carried);
 
-    await waitForServerMailbox(imapUser, "Sent", (subjects) => subjects.includes(ATTACHED_SUBJECT), {
-      what: `"${ATTACHED_SUBJECT}" in Sent`,
-    });
+    await waitForServerMailbox(
+      imapUser,
+      "Sent",
+      (subjects) => subjects.includes(ATTACHED_SUBJECT),
+      {
+        what: `"${ATTACHED_SUBJECT}" in Sent`,
+      },
+    );
     expect((await readMimeShape(imapUser, "Sent", ATTACHED_SUBJECT))?.parts).toEqual(carried);
   });
 

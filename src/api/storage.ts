@@ -190,12 +190,10 @@ export const r2Storage = (bucket: R2Bucket, uploadUrls: UploadUrls): StorageServ
         outboxMessageId,
         outboxAttachmentId,
       );
-      const sig = signStoragePath(
-        await uploadUrls.signingSecret(),
-        UPLOAD_URL_SIGNING_LABEL,
-        key,
-        [expiresAt, sizeBytes],
-      );
+      const sig = signStoragePath(await uploadUrls.signingSecret(), UPLOAD_URL_SIGNING_LABEL, key, [
+        expiresAt,
+        sizeBytes,
+      ]);
       const query = new URLSearchParams({ exp: String(expiresAt), max: String(sizeBytes), sig });
       return { uploadUrl: `${uploadUrls.origin}${UPLOAD_ROUTE_PREFIX}${key}?${query.toString()}` };
     },
