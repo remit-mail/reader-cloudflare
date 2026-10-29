@@ -20,7 +20,7 @@ import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/p
 import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
-import { CLOUDFLARE_SQLITE_LIMITS, MESSAGE_OBJECT_DELETE_CONCURRENCY } from "../api/host-limits";
+import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
@@ -157,10 +157,7 @@ export class TenantMail extends DurableObject<Env> {
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
     this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
     this.storage = r2Storage(env.MAIL, env.PUBLIC_ORIGIN);
-    this.mail = composeSqliteRepositories(this.stores, {
-      storage: this.storage,
-      messageObjectDeleteConcurrency: MESSAGE_OBJECT_DELETE_CONCURRENCY,
-    });
+    this.mail = composeSqliteRepositories(this.stores, { storage: this.storage });
     this.pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap);
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }

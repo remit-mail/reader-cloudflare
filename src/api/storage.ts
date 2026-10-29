@@ -22,6 +22,7 @@ import { CONTENT_PREFIX } from "../content/route";
 
 const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
 const EXPORT_PART_BYTES = 8 * 1024 * 1024;
+const R2_DELETE_BATCH_SIZE = 1000;
 
 const parsedBodySchema = z.object({
   text: z.string().nullable(),
@@ -131,6 +132,12 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     } while (cursor !== undefined);
   };
 
+  const deleteKeys = async (keys: readonly string[]): Promise<void> => {
+    for (let start = 0; start < keys.length; start += R2_DELETE_BATCH_SIZE) {
+      await bucket.delete(keys.slice(start, start + R2_DELETE_BATCH_SIZE));
+    }
+  };
+
   return {
     storeMessageBody: ({ accountConfigId, accountId, messageId, content }) =>
       put(buildMessageBodyKey(accountConfigId, accountId, messageId), content),
@@ -167,6 +174,7 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     deleteOutboxAttachments: (accountConfigId, accountId, outboxMessageId) =>
       deletePrefix(buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)),
     deletePrefix,
+    deleteKeys,
     listOutboxDraftsWithAttachments: async (accountConfigId, accountId) => {
       const prefix = `accounts/${accountConfigId}/${accountId}/outbox/`;
       return (await listFolders(bucket, prefix)).map((folder) =>

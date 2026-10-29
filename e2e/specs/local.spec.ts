@@ -96,6 +96,11 @@ const COPIED: Message = {
   subject: "Copied to Archive, then deleted from INBOX",
   body: "The Archive copy keeps this body.",
 };
+const TRASHED: Message[] = [
+  { subject: "Trashed with the others: tide notice", body: "Low water at 12:24." },
+  { subject: "Trashed with the others: berth change", body: "Moved to berth seven." },
+  { subject: "Trashed with the others: fuel dock hours", body: "Open from eight to six." },
+];
 const DRAFT_SUBJECT = `A draft to discard ${Date.now()}`;
 const TERMINAL_JOB_STATES = new Set(["Complete", "Failed"]);
 const QUEUE_SETTLE_MS = 8_000;
@@ -239,6 +244,14 @@ const r2ObjectsOf = (messageId: string): number =>
     "select count(*) as rows from _mf_objects where instr(key, ?) > 0",
     `/messages/${messageId}/`,
   );
+
+const plainTextOf = async (messageId: string): Promise<string> => {
+  const described = await api.request("GET", `/messages/${messageId}`);
+  expect(described.status).toBe(200);
+  const content = await fetch(plainTextUrlOf(await described.json()));
+  expect(content.status).toBe(200);
+  return content.text();
+};
 
 const storedObjectsOf = (messageId: string, what: string): Promise<number> =>
   waitFor(
@@ -510,11 +523,7 @@ test.describe("reader on a local Worker", () => {
     const thread = threads.find((candidate) => candidate.subject === UNFETCHED.subject);
     if (thread === undefined) throw new Error("matched but not found");
 
-    const described = await api.request("GET", `/messages/${thread.messageId}`);
-    expect(described.status).toBe(200);
-    const content = await fetch(plainTextUrlOf(await described.json()));
-    expect(content.status).toBe(200);
-    expect(await content.text()).toContain(UNFETCHED.body);
+    expect(await plainTextOf(thread.messageId)).toContain(UNFETCHED.body);
   });
 
   test("search finds a seeded subject and nothing else", async ({ page }) => {
@@ -744,7 +753,7 @@ test.describe("reader on a local Worker", () => {
     await appendMessages(imapUser, [COPIED]);
     await api.triggerSync(shared.accountId);
     const originalId = await api.messageIdForSubject(shared.inboxId, COPIED.subject);
-    const stored = await storedObjectsOf(originalId, `the body of "${COPIED.subject}" in R2`);
+    await storedObjectsOf(originalId, `the body of "${COPIED.subject}" in R2`);
     const archiveId = await archiveMailboxId();
     const copied = await api.request("POST", "/messages/copy", {
       messageIds: [originalId],
@@ -780,8 +789,47 @@ test.describe("reader on a local Worker", () => {
     );
     await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
 
-    expect(r2ObjectsOf(originalId)).toBe(stored);
+    expect(r2ObjectsOf(originalId)).toBe(1);
     expect(await api.getRawMessage(copyId)).toBe(onServer);
+    expect(await plainTextOf(copyId)).toContain(COPIED.body);
+  });
+
+  test("emptying a Trash of several messages takes every one of their objects off R2", async () => {
+    await appendMessages(imapUser, TRASHED);
+    await api.triggerSync(shared.accountId);
+    const messageIds: string[] = [];
+    for (const message of TRASHED) {
+      const messageId = await api.messageIdForSubject(shared.inboxId, message.subject);
+      await storedObjectsOf(messageId, `the body of "${message.subject}" in R2`);
+      expect(await plainTextOf(messageId)).toContain(message.body);
+      messageIds.push(messageId);
+    }
+    const subjects = TRASHED.map((message) => message.subject);
+
+    expect(await api.deleteMessages(messageIds)).toEqual({
+      successCount: TRASHED.length,
+      failureCount: 0,
+    });
+    await waitForServerMailbox(
+      imapUser,
+      "Trash",
+      (inTrash) => subjects.every((subject) => inTrash.includes(subject)),
+      { what: "every trashed message in Trash" },
+    );
+    for (const messageId of messageIds) {
+      expect(r2ObjectsOf(messageId)).toBeGreaterThan(0);
+    }
+    expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThanOrEqual(
+      TRASHED.length,
+    );
+    await waitForServerMailbox(imapUser, "Trash", (inTrash) => inTrash.length === 0, {
+      what: "an empty Trash",
+    });
+    await waitFor(
+      async () => messageIds.map((messageId) => [messageId, r2ObjectsOf(messageId)] as const),
+      (counts) => counts.every(([, count]) => count === 0),
+      { timeoutMs: 60_000, what: "every trashed message's objects off R2" },
+    );
   });
 
   test("the raw source of a message is what Dovecot holds", async () => {
