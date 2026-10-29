@@ -71,6 +71,13 @@
       "when": 1793264582569,
       "tag": "0009_drop_body_part_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793265443229,
+      "tag": "0010_thread_message_deleted_means_expunge",
+      "breakpoints": true
     }
   ]
 }

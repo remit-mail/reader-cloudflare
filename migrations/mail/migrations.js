@@ -8,6 +8,7 @@ import m0006 from "./0006_message_search_text.sql";
 import m0007 from "./0007_unicode61_tokenizer.sql";
 import m0008 from "./0008_message_by_body_storage_key.sql";
 import m0009 from "./0009_drop_body_part_storage.sql";
+import m0010 from "./0010_thread_message_deleted_means_expunge.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -23,5 +24,6 @@ export default {
     m0007,
     m0008,
     m0009,
+    m0010,
   },
 };

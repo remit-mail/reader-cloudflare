@@ -296,13 +296,18 @@ const exportSchema = z.discriminatedUnion("state", [
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
 
-const archiveMailboxId = async (): Promise<string> => {
-  const archive = (await api.listMailboxes(shared.accountId)).find(
-    (mailbox) => mailbox.fullPath === "Archive",
+const mailboxIdByPath = async (fullPath: string): Promise<string> => {
+  const mailbox = (await api.listMailboxes(shared.accountId)).find(
+    (candidate) => candidate.fullPath === fullPath,
   );
-  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
-  return archive.mailboxId;
+  if (mailbox === undefined) throw new Error(`no ${fullPath} mailbox in the read model`);
+  return mailbox.mailboxId;
 };
+
+const trashListingOf = async (subject: string): Promise<string[]> =>
+  (await api.listThreads(await mailboxIdByPath("Trash")))
+    .filter((thread) => thread.subject === subject)
+    .map((thread) => thread.mailboxId);
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -680,12 +685,19 @@ test.describe("reader on a local Worker", () => {
         what: `"${DELETED_SUBJECT}" in Trash`,
       },
     );
+    expect(
+      await waitFor(
+        () => trashListingOf(DELETED_SUBJECT),
+        (mailboxIds) => mailboxIds.length > 0,
+        { timeoutMs: 60_000, what: `"${DELETED_SUBJECT}" in the Trash listing` },
+      ),
+    ).toEqual([await mailboxIdByPath("Trash")]);
     shared.deletedMessageId = messageId;
   });
 
   test("moving a message lands it in the destination mailbox on Dovecot", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, LATE.subject);
-    expect(await api.moveMessages([messageId], await archiveMailboxId())).toEqual({
+    expect(await api.moveMessages([messageId], await mailboxIdByPath("Archive"))).toEqual({
       successCount: 1,
       failureCount: 0,
     });
@@ -743,6 +755,11 @@ test.describe("reader on a local Worker", () => {
       what: "an empty Trash",
     });
     await waitFor(
+      () => trashListingOf(DELETED_SUBJECT),
+      (mailboxIds) => mailboxIds.length === 0,
+      { timeoutMs: 60_000, what: `"${DELETED_SUBJECT}" gone from the Trash listing` },
+    );
+    await waitFor(
       async () => r2ObjectsOf(shared.deletedMessageId),
       (count) => count === 0,
       { timeoutMs: 60_000, what: `the body of "${DELETED_SUBJECT}" off R2` },
@@ -754,7 +771,7 @@ test.describe("reader on a local Worker", () => {
     await api.triggerSync(shared.accountId);
     const originalId = await api.messageIdForSubject(shared.inboxId, COPIED.subject);
     await storedObjectsOf(originalId, `the body of "${COPIED.subject}" in R2`);
-    const archiveId = await archiveMailboxId();
+    const archiveId = await mailboxIdByPath("Archive");
     const copied = await api.request("POST", "/messages/copy", {
       messageIds: [originalId],
       destinationMailboxId: archiveId,
@@ -858,7 +875,7 @@ test.describe("reader on a local Worker", () => {
     if (harbour === undefined) throw new Error("no seeded message");
     const { organizeJobId } = await api.createOrganizeJob(shared.accountId, {
       literalClauses: [{ field: "Subject", value: SEARCHED_WORD }],
-      actionMailboxId: await archiveMailboxId(),
+      actionMailboxId: await mailboxIdByPath("Archive"),
     });
 
     const job = await waitFor(
@@ -881,7 +898,7 @@ test.describe("reader on a local Worker", () => {
       name: "Chandlery receipts",
       scope: "Standing",
       literalClauses: [{ field: "Subject", value: FILTERED_WORD }],
-      actionMailboxId: await archiveMailboxId(),
+      actionMailboxId: await mailboxIdByPath("Archive"),
     });
     expect(created).toMatchObject({ state: "Active", disabledReason: "None" });
 
