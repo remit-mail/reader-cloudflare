@@ -14,13 +14,11 @@ const mailServer = z.object({
   startTls: z.boolean(),
 });
 
-const overridesSchema = z
-  .object({
-    tokenEndpoint: z.string().url().optional(),
-    imapServer: mailServer.optional(),
-    smtpServer: mailServer.optional(),
-  })
-  .strict();
+const overridesSchema = z.strictObject({
+  tokenEndpoint: z.url().optional(),
+  imapServer: mailServer.optional(),
+  smtpServer: mailServer.optional(),
+});
 
 const msOAuthOverrides = (): MsOAuthOverrides => {
   if (env.MSOAUTH_OVERRIDES === undefined) return {};
