@@ -13,9 +13,6 @@ export const BODY_BATCH_SIZE = 25;
 export const BODY_PROCESS_CONCURRENCY = 4;
 export const BODY_PROCESS_BYTES_IN_FLIGHT = 32 * 1024 * 1024;
 
-// An invocation holds at most 6 open connections, R2 calls included; the IMAP socket takes one and a queue send another.
-export const MESSAGE_OBJECT_DELETE_CONCURRENCY = 4;
-
 export type ConsumerConcurrency = number | "Auto";
 
 export interface ConsumerSettings {
