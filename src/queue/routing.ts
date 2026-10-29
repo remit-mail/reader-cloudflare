@@ -91,7 +91,7 @@ const envelopeSchema = z.object({
   v: z.literal(1),
   tenantId: z.string().min(1),
   correlationId: z.string().min(1),
-  event: z.object({ type: z.string() }).passthrough(),
+  event: z.looseObject({ type: z.string() }),
 });
 
 const isReaderEvent = (event: { readonly type: string }): event is ReaderEvent =>

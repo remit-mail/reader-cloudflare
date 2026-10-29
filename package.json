@@ -63,7 +63,7 @@
     "@remit/calendar-service": "0.0.19",
     "@remit/config-format": "0.0.8",
     "@remit/config-transfer": "0.0.13",
-    "@remit/data-ports": "0.0.92",
+    "@remit/data-ports": "0.0.93",
     "@remit/domain-enums": "0.0.29",
     "@remit/drizzle-service": "0.0.109",
     "@remit/drizzle-sqlite-schema": "0.0.38",
@@ -81,7 +81,7 @@
     "nodemailer": "^10.2.1",
     "openapi-backend": "^5.22.0",
     "uuid": "^9.0.1",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "short-uuid": "6.0.3"
