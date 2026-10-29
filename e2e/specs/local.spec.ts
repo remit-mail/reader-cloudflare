@@ -92,6 +92,10 @@ const FILTERED: Message = {
   body: "Rope, two shackles and a fender.",
 };
 const FILTERED_WORD = "chandlery";
+const COPIED: Message = {
+  subject: "Copied to Archive, then deleted from INBOX",
+  body: "The Archive copy keeps this body.",
+};
 const DRAFT_SUBJECT = `A draft to discard ${Date.now()}`;
 const TERMINAL_JOB_STATES = new Set(["Complete", "Failed"]);
 const QUEUE_SETTLE_MS = 8_000;
@@ -104,9 +108,10 @@ interface Shared {
   accountId: string;
   inboxId: string;
   exportUrl: string;
+  deletedMessageId: string;
 }
 
-const shared: Shared = { accountId: "", inboxId: "", exportUrl: "" };
+const shared: Shared = { accountId: "", inboxId: "", exportUrl: "", deletedMessageId: "" };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -181,6 +186,14 @@ const plainTextUrlOf = (description: unknown): string => {
   return part.contentUrl;
 };
 
+const bodyTextOf = async (messageId: string): Promise<string> => {
+  const described = await api.request("GET", `/messages/${messageId}`);
+  expect(described.status).toBe(200);
+  const content = await fetch(plainTextUrlOf(await described.json()));
+  expect(content.status).toBe(200);
+  return content.text();
+};
+
 const connectionTestOf = (password: string): Record<string, unknown> => ({
   username: imapUser,
   password,
@@ -204,19 +217,50 @@ const wranglerLog = (): string => readFileSync(wranglerLogPath(), "utf8");
 
 const countSchema = z.object({ rows: z.number() });
 
-const d1RowsIn = (table: string): number => {
-  const dir = join(dirname(wranglerLogPath()), "v3", "d1", "miniflare-D1DatabaseObject");
+const localStoreOf = (plugin: string, objectClass: string): string => {
+  const dir = join(dirname(wranglerLogPath()), "v3", plugin, objectClass);
   const [file] = readdirSync(dir).filter(
     (name) => name.endsWith(".sqlite") && name !== "metadata.sqlite",
   );
-  if (file === undefined) throw new Error(`no local D1 database under ${dir}`);
-  const db = new DatabaseSync(join(dir, file), { readOnly: true });
+  if (file === undefined) throw new Error(`no local ${plugin} store under ${dir}`);
+  return join(dir, file);
+};
+
+const countIn = (path: string, query: string, ...params: string[]): number => {
+  const db = new DatabaseSync(path, { readOnly: true });
   try {
-    return countSchema.parse(db.prepare(`select count(*) as rows from ${table}`).get()).rows;
+    return countSchema.parse(db.prepare(query).get(...params)).rows;
   } finally {
     db.close();
   }
 };
+
+const d1RowsIn = (table: string): number =>
+  countIn(
+    localStoreOf("d1", "miniflare-D1DatabaseObject"),
+    `select count(*) as rows from ${table}`,
+  );
+
+const r2ObjectsOf = (messageId: string): number =>
+  countIn(
+    localStoreOf("r2", "miniflare-R2BucketObject"),
+    "select count(*) as rows from _mf_objects where instr(key, ?) > 0",
+    `/messages/${messageId}/`,
+  );
+
+const storedObjectsOf = (messageId: string, what: string): Promise<number> =>
+  waitFor(
+    async () => r2ObjectsOf(messageId),
+    (count) => count > 0,
+    { timeoutMs: 60_000, what },
+  );
+
+const reclaimedObjectsOf = (messageId: string, what: string): Promise<number> =>
+  waitFor(
+    async () => r2ObjectsOf(messageId),
+    (count) => count === 0,
+    { timeoutMs: 60_000, what },
+  );
 
 const jsonLineOf = (line: string): unknown =>
   JSON.parse(line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1));
@@ -254,13 +298,15 @@ const exportSchema = z.discriminatedUnion("state", [
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
 
-const archiveMailboxId = async (): Promise<string> => {
-  const archive = (await api.listMailboxes(shared.accountId)).find(
-    (mailbox) => mailbox.fullPath === "Archive",
+const mailboxIdOf = async (fullPath: string): Promise<string> => {
+  const found = (await api.listMailboxes(shared.accountId)).find(
+    (mailbox) => mailbox.fullPath === fullPath,
   );
-  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
-  return archive.mailboxId;
+  if (found === undefined) throw new Error(`no ${fullPath} mailbox in the read model`);
+  return found.mailboxId;
 };
+
+const archiveMailboxId = (): Promise<string> => mailboxIdOf("Archive");
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -481,11 +527,7 @@ test.describe("reader on a local Worker", () => {
     const thread = threads.find((candidate) => candidate.subject === UNFETCHED.subject);
     if (thread === undefined) throw new Error("matched but not found");
 
-    const described = await api.request("GET", `/messages/${thread.messageId}`);
-    expect(described.status).toBe(200);
-    const content = await fetch(plainTextUrlOf(await described.json()));
-    expect(content.status).toBe(200);
-    expect(await content.text()).toContain(UNFETCHED.body);
+    expect(await bodyTextOf(thread.messageId)).toContain(UNFETCHED.body);
   });
 
   test("search finds a seeded subject and nothing else", async ({ page }) => {
@@ -623,6 +665,7 @@ test.describe("reader on a local Worker", () => {
 
   test("deleting a message moves it to Trash on Dovecot", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, DELETED_SUBJECT);
+    await storedObjectsOf(messageId, `the body of "${DELETED_SUBJECT}" in R2`);
     expect(await api.deleteMessages([messageId])).toEqual({ successCount: 1, failureCount: 0 });
 
     await waitForServerMailbox(
@@ -641,6 +684,7 @@ test.describe("reader on a local Worker", () => {
         what: `"${DELETED_SUBJECT}" in Trash`,
       },
     );
+    shared.deletedMessageId = messageId;
   });
 
   test("moving a message lands it in the destination mailbox on Dovecot", async () => {
@@ -702,6 +746,51 @@ test.describe("reader on a local Worker", () => {
     await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
       what: "an empty Trash",
     });
+    await reclaimedObjectsOf(shared.deletedMessageId, `the body of "${DELETED_SUBJECT}" off R2`);
+  });
+
+  test("a copy keeps its body in R2 after its original is deleted for good", async () => {
+    await appendMessages(imapUser, [COPIED]);
+    await api.triggerSync(shared.accountId);
+    const originalId = await api.messageIdForSubject(shared.inboxId, COPIED.subject);
+    const stored = await storedObjectsOf(originalId, `the body of "${COPIED.subject}" in R2`);
+    const archiveId = await archiveMailboxId();
+    const copied = await api.request("POST", "/messages/copy", {
+      messageIds: [originalId],
+      destinationMailboxId: archiveId,
+    });
+    expect(copied.status).toBe(200);
+    expect(await copied.json()).toEqual({ successCount: 1, failureCount: 0 });
+    await waitForServerMailbox(
+      imapUser,
+      "Archive",
+      (subjects) => subjects.includes(COPIED.subject),
+      {
+        what: `"${COPIED.subject}" copied into Archive`,
+      },
+    );
+    const copyId = await api.messageIdForSubject(archiveId, COPIED.subject);
+    const onServer = await serverRawSourceForSubject(imapUser, "Archive", COPIED.subject);
+    expect(onServer).toContain(COPIED.body);
+    expect(await api.getRawMessage(copyId)).toBe(onServer);
+
+    expect(await api.deleteMessages([originalId])).toEqual({ successCount: 1, failureCount: 0 });
+    await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.includes(COPIED.subject), {
+      what: `"${COPIED.subject}" in Trash`,
+    });
+    expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThan(0);
+    await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
+      what: "an empty Trash",
+    });
+    await waitFor(
+      async () => (await api.request("GET", `/messages/${originalId}`)).status,
+      (status) => status === 404,
+      { timeoutMs: 60_000, what: `the original "${COPIED.subject}" gone from the read model` },
+    );
+    await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
+
+    expect(r2ObjectsOf(originalId)).toBeGreaterThanOrEqual(stored);
+    expect(await api.getRawMessage(copyId)).toBe(onServer);
   });
 
   test("the raw source of a message is what Dovecot holds", async () => {

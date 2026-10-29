@@ -17,9 +17,10 @@ import {
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
+import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
-import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
+import { CLOUDFLARE_SQLITE_LIMITS, MESSAGE_OBJECT_DELETE_CONCURRENCY } from "../api/host-limits";
 import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
@@ -143,6 +144,7 @@ const consumeSmtp = (
 export class TenantMail extends DurableObject<Env> {
   private readonly mail: SqliteRepositories;
   private readonly stores: SqliteStores;
+  private readonly storage: StorageService;
   private readonly pool: ConnectionPool;
   private readonly db: DrizzleSqliteDODatabase;
   private composed: Composed | null = null;
@@ -154,7 +156,11 @@ export class TenantMail extends DurableObject<Env> {
     this.db = db;
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
     this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
-    this.mail = composeSqliteRepositories(this.stores);
+    this.storage = r2Storage(env.MAIL, env.PUBLIC_ORIGIN);
+    this.mail = composeSqliteRepositories(this.stores, {
+      storage: this.storage,
+      messageObjectDeleteConcurrency: MESSAGE_OBJECT_DELETE_CONCURRENCY,
+    });
     this.pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap);
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }
@@ -265,7 +271,7 @@ export class TenantMail extends DurableObject<Env> {
   private clientOf(tenantId: string): RemitClient {
     return createRemitClient({
       repositories: this.mail,
-      storage: r2Storage(this.env.MAIL, this.env.PUBLIC_ORIGIN),
+      storage: this.storage,
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
       mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },

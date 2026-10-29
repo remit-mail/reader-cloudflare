@@ -127,6 +127,11 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     }
   };
 
+  const deletePrefix = async (keyPrefix: string): Promise<void> => {
+    if (keyPrefix === "") return;
+    await removeAll((await listKeys(bucket, keyPrefix)).map((object) => object.key));
+  };
+
   return {
     storeMessageBody: ({ accountConfigId, accountId, messageId, content }) =>
       put(buildMessageBodyKey(accountConfigId, accountId, messageId), content),
@@ -160,10 +165,9 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
         sizeBytes: object.size,
       }));
     },
-    deleteOutboxAttachments: async (accountConfigId, accountId, outboxMessageId) => {
-      const prefix = buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId);
-      await removeAll((await listKeys(bucket, prefix)).map((object) => object.key));
-    },
+    deleteOutboxAttachments: (accountConfigId, accountId, outboxMessageId) =>
+      deletePrefix(buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)),
+    deletePrefix,
     listOutboxDraftsWithAttachments: async (accountConfigId, accountId) => {
       const prefix = `accounts/${accountConfigId}/${accountId}/outbox/`;
       return (await listFolders(bucket, prefix)).map((folder) =>
