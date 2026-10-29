@@ -59,11 +59,11 @@
     "@remit/api-http-client": "0.0.78",
     "@remit/api-openapi-spec": "0.0.79",
     "@remit/api-openapi-types": "0.0.83",
-    "@remit/backend": "0.0.155",
-    "@remit/calendar-service": "0.0.19",
-    "@remit/config-format": "0.0.8",
+    "@remit/backend": "0.0.156",
+    "@remit/calendar-service": "0.0.20",
+    "@remit/config-format": "0.0.9",
     "@remit/config-transfer": "0.0.13",
-    "@remit/data-ports": "0.0.92",
+    "@remit/data-ports": "0.0.94",
     "@remit/domain-enums": "0.0.29",
     "@remit/drizzle-service": "0.0.109",
     "@remit/drizzle-sqlite-schema": "0.0.38",
@@ -81,7 +81,7 @@
     "nodemailer": "^10.2.1",
     "openapi-backend": "^5.22.0",
     "uuid": "^9.0.1",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "overrides": {
     "short-uuid": "6.0.3"
