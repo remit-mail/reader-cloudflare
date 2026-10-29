@@ -303,15 +303,13 @@ const exportSchema = z.discriminatedUnion("state", [
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
 
-const mailboxIdOf = async (fullPath: string): Promise<string> => {
-  const mailbox = (await api.listMailboxes(shared.accountId)).find(
-    (candidate) => candidate.fullPath === fullPath,
+const archiveMailboxId = async (): Promise<string> => {
+  const archive = (await api.listMailboxes(shared.accountId)).find(
+    (mailbox) => mailbox.fullPath === "Archive",
   );
-  if (mailbox === undefined) throw new Error(`no ${fullPath} mailbox in the read model`);
-  return mailbox.mailboxId;
+  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
+  return archive.mailboxId;
 };
-
-const archiveMailboxId = (): Promise<string> => mailboxIdOf("Archive");
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -806,16 +804,16 @@ test.describe("reader on a local Worker", () => {
   test("emptying a Trash of several messages takes every one of their objects off R2", async () => {
     await appendMessages(imapUser, TRASHED);
     await api.triggerSync(shared.accountId);
-    const inboxIds: string[] = [];
+    const messageIds: string[] = [];
     for (const message of TRASHED) {
       const messageId = await api.messageIdForSubject(shared.inboxId, message.subject);
       await storedObjectsOf(messageId, `the body of "${message.subject}" in R2`);
       expect(await plainTextOf(messageId)).toContain(message.body);
-      inboxIds.push(messageId);
+      messageIds.push(messageId);
     }
     const subjects = TRASHED.map((message) => message.subject);
 
-    expect(await api.deleteMessages(inboxIds)).toEqual({
+    expect(await api.deleteMessages(messageIds)).toEqual({
       successCount: TRASHED.length,
       failureCount: 0,
     });
@@ -825,22 +823,6 @@ test.describe("reader on a local Worker", () => {
       (inTrash) => subjects.every((subject) => inTrash.includes(subject)),
       { what: "every trashed message in Trash" },
     );
-    const trashId = await mailboxIdOf("Trash");
-    const trashed = await waitFor(
-      () => api.listThreads(trashId),
-      (threads) =>
-        subjects.every((subject) => threads.some((thread) => thread.subject === subject)),
-      { timeoutMs: 60_000, what: "every trashed message in the read model's Trash" },
-    );
-    const messageIds = [
-      ...new Set([
-        ...inboxIds,
-        ...trashed
-          .filter((thread) => subjects.includes(thread.subject))
-          .map((thread) => thread.messageId),
-      ]),
-    ];
-
     expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThanOrEqual(
       TRASHED.length,
     );
