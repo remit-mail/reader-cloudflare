@@ -186,14 +186,6 @@ const plainTextUrlOf = (description: unknown): string => {
   return part.contentUrl;
 };
 
-const bodyTextOf = async (messageId: string): Promise<string> => {
-  const described = await api.request("GET", `/messages/${messageId}`);
-  expect(described.status).toBe(200);
-  const content = await fetch(plainTextUrlOf(await described.json()));
-  expect(content.status).toBe(200);
-  return content.text();
-};
-
 const connectionTestOf = (password: string): Record<string, unknown> => ({
   username: imapUser,
   password,
@@ -255,13 +247,6 @@ const storedObjectsOf = (messageId: string, what: string): Promise<number> =>
     { timeoutMs: 60_000, what },
   );
 
-const reclaimedObjectsOf = (messageId: string, what: string): Promise<number> =>
-  waitFor(
-    async () => r2ObjectsOf(messageId),
-    (count) => count === 0,
-    { timeoutMs: 60_000, what },
-  );
-
 const jsonLineOf = (line: string): unknown =>
   JSON.parse(line.slice(line.indexOf("{"), line.lastIndexOf("}") + 1));
 
@@ -298,15 +283,13 @@ const exportSchema = z.discriminatedUnion("state", [
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
 
-const mailboxIdOf = async (fullPath: string): Promise<string> => {
-  const found = (await api.listMailboxes(shared.accountId)).find(
-    (mailbox) => mailbox.fullPath === fullPath,
+const archiveMailboxId = async (): Promise<string> => {
+  const archive = (await api.listMailboxes(shared.accountId)).find(
+    (mailbox) => mailbox.fullPath === "Archive",
   );
-  if (found === undefined) throw new Error(`no ${fullPath} mailbox in the read model`);
-  return found.mailboxId;
+  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
+  return archive.mailboxId;
 };
-
-const archiveMailboxId = (): Promise<string> => mailboxIdOf("Archive");
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -527,7 +510,11 @@ test.describe("reader on a local Worker", () => {
     const thread = threads.find((candidate) => candidate.subject === UNFETCHED.subject);
     if (thread === undefined) throw new Error("matched but not found");
 
-    expect(await bodyTextOf(thread.messageId)).toContain(UNFETCHED.body);
+    const described = await api.request("GET", `/messages/${thread.messageId}`);
+    expect(described.status).toBe(200);
+    const content = await fetch(plainTextUrlOf(await described.json()));
+    expect(content.status).toBe(200);
+    expect(await content.text()).toContain(UNFETCHED.body);
   });
 
   test("search finds a seeded subject and nothing else", async ({ page }) => {
@@ -746,7 +733,11 @@ test.describe("reader on a local Worker", () => {
     await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
       what: "an empty Trash",
     });
-    await reclaimedObjectsOf(shared.deletedMessageId, `the body of "${DELETED_SUBJECT}" off R2`);
+    await waitFor(
+      async () => r2ObjectsOf(shared.deletedMessageId),
+      (count) => count === 0,
+      { timeoutMs: 60_000, what: `the body of "${DELETED_SUBJECT}" off R2` },
+    );
   });
 
   test("a copy keeps its body in R2 after its original is deleted for good", async () => {
@@ -789,7 +780,7 @@ test.describe("reader on a local Worker", () => {
     );
     await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
 
-    expect(r2ObjectsOf(originalId)).toBeGreaterThanOrEqual(stored);
+    expect(r2ObjectsOf(originalId)).toBe(stored);
     expect(await api.getRawMessage(copyId)).toBe(onServer);
   });
 
