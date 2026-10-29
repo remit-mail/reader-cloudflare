@@ -101,6 +101,10 @@ const TRASHED: Message[] = [
   { subject: "Trashed with the others: berth change", body: "Moved to berth seven." },
   { subject: "Trashed with the others: fuel dock hours", body: "Open from eight to six." },
 ];
+const TRASH_LISTED: Message = {
+  subject: "Listed in Trash until it is emptied",
+  body: "Trashed through reader, shown in Trash.",
+};
 const DRAFT_SUBJECT = `A draft to discard ${Date.now()}`;
 const TERMINAL_JOB_STATES = new Set(["Complete", "Failed"]);
 const QUEUE_SETTLE_MS = 8_000;
@@ -302,6 +306,14 @@ const archiveMailboxId = async (): Promise<string> => {
   );
   if (archive === undefined) throw new Error("no Archive mailbox in the read model");
   return archive.mailboxId;
+};
+
+const trashMailboxId = async (): Promise<string> => {
+  const trash = (await api.listMailboxes(shared.accountId)).find(
+    (mailbox) => mailbox.fullPath === "Trash",
+  );
+  if (trash === undefined) throw new Error("no Trash mailbox in the read model");
+  return trash.mailboxId;
 };
 
 const openInbox = async (page: Page): Promise<void> => {
@@ -830,6 +842,40 @@ test.describe("reader on a local Worker", () => {
       (counts) => counts.every(([, count]) => count === 0),
       { timeoutMs: 60_000, what: "every trashed message's objects off R2" },
     );
+  });
+
+  test("mail trashed through reader is listed in Trash until Trash is emptied", async () => {
+    await appendMessages(imapUser, [TRASH_LISTED]);
+    await api.triggerSync(shared.accountId);
+    const messageId = await api.messageIdForSubject(shared.inboxId, TRASH_LISTED.subject);
+    const trashId = await trashMailboxId();
+    const listedInTrash = async (): Promise<string[]> =>
+      (await api.listThreads(trashId))
+        .filter((thread) => thread.subject === TRASH_LISTED.subject)
+        .map((thread) => thread.mailboxId);
+
+    expect(await api.deleteMessages([messageId])).toEqual({ successCount: 1, failureCount: 0 });
+    await waitForServerMailbox(
+      imapUser,
+      "Trash",
+      (subjects) => subjects.includes(TRASH_LISTED.subject),
+      { what: `"${TRASH_LISTED.subject}" in Trash on Dovecot` },
+    );
+    expect(
+      await waitFor(listedInTrash, (mailboxIds) => mailboxIds.length > 0, {
+        timeoutMs: 60_000,
+        what: `"${TRASH_LISTED.subject}" in the Trash listing`,
+      }),
+    ).toEqual([trashId]);
+
+    expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThan(0);
+    await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
+      what: "an empty Trash",
+    });
+    await waitFor(listedInTrash, (mailboxIds) => mailboxIds.length === 0, {
+      timeoutMs: 60_000,
+      what: `"${TRASH_LISTED.subject}" gone from the Trash listing`,
+    });
   });
 
   test("the raw source of a message is what Dovecot holds", async () => {
