@@ -21,7 +21,6 @@ import { z } from "zod";
 import { CONTENT_PREFIX } from "../content/route";
 
 const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
-const DELETE_CHUNK = 1000;
 const EXPORT_PART_BYTES = 8 * 1024 * 1024;
 
 const parsedBodySchema = z.object({
@@ -121,10 +120,15 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     return content;
   };
 
-  const removeAll = async (keys: readonly string[]): Promise<void> => {
-    for (let start = 0; start < keys.length; start += DELETE_CHUNK) {
-      await bucket.delete(keys.slice(start, start + DELETE_CHUNK));
-    }
+  const deletePrefix = async (keyPrefix: string): Promise<void> => {
+    let cursor: string | undefined;
+    do {
+      const page = await bucket.list(
+        cursor === undefined ? { prefix: keyPrefix } : { prefix: keyPrefix, cursor },
+      );
+      if (page.objects.length > 0) await bucket.delete(page.objects.map((object) => object.key));
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor !== undefined);
   };
 
   return {
@@ -160,10 +164,9 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
         sizeBytes: object.size,
       }));
     },
-    deleteOutboxAttachments: async (accountConfigId, accountId, outboxMessageId) => {
-      const prefix = buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId);
-      await removeAll((await listKeys(bucket, prefix)).map((object) => object.key));
-    },
+    deleteOutboxAttachments: (accountConfigId, accountId, outboxMessageId) =>
+      deletePrefix(buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)),
+    deletePrefix,
     listOutboxDraftsWithAttachments: async (accountConfigId, accountId) => {
       const prefix = `accounts/${accountConfigId}/${accountId}/outbox/`;
       return (await listFolders(bucket, prefix)).map((folder) =>

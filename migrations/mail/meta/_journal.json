@@ -57,6 +57,13 @@
       "when": 1792959598240,
       "tag": "0007_unicode61_tokenizer",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793259158533,
+      "tag": "0008_message_by_body_storage_key",
+      "breakpoints": true
     }
   ]
 }
