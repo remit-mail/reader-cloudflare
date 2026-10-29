@@ -101,10 +101,6 @@ const TRASHED: Message[] = [
   { subject: "Trashed with the others: berth change", body: "Moved to berth seven." },
   { subject: "Trashed with the others: fuel dock hours", body: "Open from eight to six." },
 ];
-const TRASH_LISTED: Message = {
-  subject: "Listed in Trash until it is emptied",
-  body: "Trashed through reader, shown in Trash.",
-};
 const DRAFT_SUBJECT = `A draft to discard ${Date.now()}`;
 const TERMINAL_JOB_STATES = new Set(["Complete", "Failed"]);
 const QUEUE_SETTLE_MS = 8_000;
@@ -300,21 +296,18 @@ const exportSchema = z.discriminatedUnion("state", [
 const parsedBody = async <T>(response: Response, schema: z.ZodType<T>): Promise<T> =>
   schema.parse(await response.json());
 
-const archiveMailboxId = async (): Promise<string> => {
-  const archive = (await api.listMailboxes(shared.accountId)).find(
-    (mailbox) => mailbox.fullPath === "Archive",
+const mailboxIdByPath = async (fullPath: string): Promise<string> => {
+  const mailbox = (await api.listMailboxes(shared.accountId)).find(
+    (candidate) => candidate.fullPath === fullPath,
   );
-  if (archive === undefined) throw new Error("no Archive mailbox in the read model");
-  return archive.mailboxId;
+  if (mailbox === undefined) throw new Error(`no ${fullPath} mailbox in the read model`);
+  return mailbox.mailboxId;
 };
 
-const trashMailboxId = async (): Promise<string> => {
-  const trash = (await api.listMailboxes(shared.accountId)).find(
-    (mailbox) => mailbox.fullPath === "Trash",
-  );
-  if (trash === undefined) throw new Error("no Trash mailbox in the read model");
-  return trash.mailboxId;
-};
+const trashListingOf = async (subject: string): Promise<string[]> =>
+  (await api.listThreads(await mailboxIdByPath("Trash")))
+    .filter((thread) => thread.subject === subject)
+    .map((thread) => thread.mailboxId);
 
 const openInbox = async (page: Page): Promise<void> => {
   await page.goto(`/mail/${shared.inboxId}`);
@@ -692,12 +685,19 @@ test.describe("reader on a local Worker", () => {
         what: `"${DELETED_SUBJECT}" in Trash`,
       },
     );
+    expect(
+      await waitFor(
+        () => trashListingOf(DELETED_SUBJECT),
+        (mailboxIds) => mailboxIds.length > 0,
+        { timeoutMs: 60_000, what: `"${DELETED_SUBJECT}" in the Trash listing` },
+      ),
+    ).toEqual([await mailboxIdByPath("Trash")]);
     shared.deletedMessageId = messageId;
   });
 
   test("moving a message lands it in the destination mailbox on Dovecot", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, LATE.subject);
-    expect(await api.moveMessages([messageId], await archiveMailboxId())).toEqual({
+    expect(await api.moveMessages([messageId], await mailboxIdByPath("Archive"))).toEqual({
       successCount: 1,
       failureCount: 0,
     });
@@ -755,6 +755,11 @@ test.describe("reader on a local Worker", () => {
       what: "an empty Trash",
     });
     await waitFor(
+      () => trashListingOf(DELETED_SUBJECT),
+      (mailboxIds) => mailboxIds.length === 0,
+      { timeoutMs: 60_000, what: `"${DELETED_SUBJECT}" gone from the Trash listing` },
+    );
+    await waitFor(
       async () => r2ObjectsOf(shared.deletedMessageId),
       (count) => count === 0,
       { timeoutMs: 60_000, what: `the body of "${DELETED_SUBJECT}" off R2` },
@@ -766,7 +771,7 @@ test.describe("reader on a local Worker", () => {
     await api.triggerSync(shared.accountId);
     const originalId = await api.messageIdForSubject(shared.inboxId, COPIED.subject);
     await storedObjectsOf(originalId, `the body of "${COPIED.subject}" in R2`);
-    const archiveId = await archiveMailboxId();
+    const archiveId = await mailboxIdByPath("Archive");
     const copied = await api.request("POST", "/messages/copy", {
       messageIds: [originalId],
       destinationMailboxId: archiveId,
@@ -844,40 +849,6 @@ test.describe("reader on a local Worker", () => {
     );
   });
 
-  test("mail trashed through reader is listed in Trash until Trash is emptied", async () => {
-    await appendMessages(imapUser, [TRASH_LISTED]);
-    await api.triggerSync(shared.accountId);
-    const messageId = await api.messageIdForSubject(shared.inboxId, TRASH_LISTED.subject);
-    const trashId = await trashMailboxId();
-    const listedInTrash = async (): Promise<string[]> =>
-      (await api.listThreads(trashId))
-        .filter((thread) => thread.subject === TRASH_LISTED.subject)
-        .map((thread) => thread.mailboxId);
-
-    expect(await api.deleteMessages([messageId])).toEqual({ successCount: 1, failureCount: 0 });
-    await waitForServerMailbox(
-      imapUser,
-      "Trash",
-      (subjects) => subjects.includes(TRASH_LISTED.subject),
-      { what: `"${TRASH_LISTED.subject}" in Trash on Dovecot` },
-    );
-    expect(
-      await waitFor(listedInTrash, (mailboxIds) => mailboxIds.length > 0, {
-        timeoutMs: 60_000,
-        what: `"${TRASH_LISTED.subject}" in the Trash listing`,
-      }),
-    ).toEqual([trashId]);
-
-    expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThan(0);
-    await waitForServerMailbox(imapUser, "Trash", (subjects) => subjects.length === 0, {
-      what: "an empty Trash",
-    });
-    await waitFor(listedInTrash, (mailboxIds) => mailboxIds.length === 0, {
-      timeoutMs: 60_000,
-      what: `"${TRASH_LISTED.subject}" gone from the Trash listing`,
-    });
-  });
-
   test("the raw source of a message is what Dovecot holds", async () => {
     const messageId = await api.messageIdForSubject(shared.inboxId, TOGGLED_SUBJECT);
     const raw = await api.getRawMessage(messageId);
@@ -904,7 +875,7 @@ test.describe("reader on a local Worker", () => {
     if (harbour === undefined) throw new Error("no seeded message");
     const { organizeJobId } = await api.createOrganizeJob(shared.accountId, {
       literalClauses: [{ field: "Subject", value: SEARCHED_WORD }],
-      actionMailboxId: await archiveMailboxId(),
+      actionMailboxId: await mailboxIdByPath("Archive"),
     });
 
     const job = await waitFor(
@@ -927,7 +898,7 @@ test.describe("reader on a local Worker", () => {
       name: "Chandlery receipts",
       scope: "Standing",
       literalClauses: [{ field: "Subject", value: FILTERED_WORD }],
-      actionMailboxId: await archiveMailboxId(),
+      actionMailboxId: await mailboxIdByPath("Archive"),
     });
     expect(created).toMatchObject({ state: "Active", disabledReason: "None" });
 

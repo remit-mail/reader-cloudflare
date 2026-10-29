@@ -9,7 +9,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 - Biome formats and lints. Run `npm run fix` before every commit.
 - Run `npm run ci` before every push.
 - `main` is protected. Branch from `origin/main`, run `npm run ci` before pushing, and open a pull request with a conventional title under 72 characters and a four-line body. Arm `gh pr merge --squash --auto`; it squash merges once `ci` is green and deletes the branch.
-- Never migrate or re-key existing data on the request path or at Durable Object start; a schema change that reshapes rows means wipe the tenant object and resync, or a D1 migration in `npm run db:migrate`.
+- Never re-key or reshape rows on the request path or at Durable Object start; a schema change that reshapes rows means wipe the tenant object and resync, or a D1 migration in `npm run db:migrate`. A data migration reader ships for its own SQLite store is ported as a tenant mail migration.
 - CI is one fast job named `ci`, the required check on `main`: `npm ci`, then `npm run ci`. It runs on every pull request and every push to `main`, and never deploys.
 - The Worker logs one JSON object per line through `log` in `src/log.ts`. Workers Observability is on in `wrangler.jsonc`.
 - `npm run commit` writes the gitignored `src/commit.ts` from `WORKERS_CI_COMMIT_SHA`, else `git rev-parse HEAD`. `npm run build` runs it first, and `wrangler.jsonc` uses `npm run build` as the build command, so `dev` and `deploy` ship fresh assets; `typecheck` runs it too. `GET /api/config` carries it as `buildCommit`, so a deploy matches a commit; the stale-build reload in `packages/web/src/stale-build.ts` compares it against the loaded bundle.
