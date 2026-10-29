@@ -245,13 +245,6 @@ const r2ObjectsOf = (messageId: string): number =>
     `/messages/${messageId}/`,
   );
 
-const r2ObjectAt = (key: string): number =>
-  countIn(
-    localStoreOf("r2", "miniflare-R2BucketObject"),
-    "select count(*) as rows from _mf_objects where key like ?",
-    `%${key}`,
-  );
-
 const plainTextOf = async (messageId: string): Promise<string> => {
   const described = await api.request("GET", `/messages/${messageId}`);
   expect(described.status).toBe(200);
@@ -796,7 +789,7 @@ test.describe("reader on a local Worker", () => {
     );
     await new Promise((settle) => setTimeout(settle, QUEUE_SETTLE_MS));
 
-    expect(r2ObjectAt(`/messages/${originalId}/body.eml`)).toBe(1);
+    expect(r2ObjectsOf(originalId)).toBe(1);
     expect(await api.getRawMessage(copyId)).toBe(onServer);
     expect(await plainTextOf(copyId)).toContain(COPIED.body);
   });
@@ -823,18 +816,20 @@ test.describe("reader on a local Worker", () => {
       (inTrash) => subjects.every((subject) => inTrash.includes(subject)),
       { what: "every trashed message in Trash" },
     );
+    for (const messageId of messageIds) {
+      expect(r2ObjectsOf(messageId)).toBeGreaterThan(0);
+    }
     expect((await api.emptyTrash(shared.accountId)).deletedCount).toBeGreaterThanOrEqual(
       TRASHED.length,
     );
     await waitForServerMailbox(imapUser, "Trash", (inTrash) => inTrash.length === 0, {
       what: "an empty Trash",
     });
-    const left = await waitFor(
+    await waitFor(
       async () => messageIds.map((messageId) => [messageId, r2ObjectsOf(messageId)] as const),
       (counts) => counts.every(([, count]) => count === 0),
       { timeoutMs: 60_000, what: "every trashed message's objects off R2" },
     );
-    expect(left).toEqual(messageIds.map((messageId) => [messageId, 0]));
   });
 
   test("the raw source of a message is what Dovecot holds", async () => {
