@@ -5,37 +5,17 @@ import {
   readAcceptedEnvelope,
   waitForAcceptedMessage,
 } from "../.reader/packages/e2e/src/smtp-sink.js";
+import {
+  baseUrl,
+  connectImapAccount,
+  defaultCalendarId,
+  deliverInvitation,
+  freshTenant,
+  invitation,
+  pendingSuggestions,
+} from "./tenant.js";
 
 const RESOURCE_SCOPE_MARK = "://";
-
-const baseUrl = (): string => {
-  const url = process.env.E2E_BASE_URL;
-  if (url === undefined) throw new Error("E2E_BASE_URL is not set; run `npm run e2e`");
-  return url;
-};
-
-type Json = <T>(method: string, path: string, body?: unknown) => Promise<T>;
-
-// Every call names its own dev identity, so a spec starts from a tenant no
-// earlier request has created.
-const freshTenant = (): Json => {
-  const identity = `fresh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`;
-  return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const response = await fetch(`${baseUrl()}/api${path}`, {
-      method,
-      headers: {
-        "x-dev-identity": identity,
-        origin: baseUrl(),
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    if (!response.ok) {
-      throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`);
-    }
-    return (await response.json()) as T;
-  };
-};
 
 interface ListedMailbox {
   readonly fullPath: string;
@@ -74,6 +54,25 @@ test.describe("public routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/calendar");
     expect(summariesOf(await response.text())).toContain(summary);
+  });
+
+  test("an invitation added from the mail reaches the feed of the calendar it landed on", async () => {
+    const json = freshTenant();
+    const account = await connectImapAccount(json);
+    const invite = invitation("feed", "2027-04-14T13:00:00Z", "2027-04-14T14:00:00Z");
+    const suggestion = await deliverInvitation(json, account, invite);
+    const calendarId = await defaultCalendarId(json);
+    await json("POST", `/calendar-suggestions/${suggestion.suggestionId}/accept`, { calendarId });
+    expect((await pendingSuggestions(json)).map((pending) => pending.summary)).not.toContain(
+      invite.summary,
+    );
+    const feed = await json<{ feedToken: string }>("PUT", `/calendars/${calendarId}/feed`);
+
+    const response = await fetch(`${baseUrl()}/api/feeds/calendar/${feed.feedToken}.ics`);
+
+    expect(response.status).toBe(200);
+    expect(summariesOf(await response.text())).toContain(invite.summary);
+    await json("DELETE", `/accounts/${account.accountId}`);
   });
 
   test("a feed address no calendar holds answers 404", async () => {
