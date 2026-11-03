@@ -1,7 +1,18 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
+import type {
+  CalendarEventInstance,
+  CalendarEventListResponse,
+  CalendarEventResponse,
+  CalendarTaskListResponse,
+  CalendarTaskResponse,
+} from "@remit/api-openapi-types";
 import { waitFor } from "../.reader/packages/e2e/src/api.js";
+import { appendRawMessage } from "../.reader/packages/e2e/src/imap.js";
+import { waitForAcceptedMessage } from "../.reader/packages/e2e/src/smtp-sink.js";
 import {
+  type Calendar,
   connectImapAccount,
+  connectSendingAccount,
   defaultCalendarId,
   deliverInvitation,
   type EventInstance,
@@ -9,9 +20,11 @@ import {
   eventsBetween,
   type ImapAccount,
   invitation,
+  type Json,
   mintIdentity,
   pendingSuggestions,
   tenantJson,
+  tenantRequest,
 } from "./tenant.js";
 
 const IDENTITY = mintIdentity("calendar");
@@ -323,5 +336,154 @@ test.describe("the calendar on a local Worker", () => {
     );
     await expect(chip(dayColumn(page, "2027-03-10"), invite.summary)).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Waiting for you" })).toHaveCount(0);
+  });
+});
+
+const ORGANIZER = mintIdentity("organizer");
+const GUEST = mintIdentity("guest");
+const organizerJson = tenantJson(ORGANIZER);
+const guestJson = tenantJson(GUEST);
+const GUESTS_SUMMARY = `Guests ${stamp}`;
+const GUESTS_FROM = "2027-04-13T00:00:00+00:00";
+const GUESTS_TO = "2027-04-16T00:00:00+00:00";
+const TASK_WEEK = { from: "2027-05-03T00:00:00+00:00", to: "2027-05-10T00:00:00+00:00" };
+
+const calendarPart = (raw: string): string =>
+  raw.replace(/\r?\n[ \t]+/g, " ").match(/Content-Type: text\/calendar;[^\r\n]*/i)?.[0] ?? "";
+
+// What the recipient's provider does with an accepted submission: file it in their inbox.
+const deliverTo = async (raw: string, json: Json, account: ImapAccount): Promise<void> => {
+  await appendRawMessage(account.imapUser, raw);
+  await json("POST", `/accounts/${account.accountId}/sync`);
+};
+
+const listedEvents = (json: Json): Promise<CalendarEventInstance[]> =>
+  json<CalendarEventListResponse>(
+    "GET",
+    `/calendar-events?${new URLSearchParams({ from: GUESTS_FROM, to: GUESTS_TO })}`,
+  ).then((page) => page.items.filter((item) => item.summary === GUESTS_SUMMARY));
+
+const tasksIn = ({ from, to }: { from: string; to: string }): Promise<CalendarTaskResponse[]> =>
+  organizerJson<CalendarTaskListResponse>(
+    "GET",
+    `/calendar-tasks?${new URLSearchParams({ from, to })}`,
+  ).then((page) => page.items);
+
+test.describe("guests and tasks on a local Worker", () => {
+  test.setTimeout(240_000);
+
+  test.afterAll(async () => {
+    await eraseTenant(organizerJson, ORGANIZER);
+    await eraseTenant(guestJson, GUEST);
+  });
+
+  test("a guest is invited, answers, and is sent a cancellation when the event is deleted", async () => {
+    const organizer = await connectSendingAccount(organizerJson);
+    const guest = await connectSendingAccount(guestJson);
+
+    const event = await organizerJson<CalendarEventResponse>("POST", "/calendar-events", {
+      calendarId: await defaultCalendarId(organizerJson),
+      summary: GUESTS_SUMMARY,
+      start: "2027-04-14T09:00:00+00:00",
+      end: "2027-04-14T10:00:00+00:00",
+      attendees: [{ email: guest.imapUser, displayName: "The Guest" }],
+      organizerAccountId: organizer.accountId,
+    });
+    expect(event.participation).toBe("Organizer");
+    expect(event.sends).toEqual([
+      expect.objectContaining({ email: guest.imapUser, method: "Request" }),
+    ]);
+
+    const invitation = await waitForAcceptedMessage(`Invitation: ${GUESTS_SUMMARY}`, {
+      timeoutMs: 60_000,
+    });
+    expect(calendarPart(invitation.raw)).toMatch(/method=REQUEST/i);
+    await deliverTo(invitation.raw, guestJson, guest);
+
+    const pending = await waitFor(
+      () => pendingSuggestions(guestJson),
+      (items) => items.some((item) => item.summary === GUESTS_SUMMARY),
+      { timeoutMs: 120_000, what: `the invitation to "${GUESTS_SUMMARY}" at the guest` },
+    );
+    const card = pending.find((item) => item.summary === GUESTS_SUMMARY);
+    if (card === undefined) throw new Error("matched but not found");
+    await guestJson("POST", `/calendar-suggestions/${card.suggestionId}/accept`, {
+      calendarId: await defaultCalendarId(guestJson),
+      answer: "Accepted",
+    });
+    const [accepted] = await listedEvents(guestJson);
+    if (accepted === undefined) throw new Error("the accepted invitation is not on the calendar");
+    expect(accepted.participation).toBe("Accepted");
+
+    const declined = await guestJson<CalendarEventResponse>(
+      "PATCH",
+      `/calendar-events/${accepted.calendarObjectId}?calendarId=${accepted.calendarId}`,
+      { answer: "Declined" },
+    );
+    expect(declined.participation).toBe("Declined");
+    expect(declined.sends).toEqual([
+      expect.objectContaining({ email: organizer.imapUser, method: "Reply" }),
+    ]);
+    expect((await listedEvents(guestJson)).map((item) => item.participation)).toEqual(["Declined"]);
+
+    const reply = await waitForAcceptedMessage(`Declined: ${GUESTS_SUMMARY}`, {
+      timeoutMs: 60_000,
+    });
+    expect(calendarPart(reply.raw)).toMatch(/method=REPLY/i);
+    await deliverTo(reply.raw, organizerJson, organizer);
+
+    const { calendarObjectId, calendarId } = event;
+    await waitFor(
+      () =>
+        organizerJson<CalendarEventResponse>(
+          "GET",
+          `/calendar-events/${calendarObjectId}?calendarId=${calendarId}`,
+        ),
+      (resource) =>
+        resource.attendees.some(
+          (attendee) => attendee.email === guest.imapUser && attendee.status === "Declined",
+        ),
+      { timeoutMs: 120_000, what: "the guest's answer on the organizer's copy" },
+    );
+
+    const response = await tenantRequest(ORGANIZER)(
+      "DELETE",
+      `/calendar-events/${calendarObjectId}?${new URLSearchParams({ calendarId, scope: "All" })}`,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      sends: [expect.objectContaining({ email: guest.imapUser, method: "Cancel" })],
+    });
+
+    const cancellation = await waitForAcceptedMessage(`Cancelled: ${GUESTS_SUMMARY}`, {
+      timeoutMs: 60_000,
+    });
+    expect(calendarPart(cancellation.raw)).toMatch(/method=CANCEL/i);
+  });
+
+  test("a task round-trips through the task list", async () => {
+    const { items } = await organizerJson<{ items: Calendar[] }>("GET", "/calendars");
+    const list = items.find((collection) => collection.componentSet === "VtodoOnly");
+
+    const created = await organizerJson<CalendarTaskResponse>("POST", "/calendar-tasks", {
+      summary: `Task ${stamp}`,
+      due: "2027-05-05",
+      allDay: true,
+    });
+    expect(created.calendarId).toBe(list?.calendarId);
+    expect(created.completed).toBe(false);
+
+    const taskPath = `/calendar-tasks/${created.calendarTaskId}?calendarId=${created.calendarId}`;
+    const done = await organizerJson<CalendarTaskResponse>("PATCH", taskPath, { completed: true });
+    expect(done.completed).toBe(true);
+    expect(await tasksIn(TASK_WEEK)).toContainEqual(
+      expect.objectContaining({ calendarTaskId: created.calendarTaskId, completed: true }),
+    );
+
+    const removed = await tenantRequest(ORGANIZER)("DELETE", taskPath);
+    expect(removed.status).toBe(204);
+    expect((await tasksIn(TASK_WEEK)).map((task) => task.calendarTaskId)).not.toContain(
+      created.calendarTaskId,
+    );
   });
 });
