@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { waitFor } from "../.reader/packages/e2e/src/api.js";
-import { imap, imapFromStack, mintImapUser } from "../.reader/packages/e2e/src/env.js";
+import {
+  imap,
+  imapFromStack,
+  mintImapUser,
+  smtpFromStack,
+} from "../.reader/packages/e2e/src/env.js";
 import { appendRawMessage } from "../.reader/packages/e2e/src/imap.js";
 
 export const baseUrl = (): string => {
@@ -14,10 +19,12 @@ export type Json = <T>(method: string, path: string, body?: unknown) => Promise<
 export const mintIdentity = (prefix: string): string =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@remit.test`;
 
-export const tenantJson =
-  (identity: string): Json =>
-  async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const response = await fetch(`${baseUrl()}/api${path}`, {
+export type TenantRequest = (method: string, path: string, body?: unknown) => Promise<Response>;
+
+export const tenantRequest =
+  (identity: string): TenantRequest =>
+  (method: string, path: string, body?: unknown): Promise<Response> =>
+    fetch(`${baseUrl()}/api${path}`, {
       method,
       headers: {
         "x-dev-identity": identity,
@@ -26,6 +33,11 @@ export const tenantJson =
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+
+export const tenantJson =
+  (identity: string): Json =>
+  async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    const response = await tenantRequest(identity)(method, path, body);
     if (!response.ok) {
       throw new Error(`${method} ${path} failed: ${response.status} ${await response.text()}`);
     }
@@ -46,7 +58,20 @@ export interface ImapAccount {
   readonly imapUser: string;
 }
 
-export const connectImapAccount = async (json: Json): Promise<ImapAccount> => {
+const NO_SMTP = { smtpEnabled: false };
+
+const SMTP_TO_SINK = {
+  smtpEnabled: true,
+  smtpHost: smtpFromStack.host,
+  smtpPort: smtpFromStack.port,
+  smtpTls: false,
+  smtpStartTls: false,
+};
+
+const connectAccount = async (
+  json: Json,
+  smtp: typeof NO_SMTP | typeof SMTP_TO_SINK,
+): Promise<ImapAccount> => {
   const imapUser = mintImapUser();
   const { accountId } = await json<{ accountId: string }>("POST", "/accounts", {
     email: imapUser,
@@ -56,7 +81,7 @@ export const connectImapAccount = async (json: Json): Promise<ImapAccount> => {
     imapPort: imapFromStack.port,
     imapTls: false,
     imapStartTls: false,
-    smtpEnabled: false,
+    ...smtp,
   });
   await json("POST", `/accounts/${accountId}/sync`);
   await waitFor(
@@ -69,6 +94,13 @@ export const connectImapAccount = async (json: Json): Promise<ImapAccount> => {
   );
   return { accountId, imapUser };
 };
+
+export const connectImapAccount = (json: Json): Promise<ImapAccount> =>
+  connectAccount(json, NO_SMTP);
+
+// Sends go to the Mailpit sink, which is where a spec reads what left the Worker.
+export const connectSendingAccount = (json: Json): Promise<ImapAccount> =>
+  connectAccount(json, SMTP_TO_SINK);
 
 export interface Invitation {
   readonly summary: string;
@@ -158,11 +190,14 @@ export const pendingSuggestions = (json: Json): Promise<PendingSuggestion[]> =>
 export interface Calendar {
   readonly calendarId: string;
   readonly source: string;
+  readonly componentSet: string;
 }
 
 export const defaultCalendarId = async (json: Json): Promise<string> => {
   const { items } = await json<{ items: Calendar[] }>("GET", "/calendars");
-  const calendar = items.find((candidate) => candidate.source === "Default");
+  const calendar = items.find(
+    (candidate) => candidate.source === "Default" && candidate.componentSet === "VeventOnly",
+  );
   if (calendar === undefined) throw new Error("the tenant has no default calendar");
   return calendar.calendarId;
 };

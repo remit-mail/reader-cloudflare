@@ -96,6 +96,7 @@ export const processContext = (
 const smtpPorts = (mail: SqliteRepositories): SmtpDataPorts => ({
   account: mail.account,
   outboxMessage: mail.outboxMessage,
+  outboxSchedulingPart: mail.outboxSchedulingPart,
   outboxAttachment: mail.outboxAttachment,
   address: mail.address,
   message: mail.message,
