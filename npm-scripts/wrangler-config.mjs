@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { queueFamilyOf } from "../src/queue/routing.ts";
+import { MAIL_SERVER_FAMILIES, STAGES } from "./stages.mjs";
 
 const root = join(import.meta.dirname, "..");
 
@@ -48,7 +49,8 @@ const only = (entries, binding, what) => {
   return entries[0];
 };
 
-export const renderWrangler = (base, outputs, config) => {
+export const renderWrangler = (base, outputs, config, stage) => {
+  const { mailSync } = STAGES[stage];
   const { env: _environments, routes: _routes, ...portable } = base;
   const queueOf = (queue) => {
     const name = outputs.queues[queueFamilyOf(queue)];
@@ -59,10 +61,13 @@ export const renderWrangler = (base, outputs, config) => {
   const bucket = only(base.r2_buckets, "MAIL", "R2 bucket");
   const secret = only(base.secrets_store_secrets, "MASTER_KEY", "Secrets Store secret");
   const microsoft = outputs.microsoft_oauth;
+  const consumed = (consumer) =>
+    mailSync || !MAIL_SERVER_FAMILIES.includes(queueFamilyOf(consumer.queue));
   return {
     ...portable,
     name: outputs.worker_name,
     account_id: config.account_id,
+    triggers: mailSync ? base.triggers : { crons: [] },
     routes: [{ pattern: outputs.app_hostname, zone_name: config.zone_name, custom_domain: true }],
     vars: {
       ...base.vars,
@@ -80,7 +85,7 @@ export const renderWrangler = (base, outputs, config) => {
         ...producer,
         queue: queueOf(producer.queue),
       })),
-      consumers: base.queues.consumers.map((consumer) => ({
+      consumers: base.queues.consumers.filter(consumed).map((consumer) => ({
         ...consumer,
         queue: queueOf(consumer.queue),
         ...(consumer.dead_letter_queue && {
@@ -89,7 +94,11 @@ export const renderWrangler = (base, outputs, config) => {
       })),
     },
     secrets_store_secrets: [
-      { ...secret, store_id: outputs.secrets_store_id },
+      {
+        ...secret,
+        store_id: outputs.secrets_store_id,
+        secret_name: outputs.master_key_secret_name,
+      },
       ...(microsoft
         ? [
             {
@@ -103,8 +112,8 @@ export const renderWrangler = (base, outputs, config) => {
   };
 };
 
-export const writeWranglerDeploy = (outputs, config) => {
-  const rendered = renderWrangler(readJsonc(WRANGLER_CONFIG), outputs, config);
+export const writeWranglerDeploy = (outputs, config, stage) => {
+  const rendered = renderWrangler(readJsonc(WRANGLER_CONFIG), outputs, config, stage);
   writeFileSync(WRANGLER_DEPLOY_CONFIG, `${JSON.stringify(rendered, null, 2)}\n`);
   return rendered;
 };

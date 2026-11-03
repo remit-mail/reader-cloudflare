@@ -1,6 +1,15 @@
 variable "project" {
   type        = string
-  description = "Name every resource derives from: the Worker, D1 database, Secrets Store, Access application and policies, and the prefix of the bucket, queues and tokens. project in deploy.config.json."
+  description = "Name every resource derives from: the Worker, D1 database, the Secrets Store it looks up, Access application and policies, and the prefix of the bucket, queues and tokens. project in deploy.config.json."
+}
+
+variable "stage" {
+  type        = string
+  description = "Deployment stage. prod keeps the project name and owns the account-wide debug token and usage alerts; dev suffixes every name with -dev. Both look up the Secrets Store tofu-bootstrap --secrets-store creates."
+  validation {
+    condition     = contains(["prod", "dev"], var.stage)
+    error_message = "stage is prod or dev."
+  }
 }
 
 variable "account_id" {
@@ -15,7 +24,7 @@ variable "zone_name" {
 
 variable "app_hostname" {
   type        = string
-  description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json."
+  description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json for prod, dev_app_hostname for dev."
 }
 
 variable "owner_emails" {

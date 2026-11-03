@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 import { CONFIG_DIR, PROJECT } from "./env.mjs";
+import { PROD } from "./stages.mjs";
 
 const hostname = z
   .string()
@@ -9,11 +10,14 @@ const hostname = z
     "a lower case DNS name",
   );
 
+const inZone = (name, zone) => name === zone || name.endsWith(`.${zone}`);
+
 export const deployConfigSchema = z
   .object({
     account_id: z.string().regex(/^[0-9a-f]{32}$/, "a 32 character Cloudflare account id"),
     zone_name: hostname,
     app_hostname: hostname,
+    dev_app_hostname: hostname,
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
     msoauth: z
@@ -22,12 +26,18 @@ export const deployConfigSchema = z
       .optional(),
   })
   .strict()
-  .refine(
-    (config) =>
-      config.app_hostname === config.zone_name ||
-      config.app_hostname.endsWith(`.${config.zone_name}`),
-    { message: "app_hostname must sit in zone_name", path: ["app_hostname"] },
-  );
+  .refine((config) => inZone(config.app_hostname, config.zone_name), {
+    message: "app_hostname must sit in zone_name",
+    path: ["app_hostname"],
+  })
+  .refine((config) => inZone(config.dev_app_hostname, config.zone_name), {
+    message: "dev_app_hostname must sit in zone_name",
+    path: ["dev_app_hostname"],
+  })
+  .refine((config) => config.dev_app_hostname !== config.app_hostname, {
+    message: "dev_app_hostname must differ from app_hostname",
+    path: ["dev_app_hostname"],
+  });
 
 export const DEPLOY_CONFIG_OBJECT = "deploy.config.json";
 
@@ -46,10 +56,16 @@ export const parseDeployConfig = (text, source) => {
   return parsed.data;
 };
 
-export const tofuVars = (config) => ({
+const stageConfig = ({ dev_app_hostname, msoauth, ...shared }, stage) =>
+  stage === PROD
+    ? { ...shared, ...(msoauth && { msoauth }) }
+    : { ...shared, app_hostname: dev_app_hostname };
+
+export const tofuVars = (config, stage) => ({
   TF_VAR_project: PROJECT,
+  TF_VAR_stage: stage,
   ...Object.fromEntries(
-    Object.entries(config).map(([key, value]) => [
+    Object.entries(stageConfig(config, stage)).map(([key, value]) => [
       `TF_VAR_${key}`,
       typeof value === "string" ? value : JSON.stringify(value),
     ]),

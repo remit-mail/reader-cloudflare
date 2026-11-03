@@ -4,12 +4,13 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PROJECT } from "./env.mjs";
+import { stageSuffix } from "./stages.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const INFRA_DIR = join(root, "infra");
 export const TFSTATE_BUCKET = `${PROJECT}-tfstate`;
-export const TFSTATE_KEY = `${PROJECT}.tfstate`;
+export const stateKeyOf = (stage) => `${PROJECT}${stageSuffix(stage)}.tfstate`;
 export const BUILDER_SECRETS_BUCKET = `${PROJECT}-builder-secrets`;
 export const TOFU_VERSION = "1.13.2";
 
@@ -83,12 +84,12 @@ export const tofuRunner = async (env) => {
   };
 };
 
-export const TOFU_INIT = [
+export const tofuInit = (stage) => [
   "init",
   "-input=false",
   "-reconfigure",
   `-backend-config=bucket=${TFSTATE_BUCKET}`,
-  `-backend-config=key=${TFSTATE_KEY}`,
+  `-backend-config=key=${stateKeyOf(stage)}`,
 ];
 
 const hmac = (key, text) => createHmac("sha256", key).update(text).digest();
@@ -125,8 +126,8 @@ const r2Get = async ({ accountId, accessKeyId, secretAccessKey }, bucket, key) =
   return response.text();
 };
 
-export const readStateOutputs = async (credentials) => {
-  const state = JSON.parse(await r2Get(credentials, TFSTATE_BUCKET, TFSTATE_KEY));
+export const readStateOutputs = async (credentials, stage) => {
+  const state = JSON.parse(await r2Get(credentials, TFSTATE_BUCKET, stateKeyOf(stage)));
   return (name) => {
     const value = state.outputs?.[name]?.value;
     if (!value) {

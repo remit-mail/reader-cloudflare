@@ -27,7 +27,8 @@ terraform {
 provider "cloudflare" {}
 
 locals {
-  name = var.project
+  prod = var.stage == "prod"
+  name = local.prod ? var.project : "${var.project}-${var.stage}"
 }
 
 resource "cloudflare_d1_database" "app" {
@@ -99,9 +100,23 @@ resource "cloudflare_queue" "dlq" {
   queue_name = "${local.name}-dlq"
 }
 
-resource "cloudflare_secrets_store" "this" {
+removed {
+  from = cloudflare_secrets_store.this
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+data "cloudflare_secrets_stores" "all" {
   account_id = var.account_id
-  name       = local.name
+}
+
+locals {
+  secrets_store_id = one([
+    for store in data.cloudflare_secrets_stores.all.result : store.id if store.name == var.project
+  ])
+  master_key_secret_name = local.prod ? "MASTER_KEY" : "${upper(var.stage)}_MASTER_KEY"
 }
 
 resource "random_bytes" "master_key" {
@@ -110,20 +125,26 @@ resource "random_bytes" "master_key" {
 
 resource "cloudflare_secrets_store_secret" "master_key" {
   account_id = var.account_id
-  store_id   = cloudflare_secrets_store.this.id
-  name       = "MASTER_KEY"
+  store_id   = local.secrets_store_id
+  name       = local.master_key_secret_name
   value      = random_bytes.master_key.base64
   scopes     = ["workers"]
   comment    = "Master encryption key for ${local.name}"
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = local.secrets_store_id != null
+      error_message = "No Secrets Store named ${var.project}; run tofu-bootstrap ${var.project} --secrets-store."
+    }
   }
 }
 
 import {
-  to = cloudflare_worker.reader
-  id = "${var.account_id}/${var.project}"
+  for_each = local.prod ? toset([var.project]) : toset([])
+  to       = cloudflare_worker.reader
+  id       = "${var.account_id}/${each.value}"
 }
 
 resource "cloudflare_worker" "reader" {

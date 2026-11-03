@@ -9,7 +9,7 @@ locals {
 resource "cloudflare_secrets_store_secret" "msoauth_client_secret" {
   count      = local.microsoft_oauth ? 1 : 0
   account_id = var.account_id
-  store_id   = cloudflare_secrets_store.this.id
+  store_id   = local.secrets_store_id
   name       = "MSOAUTH_CLIENT_SECRET"
   value      = var.msoauth.client_secret
   scopes     = ["workers"]

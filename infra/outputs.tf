@@ -37,7 +37,12 @@ output "queues" {
 
 output "secrets_store_id" {
   description = "store_id of the MASTER_KEY binding in the rendered wrangler.deploy.jsonc."
-  value       = cloudflare_secrets_store.this.id
+  value       = local.secrets_store_id
+}
+
+output "master_key_secret_name" {
+  description = "secret_name of the MASTER_KEY binding in the rendered wrangler.deploy.jsonc; the stages share the account's one Secrets Store, made by tofu-bootstrap."
+  value       = cloudflare_secrets_store_secret.master_key.name
 }
 
 output "worker_id" {
@@ -56,8 +61,8 @@ output "access_team_domain" {
 }
 
 output "debug_token" {
-  description = "Read-biased token for agents; npm run cf-env:write puts it in cf-env."
-  value       = cloudflare_account_token.debug.value
+  description = "Read-biased token for agents, minted by the prod stage only; npm run cf-env:write puts it in cf-env."
+  value       = local.prod ? cloudflare_account_token.debug[0].value : null
   sensitive   = true
 }
 

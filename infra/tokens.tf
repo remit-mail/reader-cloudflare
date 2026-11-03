@@ -14,7 +14,7 @@ data "cloudflare_account_api_token_permission_groups_list" "tfstate_read" {
 }
 
 locals {
-  tfstate_bucket = "${local.name}-tfstate"
+  tfstate_bucket = "${var.project}-tfstate"
 
   account_permission_ids = {
     for group in data.cloudflare_account_api_token_permission_groups_list.account.result : group.name => group.id
@@ -49,6 +49,7 @@ locals {
 }
 
 resource "cloudflare_account_token" "debug" {
+  count      = local.prod ? 1 : 0
   account_id = var.account_id
   name       = "${local.name}-debug"
 
@@ -73,4 +74,9 @@ resource "cloudflare_account_token" "debug" {
   lifecycle {
     create_before_destroy = true
   }
+}
+
+moved {
+  from = cloudflare_account_token.debug
+  to   = cloudflare_account_token.debug[0]
 }

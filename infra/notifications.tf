@@ -1,5 +1,5 @@
 resource "cloudflare_notification_policy" "usage" {
-  for_each = var.usage_alert_limits
+  for_each = local.prod ? var.usage_alert_limits : {}
 
   account_id  = var.account_id
   name        = "${local.name} ${each.key}"

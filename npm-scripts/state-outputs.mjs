@@ -11,7 +11,7 @@ const stateCredentials = async (token, accountId) => {
   return r2Credentials(token, accountId);
 };
 
-export const debugStateOutputs = async () => {
+export const debugStateOutputs = async (stage) => {
   restoreSecret(DEBUG_TOKEN_SECRET, CF_ENV, "cf-env");
   const fileEnv = readEnvFile(CF_ENV);
   const token = fileEnv.CLOUDFLARE_API_TOKEN;
@@ -21,5 +21,5 @@ export const debugStateOutputs = async () => {
   }
   const accountId = fileEnv.CLOUDFLARE_ACCOUNT_ID || (await resolveAccountId(token));
   const credentials = await stateCredentials(token, accountId);
-  return { accountId, output: await readStateOutputs({ accountId, ...credentials }) };
+  return { accountId, output: await readStateOutputs({ accountId, ...credentials }, stage) };
 };
