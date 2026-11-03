@@ -1,4 +1,7 @@
-import { ACCESS_ENV, readEnvFile } from "./env.mjs";
+import { accessEnvOf, readEnvFile } from "./env.mjs";
+import { PROD } from "./stages.mjs";
+
+const ACCESS_ENV = accessEnvOf(PROD);
 
 export const appApi = () => {
   const env = readEnvFile(ACCESS_ENV);

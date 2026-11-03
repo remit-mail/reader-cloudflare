@@ -8,12 +8,18 @@ import {
 } from "./deploy-config.mjs";
 import { restoreSecret } from "./dotfiles-secret.mjs";
 import { PROJECT } from "./env.mjs";
-import { requireEnv, TOFU_INIT, tofuEnv, tofuRunner } from "./tofu.mjs";
+import { parseStage } from "./stages.mjs";
+import { requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
 
 requireEnv(
   ["CLOUDFLARE_TOFU_TOKEN", "TFSTATE_ACCESS_KEY_ID", "TFSTATE_SECRET_ACCESS_KEY"],
   `export them from dotfiles-key decrypt ${PROJECT}-tofu-token and ${PROJECT}-tfstate-s3; applies run only in Workers Builds`,
 );
+
+const [first, ...others] = process.argv.slice(3);
+const named = first !== undefined && !first.startsWith("-");
+const stage = parseStage(named ? first : undefined);
+const planArgs = named ? others : process.argv.slice(3);
 
 restoreSecret(DEPLOY_CONFIG_SECRET, DEPLOY_CONFIG_FILE, "deploy config");
 const config = parseDeployConfig(readFileSync(DEPLOY_CONFIG_FILE, "utf8"), DEPLOY_CONFIG_FILE);
@@ -24,8 +30,8 @@ const tofu = await tofuRunner(
     apiToken: process.env.CLOUDFLARE_TOFU_TOKEN,
     accessKeyId: process.env.TFSTATE_ACCESS_KEY_ID,
     secretAccessKey: process.env.TFSTATE_SECRET_ACCESS_KEY,
-    vars: tofuVars(config),
+    vars: tofuVars(config, stage),
   }),
 );
-tofu(TOFU_INIT);
-tofu(["plan", "-input=false", ...process.argv.slice(2)]);
+tofu(tofuInit(stage));
+tofu(["plan", "-input=false", ...planArgs]);

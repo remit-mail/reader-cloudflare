@@ -3,6 +3,15 @@ variable "project" {
   description = "Name every resource derives from: the Worker, D1 database, Secrets Store, Access application and policies, and the prefix of the bucket, queues and tokens. project in deploy.config.json."
 }
 
+variable "stage" {
+  type        = string
+  description = "Deployment stage. prod keeps the project name and owns the account-wide pieces (Secrets Store, debug token, usage alerts); dev suffixes every name with -dev and borrows the prod Secrets Store."
+  validation {
+    condition     = contains(["prod", "dev"], var.stage)
+    error_message = "stage is prod or dev."
+  }
+}
+
 variable "account_id" {
   type        = string
   description = "Cloudflare account that owns the Worker and its storage. account_id in deploy.config.json."
@@ -15,7 +24,7 @@ variable "zone_name" {
 
 variable "app_hostname" {
   type        = string
-  description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json."
+  description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json for prod, dev_app_hostname for dev."
 }
 
 variable "owner_emails" {

@@ -17,7 +17,7 @@
     "deploy": "node npm-scripts/deploy.mjs",
     "fix": "biome check --write .",
     "check": "biome check .",
-    "typecheck": "npm run commit && npm run build:schema && npm run build:vendor-types && tsc --noEmit -p tsconfig.check.json && tsc --noEmit -p packages/web/tsconfig.json",
+    "typecheck": "npm run commit && npm run build:schema && npm run build:vendor-types && tsc --noEmit -p tsconfig.check.json && tsc --noEmit -p packages/web/tsconfig.json && tsc --noEmit -p npm-scripts/tsconfig.json",
     "infra:plan": "node npm-scripts/infra.mjs plan",
     "cf-env:write": "node npm-scripts/cf-env-write.mjs",
     "ci": "npm run check && npm run check:no-config && npm run check:retries && npm run typecheck",
@@ -41,7 +41,9 @@
     "dashboards": "node npm-scripts/dashboards.mjs",
     "access-env:write": "node npm-scripts/access-env-write.mjs",
     "api": "node npm-scripts/api.mjs",
-    "smoke:sync": "node npm-scripts/smoke-sync.mjs"
+    "smoke:sync": "node npm-scripts/smoke-sync.mjs",
+    "seed:dev": "tsx npm-scripts/seed-dev.ts",
+    "smoke:dev": "tsx npm-scripts/smoke-dev.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",
@@ -50,6 +52,7 @@
     "@typespec/compiler": "^1.17.0",
     "drizzle-kit": "^0.31.11",
     "miniflare": "^4.20260730.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "typespec-electrodb-emitter": "^6.0.1",
     "wrangler": "^4.152.0"

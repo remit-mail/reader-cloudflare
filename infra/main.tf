@@ -27,7 +27,8 @@ terraform {
 provider "cloudflare" {}
 
 locals {
-  name = var.project
+  prod = var.stage == "prod"
+  name = local.prod ? var.project : "${var.project}-${var.stage}"
 }
 
 resource "cloudflare_d1_database" "app" {
@@ -100,8 +101,26 @@ resource "cloudflare_queue" "dlq" {
 }
 
 resource "cloudflare_secrets_store" "this" {
+  count      = local.prod ? 1 : 0
   account_id = var.account_id
-  name       = local.name
+  name       = var.project
+}
+
+moved {
+  from = cloudflare_secrets_store.this
+  to   = cloudflare_secrets_store.this[0]
+}
+
+data "cloudflare_secrets_stores" "all" {
+  count      = local.prod ? 0 : 1
+  account_id = var.account_id
+}
+
+locals {
+  secrets_store_id = local.prod ? cloudflare_secrets_store.this[0].id : one([
+    for store in data.cloudflare_secrets_stores.all[0].result : store.id if store.name == var.project
+  ])
+  master_key_secret_name = local.prod ? "MASTER_KEY" : "${upper(var.stage)}_MASTER_KEY"
 }
 
 resource "random_bytes" "master_key" {
@@ -110,8 +129,8 @@ resource "random_bytes" "master_key" {
 
 resource "cloudflare_secrets_store_secret" "master_key" {
   account_id = var.account_id
-  store_id   = cloudflare_secrets_store.this.id
-  name       = "MASTER_KEY"
+  store_id   = local.secrets_store_id
+  name       = local.master_key_secret_name
   value      = random_bytes.master_key.base64
   scopes     = ["workers"]
   comment    = "Master encryption key for ${local.name}"
@@ -122,8 +141,9 @@ resource "cloudflare_secrets_store_secret" "master_key" {
 }
 
 import {
-  to = cloudflare_worker.reader
-  id = "${var.account_id}/${var.project}"
+  for_each = local.prod ? toset([var.project]) : toset([])
+  to       = cloudflare_worker.reader
+  id       = "${var.account_id}/${each.value}"
 }
 
 resource "cloudflare_worker" "reader" {

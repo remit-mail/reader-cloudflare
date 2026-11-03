@@ -1,9 +1,10 @@
 import { chmodSync, copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { pushSecret } from "./dotfiles-secret.mjs";
 import { CF_ENV, CONFIG_DIR, DEBUG_TOKEN_SECRET, PROJECT } from "./env.mjs";
+import { PROD } from "./stages.mjs";
 import { debugStateOutputs } from "./state-outputs.mjs";
 
-const { accountId, output } = await debugStateOutputs();
+const { accountId, output } = await debugStateOutputs(PROD);
 const token = output("debug_token");
 
 mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
