@@ -36,6 +36,9 @@ if (process.env.WORKERS_CI_BRANCH !== "main") {
   process.exit(2);
 }
 
+delete process.env.WRANGLER_CI_OVERRIDE_NAME;
+delete process.env.WRANGLER_CI_MATCH_TAG;
+
 requireEnv(["CLOUDFLARE_API_TOKEN"], "Workers Builds injects it into the deploy step");
 
 const buildsToken = process.env.CLOUDFLARE_API_TOKEN;
