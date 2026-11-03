@@ -6,7 +6,7 @@ const UNMAPPED_TENANTS =
 
 const literal = (value) => `'${value.replaceAll("'", "''")}'`;
 
-export const execute = (config, database, sql) => [
+const execute = (config, database, sql) => [
   "d1",
   "execute",
   database,
@@ -17,9 +17,9 @@ export const execute = (config, database, sql) => [
   sql,
 ];
 
-export const backfillTenantAccountConfigs = (config, database, env = process.env) => {
+export const backfillTenantAccountConfigs = (config, database) => {
   const [result] = JSON.parse(
-    wranglerOutput([...execute(config, database, UNMAPPED_TENANTS), "--json"], env),
+    wranglerOutput([...execute(config, database, UNMAPPED_TENANTS), "--json"]),
   );
   const tenants = result.results.map((row) => row.tenant_id);
   console.log(`backfill: ${tenants.length} tenant(s) without a tenant_account_config row`);
@@ -33,6 +33,5 @@ export const backfillTenantAccountConfigs = (config, database, env = process.env
       database,
       `INSERT OR IGNORE INTO tenant_account_config (account_config_id, tenant_id) VALUES ${rows}`,
     ),
-    env,
   );
 };
