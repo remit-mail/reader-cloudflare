@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url";
 import { wrangler } from "./cf.mjs";
 import { readJsonc, WRANGLER_DEPLOY_CONFIG } from "./wrangler-config.mjs";
 
-export const migrate = (config, database) =>
-  wrangler(["d1", "migrations", "apply", database, "--remote", "--config", config]);
+export const migrate = (config, database, env = process.env) =>
+  wrangler(["d1", "migrations", "apply", database, "--remote", "--config", config], env);
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (!existsSync(WRANGLER_DEPLOY_CONFIG)) {

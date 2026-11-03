@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { backfillTenantAccountConfigs } from "./backfill-tenant-account-config.mjs";
 import { inWorkersBuilds, wrangler } from "./cf.mjs";
 import { r2ObjectText, resolveAccountId } from "./cf-api.mjs";
@@ -10,6 +12,7 @@ import {
   parseDeployConfig,
   tofuVars,
 } from "./deploy-config.mjs";
+import { emptyDatabase, removeStrayConsumers, scriptExists } from "./dev-reclaim.mjs";
 import { PROJECT } from "./env.mjs";
 import { DEV, PROD } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
@@ -71,8 +74,47 @@ const exitOnFailure = (status) => {
   if (status !== 0) process.exit(status);
 };
 
+const CI_NAME_OVERRIDES = ["WRANGLER_CI_OVERRIDE_NAME", "WRANGLER_CI_MATCH_TAG"];
+
+const stageEnv = (stage) =>
+  stage === PROD
+    ? process.env
+    : Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !CI_NAME_OVERRIDES.includes(name)),
+      );
+
+const deployedWorker = (outputFile) => {
+  if (!existsSync(outputFile)) return undefined;
+  return readFileSync(outputFile, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .find((entry) => entry.type === "deploy")?.worker_name;
+};
+
+const wranglerDeploy = (stage, name, env) => {
+  const outputDir = join(import.meta.dirname, "..", ".wrangler");
+  const outputFile = join(outputDir, `deploy-${stage}.ndjson`);
+  mkdirSync(outputDir, { recursive: true });
+  rmSync(outputFile, { force: true });
+  exitOnFailure(
+    wrangler(["deploy", "--config", WRANGLER_DEPLOY_CONFIG, ...process.argv.slice(2)], {
+      ...env,
+      WRANGLER_OUTPUT_FILE_PATH: outputFile,
+    }),
+  );
+  const deployed = deployedWorker(outputFile);
+  if (deployed !== name) {
+    console.error(
+      `deploy: stage ${stage} rendered Worker ${name}, but wrangler deployed ${deployed ?? "no Worker it reported"}`,
+    );
+    process.exit(1);
+  }
+};
+
 const deployStage = async (stage) => {
   console.log(`deploy: stage ${stage}`);
+  const env = stageEnv(stage);
   const tofu = await tofuRunner(
     tofuEnv({
       accountId,
@@ -94,9 +136,18 @@ const deployStage = async (stage) => {
   const rendered = writeWranglerDeploy(outputs, config, stage);
   console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${outputs.app_hostname}`);
 
-  exitOnFailure(migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
-  exitOnFailure(backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
-  exitOnFailure(wrangler(["deploy", "--config", WRANGLER_DEPLOY_CONFIG, ...process.argv.slice(2)]));
+  const firstDevUpload =
+    stage !== PROD && !(await scriptExists(buildsToken, accountId, rendered.name));
+  if (stage !== PROD) await removeStrayConsumers(buildsToken, accountId, outputs);
+
+  exitOnFailure(migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name, env));
+  if (firstDevUpload) {
+    exitOnFailure(emptyDatabase(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name, env));
+  }
+  exitOnFailure(
+    backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name, env),
+  );
+  wranglerDeploy(stage, rendered.name, env);
   return outputs;
 };
 
