@@ -41,7 +41,7 @@ output "secrets_store_id" {
 }
 
 output "master_key_secret_name" {
-  description = "secret_name of the MASTER_KEY binding in the rendered wrangler.deploy.jsonc; the stages share the account's one Secrets Store."
+  description = "secret_name of the MASTER_KEY binding in the rendered wrangler.deploy.jsonc; the stages share the account's one Secrets Store, made by tofu-bootstrap."
   value       = cloudflare_secrets_store_secret.master_key.name
 }
 

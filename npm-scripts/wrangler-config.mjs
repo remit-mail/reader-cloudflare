@@ -50,7 +50,7 @@ const only = (entries, binding, what) => {
 };
 
 export const renderWrangler = (base, outputs, config, stage) => {
-  const { cron, mailServer } = STAGES[stage];
+  const { mailSync } = STAGES[stage];
   const { env: _environments, routes: _routes, ...portable } = base;
   const queueOf = (queue) => {
     const name = outputs.queues[queueFamilyOf(queue)];
@@ -62,12 +62,12 @@ export const renderWrangler = (base, outputs, config, stage) => {
   const secret = only(base.secrets_store_secrets, "MASTER_KEY", "Secrets Store secret");
   const microsoft = outputs.microsoft_oauth;
   const consumed = (consumer) =>
-    mailServer || !MAIL_SERVER_FAMILIES.includes(queueFamilyOf(consumer.queue));
+    mailSync || !MAIL_SERVER_FAMILIES.includes(queueFamilyOf(consumer.queue));
   return {
     ...portable,
     name: outputs.worker_name,
     account_id: config.account_id,
-    triggers: cron ? base.triggers : { crons: [] },
+    triggers: mailSync ? base.triggers : { crons: [] },
     routes: [{ pattern: outputs.app_hostname, zone_name: config.zone_name, custom_domain: true }],
     vars: {
       ...base.vars,

@@ -100,25 +100,21 @@ resource "cloudflare_queue" "dlq" {
   queue_name = "${local.name}-dlq"
 }
 
-resource "cloudflare_secrets_store" "this" {
-  count      = local.prod ? 1 : 0
-  account_id = var.account_id
-  name       = var.project
-}
-
-moved {
+removed {
   from = cloudflare_secrets_store.this
-  to   = cloudflare_secrets_store.this[0]
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 data "cloudflare_secrets_stores" "all" {
-  count      = local.prod ? 0 : 1
   account_id = var.account_id
 }
 
 locals {
-  secrets_store_id = local.prod ? cloudflare_secrets_store.this[0].id : one([
-    for store in data.cloudflare_secrets_stores.all[0].result : store.id if store.name == var.project
+  secrets_store_id = one([
+    for store in data.cloudflare_secrets_stores.all.result : store.id if store.name == var.project
   ])
   master_key_secret_name = local.prod ? "MASTER_KEY" : "${upper(var.stage)}_MASTER_KEY"
 }
@@ -137,6 +133,11 @@ resource "cloudflare_secrets_store_secret" "master_key" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = local.secrets_store_id != null
+      error_message = "No Secrets Store named ${var.project}; run tofu-bootstrap ${var.project} --secrets-store."
+    }
   }
 }
 
