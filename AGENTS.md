@@ -44,6 +44,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run test`                     | vitest on `@cloudflare/vitest-plugin` for the login Worker in `packages/login`          |
 | `npm run check:no-config`          | Fails on an account id, Access value, e-mail or deploy config value in git              |
 | `npm run e2e`                      | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it |
+| `npm run e2e:login`                | The login Worker on `wrangler dev`: invite, sign-in, TOTP, reset and the OIDC code flow |
 | `npm run infra:plan [dev]`         | `tofu init` and `plan` of a stage with the runner token and state keys from the env     |
 | `npm run db:generate`              | drizzle-kit writes SQL migrations into `migrations/`                                    |
 | `npm run db:generate:mail`         | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`    |
