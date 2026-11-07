@@ -17,9 +17,9 @@ import { passkeyCount } from "./webauthn";
 
 type MiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
-const PENDING_COOKIE = "pending_second_step";
-const PENDING_SECONDS = 600;
-const TWO_FACTOR_COOKIE = "two_factor";
+export const PENDING_COOKIE = "pending_second_step";
+export const PENDING_SECONDS = 600;
+export const TWO_FACTOR_COOKIE = "two_factor";
 
 export const SIGN_IN_PATH = "/sign-in/email";
 export const PASSKEY_SIGN_IN_PATH = "/passkey/verify-authentication";
@@ -27,7 +27,6 @@ export const TWO_FACTOR_PATHS: ReadonlySet<string> = new Set([
   "/two-factor/verify-totp",
   "/two-factor/verify-backup-code",
 ]);
-export const RESET_PATH = "/email-otp/reset-password";
 
 const addressOfContext = (ctx: MiddlewareContext): string =>
   addressOf({ headers: ctx.headers ?? new Headers() });
@@ -149,7 +148,7 @@ export const secondFactorBefore = (db: D1Database) =>
       return;
     }
     const address = addressOfContext(ctx);
-    if (ctx.path === SIGN_IN_PATH || ctx.path === RESET_PATH) {
+    if (ctx.path === SIGN_IN_PATH) {
       const email = stringField(ctx.body, "email") ?? "";
       await reserveOrThrow(db, [addressKey(address), await accountKey(email)], email, address);
       return;
@@ -249,26 +248,5 @@ export const secondFactorAfter = (db: D1Database) =>
       await settleSuccess(db, address, await accountKey(email));
       await audit(db, { actor: "self", email, address, event: "SignIn", outcome: "Succeeded" });
       return;
-    }
-    if (ctx.path === RESET_PATH) {
-      const email = stringField(ctx.body, "email") ?? "";
-      if (failed(ctx)) {
-        await audit(db, {
-          actor: "anonymous",
-          email,
-          address,
-          event: "PasswordReset",
-          outcome: "Refused",
-        });
-        return;
-      }
-      await settleSuccess(db, address, await accountKey(email));
-      await audit(db, {
-        actor: "self",
-        email,
-        address,
-        event: "PasswordReset",
-        outcome: "Succeeded",
-      });
     }
   });

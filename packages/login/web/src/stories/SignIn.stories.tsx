@@ -29,15 +29,18 @@ const Second = ({
   method,
   problem = null,
   busy = false,
+  afterReset = false,
 }: {
   method: SecondStepMethod;
   problem?: SecondStepProblem | null;
   busy?: boolean;
+  afterReset?: boolean;
 }) => {
   const [current, setCurrent] = useState(method);
   return (
     <SecondStepView
       method={current}
+      afterReset={afterReset}
       problem={problem}
       busy={busy}
       onSubmit={hold}
@@ -109,4 +112,8 @@ export const BackupCode: Story = {
 
 export const NoAppNoCodes: Story = {
   render: () => <Second method="help" />,
+};
+
+export const SecondStepAfterReset: Story = {
+  render: () => <Second method="app" afterReset />,
 };

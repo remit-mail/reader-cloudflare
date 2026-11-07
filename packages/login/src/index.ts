@@ -1,12 +1,13 @@
 import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
+import { isAPIError } from "better-auth/api";
 import { purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
 import { configOf, type LoginConfig } from "./config";
 import type { Env } from "./env";
-import { notFound, text } from "./http";
+import { json, notFound, text } from "./http";
 import { log } from "./log";
 import {
   type AdminContext,
@@ -15,7 +16,8 @@ import {
   renderAudit,
   runAdminAction,
 } from "./routes/admin";
-import { lookupInvite, redeemInvite, requestReset } from "./routes/app";
+import { lookupInvite, redeemInvite } from "./routes/app";
+import { lookupResetLink, type MailDeps, requestFreshLink, requestReset } from "./routes/reset";
 
 const SPA_PAGES: ReadonlySet<string> = new Set([
   "/sign-in",
@@ -25,6 +27,7 @@ const SPA_PAGES: ReadonlySet<string> = new Set([
   "/welcome/second-step",
   "/welcome/backup-codes",
   "/reset",
+  "/reset/password",
   "/security",
   "/sign-out",
 ]);
@@ -117,6 +120,12 @@ const serveAuth = async (
   return auth.handler(request);
 };
 
+const answered = (pending: Promise<Response>): Promise<Response> =>
+  pending.catch((error: unknown) => {
+    if (!isAPIError(error)) throw error;
+    return json(error.statusCode, error.body ?? { message: error.message });
+  });
+
 const serveApp = async (
   auth: Auth,
   env: Env,
@@ -130,31 +139,50 @@ const serveApp = async (
   }
   if (request.method !== "POST") return notFound();
   const headers = request.headers;
+  const mail: MailDeps = { db: env.DB, config, email: mailerOf(env), waitUntil };
   switch (path) {
     case "/app/invite/lookup":
       return lookupInvite(env.DB, request, await readJson(request));
     case "/app/invite/redeem":
       return redeemInvite(env.DB, config, request, await readJson(request));
     case "/app/reset/request":
-      return requestReset(env.DB, request, await readJson(request), waitUntil, (email) =>
-        auth.api.sendVerificationOTP({ body: { email, type: "forget-password" } }),
+      return requestReset(mail, request, await readJson(request));
+    case "/app/reset/lookup":
+      return lookupResetLink(env.DB, request, await readJson(request));
+    case "/app/reset/password":
+      return answered(
+        auth.api.resetPassword({
+          body: (await readJson(request)) as { token: string; password: string },
+          headers,
+          asResponse: true,
+        }),
       );
+    case "/app/link/fresh":
+      return requestFreshLink(mail, request, await readJson(request));
+    case "/app/second-step/app":
+      return answered(auth.api.appEnroll({ headers, asResponse: true }));
     case "/app/welcome/password":
-      return auth.api.welcomePassword({
-        body: (await readJson(request)) as { password: string },
-        headers,
-        asResponse: true,
-      });
+      return answered(
+        auth.api.welcomePassword({
+          body: (await readJson(request)) as { password: string },
+          headers,
+          asResponse: true,
+        }),
+      );
     case "/app/security/confirm":
-      return auth.api.securityConfirm({
-        body: (await readJson(request)) as { password: string },
-        headers,
-        asResponse: true,
-      });
+      return answered(
+        auth.api.securityConfirm({
+          body: (await readJson(request)) as { password: string },
+          headers,
+          asResponse: true,
+        }),
+      );
     case "/app/sign-out":
       return toSeeOther(await auth.api.appSignOut({ headers, asResponse: true }));
     case "/app/sign-out-everywhere":
-      return toSeeOther(await auth.api.appSignOutEverywhere({ headers, asResponse: true }));
+      return toSeeOther(
+        await answered(auth.api.appSignOutEverywhere({ headers, asResponse: true })),
+      );
     case "/app/admin/challenge":
       return openAdminChallenge(admin, request, await readJson(request));
     case "/app/admin/action":

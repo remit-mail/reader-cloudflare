@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueInvite } from "../src/routes/app";
+import { issueResetLink } from "../src/routes/reset";
 import {
   call,
   cookiesOf,
@@ -56,13 +57,27 @@ describe("password rules", () => {
     });
     expect(changed.status).toBe(400);
 
-    const reset = await call("/api/auth/email-otp/reset-password", {
-      body: { email, otp: "00000000", password: PWNED },
-    });
-    expect(reset.status).not.toBe(200);
+    const token = await issueResetLink(testEnv.DB, user, Date.now());
+    const reset = await call("/app/reset/password", { body: { token, password: PWNED } });
+    expect(reset.status).toBe(400);
   });
 
-  it("signs the invitee in so the second step can confirm the password", async () => {
+  it("leaves the reset link valid after a refused password", async () => {
+    mockPwnedPasswords([PWNED]);
+    const user = await createUser(uniqueEmail("refused"), { password: PASSWORD });
+    const token = await issueResetLink(testEnv.DB, user, Date.now());
+    for (const password of ["a".repeat(11), "b".repeat(129), PWNED]) {
+      const refused = await call("/app/reset/password", { body: { token, password } });
+      expect(refused.status).toBe(400);
+    }
+    expect((await call("/app/reset/lookup", { body: { token } })).status).toBe(200);
+    const reset = await call("/app/reset/password", {
+      body: { token, password: "a fine and long new password" },
+    });
+    expect(reset.status).toBe(200);
+  });
+
+  it("signs the invitee in so the second step can still confirm the password", async () => {
     mockPwnedPasswords([]);
     const password = "a fresh password for the welcome flow";
     const { token } = await issueInvite(testEnv.DB, uniqueEmail("second-step"), "test");

@@ -27,9 +27,9 @@ Self-host has no way to stop every sign-in at once, and no page to see or manage
 
 Each host uses its cloud's managed auth. On Cloudflare, Access remains the gate in front of reader and its single kill switch. Reader trusts the identity Access asserts.
 
-The login app runs as its own Worker on its own domain. It keeps accounts in its own database and sends invites and codes through Cloudflare Email Service. It builds on the same open-source auth library as self-host.
+The login app runs as its own Worker on its own domain. It keeps accounts in its own database and sends invites and reset links through Cloudflare Email Service. It builds on the same open-source auth library as self-host.
 
-An operator sends an invite. The person opens the link, confirms with a button and chooses a password. A second factor is optional. Once added, every password sign-in requires it. Email codes reset a password and nothing else.
+An operator sends an invite. The person opens the link, confirms with a button and chooses a password. A second factor is optional. Once added, every password sign-in requires it. An emailed link resets a password and nothing else.
 
 Sessions feel long. The login session lasts weeks, and Access renews its own short session from it in the background. Signing out, a reset or an operator action ends the login session at once, and Access follows within 15 minutes.
 
@@ -58,9 +58,9 @@ flowchart LR
 ## Functional requirements
 
 - **FR-1 Invite.** An operator invites a person by email. The link lives 7 days and works once. Only pressing Continue redeems it. (BR-1)
-- **FR-2 Onboard.** The invitee chooses a password of 12 to 128 characters that is in no known breach. They then add a second factor, or skip. (BR-1, BR-2)
+- **FR-2 Onboard.** The invitee chooses a password of 12 to 128 characters that is in no known breach. They then add a second factor without typing the password again, or skip. A dead invite link mails a fresh one on request. (BR-1, BR-2)
 - **FR-3 Sign in.** Sign-in takes a passkey, or a password plus the second factor when one is set up. (BR-2)
-- **FR-4 Recover.** An email code resets a forgotten password and never skips the second factor. A backup code or an operator reset recovers a lost phone. (BR-2)
+- **FR-4 Recover.** An emailed link resets a forgotten password, signs out every other device and never skips the second factor. A dead link mails a fresh one on request. A backup code or an operator reset recovers a lost phone. (BR-2)
 - **FR-5 Long sessions.** The login session rolls for 90 days. Access renews its 15-minute session from it without a prompt. (BR-2)
 - **FR-6 Security page.** A person manages factors and password on the login site. Reader's settings link to it. (BR-2)
 - **FR-7 Operator actions.** An operator invites, disables, enables, resets factors and signs a person out everywhere. Each action needs a fresh second-factor check, bound to that action and that person. (BR-1, BR-3)
@@ -72,8 +72,8 @@ flowchart LR
 - **NFR-1 Access is the boundary.** Every request to reader on Cloudflare passes Access. The operator stops everyone in Access. (BR-3)
 - **NFR-2 Revocation within 15 minutes.** Every way a session ends reaches Access within 15 minutes, when its session fails to renew. (BR-3)
 - **NFR-3 Agents stay out.** Agent credentials cannot read login data, secrets or logs. The agent service token is refused on the login domain. (BR-3)
-- **NFR-4 Guessing is slow.** After 5 wrong tries, each try waits longer, per account and per IP. A reset request answers the same for every email. (BR-3)
-- **NFR-5 Tokens.** Invite tokens, codes and reset links work once, expire, and are stored only as a hash. (BR-1, BR-3)
+- **NFR-4 Guessing is slow.** After 5 wrong tries, each try waits longer, per account and per IP. A reset or fresh-link request answers the same for every email and token, and both share one quota per IP and per account. (BR-3)
+- **NFR-5 Tokens.** Invite tokens and reset links work once, expire, and are stored only as a hash. A reset link lives 1 hour, a newer one replaces it, and its token travels in the URL fragment. (BR-1, BR-3)
 - **NFR-6 Audit.** Every sign-in event and operator action is recorded with time, actor, target, IP and outcome, for 90 days. A record holds no password, token or code. (BR-3)
 
 ## FAQ
@@ -128,7 +128,7 @@ Assets, in order of value:
 4. Credentials: password hashes, authenticator secrets, backup codes and passkey public keys.
 5. Sessions: login sessions and Access sessions.
 6. The OIDC client secret.
-7. Invite tokens and email codes in transit.
+7. Invite tokens and reset links in transit.
 8. Audit records, which hold emails and network addresses.
 
 | Threat                                           | Mitigation                                                                                                                                                                               | Residual                                                   |
@@ -136,8 +136,10 @@ Assets, in order of value:
 | Someone creates an account without an invite     | Open sign-up is off. The only path that creates a user sits behind a grant that only the invite POST issues                                                                              | None known                                                 |
 | A mail scanner or link preview redeems an invite | The token sits in the URL fragment, which never reaches a server. Only the Continue POST redeems it                                                                                      | None                                                       |
 | Password guessing                                | Backoff per account and per IP after 5 failures, up to 2 minutes per account and 15 minutes per IP. Passkey sign-in is exempt, so a stranger cannot lock a passkey user out              | One network can try slowly                                 |
-| Account enumeration through reset                | The reset request answers before any lookup, with one body and the same timing for every email                                                                                           | None known                                                 |
-| A reset by email code bypasses the second factor | A code sets a password only. The next sign-in still asks for the passkey or app                                                                                                          | None                                                       |
+| Account enumeration through reset                | The reset and fresh-link requests answer before any lookup, with one status and body for every email and token                                                                           | None known                                                 |
+| A reset link bypasses the second factor          | A link sets a password only. No session exists until the passkey or app step passes, and the session it makes is not confirmed for factor changes                                        | None                                                       |
+| A reset link leaks from a log or a Referer       | The token sits in the URL fragment, which the page strips on load. It works once, for 1 hour, and the database holds only its hash                                                       | Anyone who reads the inbox within the hour                 |
+| A dead link mails someone a working one          | A fresh link goes only to the address the old one went to. A revoked invite, a disabled account and an unknown token get nothing                                                         | None known                                                 |
 | A stolen Access cookie                           | It lives 15 minutes and cannot renew once the login session ends                                                                                                                         | Up to 15 minutes of access                                 |
 | An authorization code redeemed after sign-out    | The token endpoint refuses a code whose login session is gone or whose user is disabled                                                                                                  | None known                                                 |
 | Cross-site POST                                  | Exact `Origin` check, SameSite cookies, no framing                                                                                                                                       | None known                                                 |
@@ -188,10 +190,10 @@ The signing keys rotate every 90 days and the old public key stays published for
 | Access organization session                | 15 minutes. Access reissues an app session from it without the identity provider |
 | Authorization code                         | 60 seconds                                                                       |
 | ID and access token                        | 15 minutes, no refresh token                                                     |
-| Reauthentication window for factor changes | 5 minutes                                                                        |
+| Reauthentication window for factor changes | 5 minutes, per session. Setting the invite password opens it; a reset does not   |
 | Operator challenge                         | 2 minutes, one action                                                            |
 | Invite                                     | 7 days, single use                                                               |
-| Email code                                 | 10 minutes, single use, 5 tries                                                  |
+| Reset link                                 | 1 hour, single use, replaced by a newer link                                     |
 
 When the Access session lapses, Access redirects to the login app. A live login session issues a code without a page, and the person lands back where they were. Reader probes its own session every 5 minutes while the tab is visible and when the tab becomes visible again. On a lapsed session it reloads the page once at the top level, which runs the renewal.
 
@@ -207,7 +209,7 @@ When the Access session lapses, Access redirects to the login app. A live login 
 
 An operator action runs in one database batch: disable the user, delete the sessions, then delete the issued tokens.
 
-Adding or removing a factor, changing the password, regenerating backup codes and signing out everywhere each need the password or a passkey from the last 5 minutes. Each change sends the account a notice by email.
+Adding or removing a factor, changing the password, regenerating backup codes and signing out everywhere each need the password or a passkey from the last 5 minutes, on the same session. Setting the invite password counts as that check for the session it creates, so onboarding asks for the password once; a reset never counts, and no window satisfies an operator step-up. After a confirm, the change the person picked runs without a second press. Each change sends the account a notice by email.
 
 While prod allows both the PIN and the login app, Access shows its chooser at each renewal. Once the PIN is gone, Access sends a visitor straight to the login app.
 

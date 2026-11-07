@@ -3,8 +3,12 @@ import { createOTP } from "@better-auth/utils/otp";
 import { hashPassword, makeSignature, symmetricEncrypt } from "better-auth/crypto";
 import { vi } from "vitest";
 import { createAuth } from "../src/auth";
+import { mailerOf } from "../src/capture";
+import { configOf } from "../src/config";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { issueInvite } from "../src/routes/app";
+import type { MailDeps } from "../src/routes/reset";
 
 export const OPERATOR = "operator@remit.test";
 export const OTHER_OPERATOR = "second-operator@remit.test";
@@ -157,4 +161,44 @@ export const mockPwnedPasswords = (pwned: readonly string[] | "unreachable") => 
     );
     return new Response(["0000000000000000000000000000000000A:0", ...lines].join("\r\n"));
   });
+};
+
+const background: Promise<unknown>[] = [];
+
+export const mailDeps = (env: Env = testEnv): MailDeps => ({
+  db: env.DB,
+  config: configOf(env),
+  email: mailerOf(env),
+  waitUntil: (promise) => {
+    background.push(promise);
+  },
+});
+
+export const settle = async (): Promise<void> => {
+  await Promise.all(background.splice(0));
+};
+
+export const fromAddress = (address: string = randomAddress()): Request =>
+  new Request(ORIGIN, { method: "POST", headers: { "cf-connecting-ip": address } });
+
+export const mailsTo = (email: string): SentMail[] =>
+  sent.filter((message) => message.to === email);
+
+export const linkIn = (mail: SentMail | undefined, path: string): string | undefined =>
+  mail?.text.match(new RegExp(`${path}#([A-Za-z0-9_-]+)`))?.[1];
+
+export const welcome = async (
+  email: string,
+  password: string,
+  env: Env = testEnv,
+): Promise<string> => {
+  const { token } = await issueInvite(env.DB, email, "test");
+  const redeemed = await call("/app/invite/redeem", { body: { token }, env });
+  const answer = await call("/app/welcome/password", {
+    cookie: cookiesOf(redeemed),
+    body: { password },
+    env,
+  });
+  if (answer.status !== 200) throw new Error(`welcome answered ${answer.status}`);
+  return cookiesOf(answer);
 };

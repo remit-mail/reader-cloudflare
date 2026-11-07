@@ -131,28 +131,46 @@ export const returnTarget = (requested: string | null, readerOrigin: string): st
   return target?.origin === new URL(readerOrigin).origin ? target.toString() : root;
 };
 
-export const finish = async (answer: Answer): Promise<void> => {
+export const leave = async (answer: Answer): Promise<string | null> => {
   if (answer.ok && typeof answer.body.url === "string") {
     window.location.assign(answer.body.url);
-    return;
+    return null;
   }
   const query = oauthQuery();
   if (query !== undefined) {
     const params = new URLSearchParams(query);
     for (const name of ["sig", "exp", "ba_iat", "ba_pl", "ba_param"]) params.delete(name);
     window.location.assign(`/api/auth/oauth2/authorize?${params.toString()}`);
-    return;
-  }
-  const origin = await readerOriginOf().catch((error: unknown) => {
-    window.dispatchEvent(
-      new CustomEvent(FAILURE_EVENT, {
-        detail: error instanceof Error ? error.message : String(error),
-      }),
-    );
     return null;
-  });
-  if (origin === null) return;
-  window.location.assign(
-    returnTarget(new URLSearchParams(window.location.search).get("return"), origin),
+  }
+  const origin = await readerOriginOf().then(
+    (found): { readonly found: string } | { readonly failure: string } => ({ found }),
+    (error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) }),
   );
+  if ("failure" in origin) return origin.failure;
+  window.location.assign(
+    returnTarget(new URLSearchParams(window.location.search).get("return"), origin.found),
+  );
+  return null;
+};
+
+export const finish = async (answer: Answer): Promise<void> => {
+  const failure = await leave(answer);
+  if (failure === null) return;
+  window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
+};
+
+let linkToken: string | null = null;
+
+export const takeLinkToken = (): string | null => {
+  const fragment = window.location.hash.slice(1);
+  if (fragment) {
+    linkToken = fragment;
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  return linkToken;
+};
+
+export const dropLinkToken = (): void => {
+  linkToken = null;
 };

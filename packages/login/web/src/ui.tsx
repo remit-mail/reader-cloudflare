@@ -20,13 +20,23 @@ export const focusOnMount = (element: HTMLElement | null): void => {
 export const Page = ({
   title,
   wide = false,
+  focusTitle = false,
   children,
 }: {
   title: string;
   wide?: boolean;
+  focusTitle?: boolean;
   children: ReactNode;
 }) => {
-  const heading = <h1 className="text-xl font-semibold text-fg">{title}</h1>;
+  const heading = (
+    <h1
+      className="text-xl font-semibold text-fg focus:outline-none"
+      tabIndex={focusTitle ? -1 : undefined}
+      ref={focusTitle ? focusOnMount : undefined}
+    >
+      {title}
+    </h1>
+  );
   return (
     <AuthCard className={wide ? "justify-start" : undefined}>
       <p className="pb-4 text-center text-lg font-semibold text-fg">remit</p>

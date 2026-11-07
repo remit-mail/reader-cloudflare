@@ -63,7 +63,7 @@
         "READER_ORIGIN": "http://127.0.0.1:8790",
         "LOGIN_OIDC_CLIENT_ID": "reader-cloudflare-access",
         "EMAIL_SENDER": "login@remit.test",
-        "OPERATOR_EMAILS": "operator@remit.test"
+        "OPERATOR_EMAILS": "operator@remit.test,newcomer@remit.test"
       },
       "d1_databases": [
         {

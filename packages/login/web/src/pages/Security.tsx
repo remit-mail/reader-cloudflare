@@ -1,5 +1,5 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type Answer, get, post } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
 import {
@@ -147,8 +147,8 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
         <SecurityDialogFrame title="Confirm it is you" onClose={onClose}>
           <Muted>
             {account.app
-              ? "Type the code from your authenticator app or use a passkey, then run the change again."
-              : "Type your password or use a passkey, then run the change again."}
+              ? "Type the code from your authenticator app or use a passkey. Your change then runs."
+              : "Type your password or use a passkey. Your change then runs."}
           </Muted>
           {account.app || account.passkeys.length === 0 ? (
             <Form onSubmit={props.onConfirmPassword}>
@@ -403,6 +403,7 @@ export const Security = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [dialog, setDialog] = useState<SecurityDialog | null>(null);
   const [busy, setBusy] = useState(false);
+  const pending = useRef<(() => Promise<unknown>) | null>(null);
 
   const reload = useCallback(() => {
     loadAccount().then(setAccount);
@@ -421,6 +422,7 @@ export const Security = () => {
     setBusy(false);
     if (!answer.ok) {
       if (answer.code === "REAUTHENTICATE") {
+        pending.current = () => run(change, success, failedTitle);
         setDialog({ kind: "confirm", error: null });
         return answer;
       }
@@ -457,14 +459,20 @@ export const Security = () => {
     );
   }
 
-  const confirmed = (answer: Answer) => {
+  const confirmed = async (answer: Answer) => {
     if (!answer.ok) {
       setDialog({ kind: "confirm", error: answer.message });
       return;
     }
     setDialog(null);
     setFailure(null);
-    setNotice("Confirmed for 5 minutes. Run the change again.");
+    const resume = pending.current;
+    pending.current = null;
+    if (resume === null) {
+      setNotice("Confirmed for 5 minutes.");
+      return;
+    }
+    await resume();
   };
 
   const confirmPassword = async (event: FormEvent<HTMLFormElement>) => {
@@ -476,7 +484,7 @@ export const Security = () => {
     setBusy(true);
     const answer = await post("/app/security/confirm", body);
     setBusy(false);
-    confirmed(answer);
+    await confirmed(answer);
   };
 
   const confirmPasskey = async () => {
@@ -489,7 +497,7 @@ export const Security = () => {
     }
     const answer = await post("/app/security/confirm", { passkey: asserted.assertion });
     setBusy(false);
-    confirmed(answer);
+    await confirmed(answer);
   };
 
   const withPassword =
@@ -529,7 +537,10 @@ export const Security = () => {
       dialog={dialog}
       busy={busy}
       onOpen={setDialog}
-      onClose={() => setDialog(null)}
+      onClose={() => {
+        pending.current = null;
+        setDialog(null);
+      }}
       onConfirmPassword={confirmPassword}
       onConfirmPasskey={confirmPasskey}
       onRemovePasskey={(passkey) =>
@@ -553,6 +564,10 @@ export const Security = () => {
       )}
       addApp={
         <AppSetup
+          onReauthenticate={() => {
+            pending.current = async () => setDialog({ kind: "add-app" });
+            setDialog({ kind: "confirm", error: null });
+          }}
           onDone={(codes) => {
             setDialog({ kind: "codes", codes });
             setNotice("Authenticator app added.");

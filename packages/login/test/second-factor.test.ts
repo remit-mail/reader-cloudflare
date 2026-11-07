@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { issueResetLink } from "../src/routes/reset";
 import {
   addPasskeyRow,
-  auth,
   call,
   cookiesOf,
   createUser,
   mockPwnedPasswords,
   PASSWORD,
-  sent,
   signIn,
   testEnv,
   totpCode,
@@ -63,19 +62,43 @@ describe("password path second step", () => {
     expect(await sessionCount(other.id)).toBe(0);
   });
 
-  it("still asks for the passkey after a reset by email code", async () => {
+  it("creates no session from a reset by link for a passkey user", async () => {
     mockPwnedPasswords([]);
     const { email, user } = await passkeyUser();
-    await (await auth()).api.sendVerificationOTP({ body: { email, type: "forget-password" } });
-    const mail = sent.findLast((message) => message.to === email);
-    const code = mail?.text.match(/\b(\d{8})\b/)?.[1];
-    expect(code).toBeDefined();
+    const token = await issueResetLink(testEnv.DB, user, Date.now());
     const fresh = "a brand new long password";
-    const reset = await call("/api/auth/email-otp/reset-password", {
-      body: { email, otp: code, password: fresh },
-    });
+    const reset = await call("/app/reset/password", { body: { token, password: fresh } });
     expect(reset.status).toBe(200);
+    expect(await reset.json()).toEqual({ secondStep: "passkey" });
+    expect(cookiesOf(reset)).not.toContain("session_token");
+    expect(await sessionCount(user.id)).toBe(0);
     await expectSecondStep(email, fresh, user.id);
+  });
+
+  it("asks an app user for the code after a reset by link", async () => {
+    mockPwnedPasswords([]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const step = 61_000_000 + Math.floor(Math.random() * 1_000_000);
+      vi.setSystemTime(step * 30_000 + 10_000);
+      const user = await createUser(uniqueEmail("app-reset"), { totp: true, password: PASSWORD });
+      const token = await issueResetLink(testEnv.DB, user, Date.now());
+      const reset = await call("/app/reset/password", {
+        body: { token, password: "a brand new long password" },
+      });
+      expect(reset.status).toBe(200);
+      expect(await reset.json()).toEqual({ secondStep: "app" });
+      expect(cookiesOf(reset)).not.toContain("session_token");
+      expect(await sessionCount(user.id)).toBe(0);
+      const verified = await call("/api/auth/two-factor/verify-totp", {
+        cookie: cookiesOf(reset),
+        body: { code: await totpCode(step) },
+      });
+      expect(verified.status).toBe(200);
+      expect(await sessionCount(user.id)).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("spends a sign-in app code so it cannot confirm a security change", async () => {

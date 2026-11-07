@@ -16,6 +16,7 @@ export const invites = sqliteTable(
     tokenHash: text("token_hash").notNull(),
     state: text("state").$type<"Open" | "Redeemed" | "Replaced" | "Revoked">().notNull(),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
+    firstIssuedAt: integer("first_issued_at", { mode: "number" }).notNull().default(0),
     expiresAt: integer("expires_at", { mode: "number" }).notNull(),
     stateChangedAt: integer("state_changed_at", { mode: "number" }).notNull(),
     issuedBy: text("issued_by").notNull(),
@@ -36,6 +37,24 @@ export const onboardingGrants = sqliteTable(
     expiresAt: integer("expires_at", { mode: "number" }).notNull(),
   },
   (table) => [uniqueIndex("onboarding_grant_token_hash").on(table.tokenHash)],
+);
+
+export const resetLinks = sqliteTable(
+  "reset_link",
+  {
+    resetLinkId: text("reset_link_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    state: text("state").$type<"Open" | "Used" | "Replaced">().notNull(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "number" }).notNull(),
+    stateChangedAt: integer("state_changed_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("reset_link_user").on(table.userId),
+    uniqueIndex("reset_link_token_hash").on(table.tokenHash),
+  ],
 );
 
 export const authAttempts = sqliteTable("auth_attempt", {
@@ -103,6 +122,7 @@ export const auditEvents = sqliteTable(
         | "Backoff"
         | "ResetRequested"
         | "PasswordReset"
+        | "FreshLinkRequested"
         | "PasswordChanged"
         | "FactorAdded"
         | "FactorRemoved"

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { InviteView, WelcomePasswordView } from "../pages/Invite";
+import { type InviteState, InviteView, WelcomePasswordView } from "../pages/Invite";
 import { hold, noop } from "./fixtures";
 
 const meta: Meta = { title: "Playground/Proposed/Identity/Redeem invite" };
@@ -13,6 +13,7 @@ export const Ready: Story = {
       state={{ kind: "ready", email: "invitee@example.com", failure: null }}
       busy={false}
       onContinue={noop}
+      onFresh={noop}
     />
   ),
 };
@@ -49,8 +50,20 @@ export const PasswordCheckFailed: Story = {
   ),
 };
 
-export const NoLongerWorks: Story = {
-  render: () => <InviteView state={{ kind: "expired" }} busy={false} onContinue={noop} />,
+const View = ({ state }: { state: InviteState }) => (
+  <InviteView state={state} busy={false} onContinue={noop} onFresh={noop} />
+);
+
+export const LinkExpired: Story = {
+  render: () => <View state={{ kind: "expired", failure: null }} />,
+};
+
+export const FreshLinkSent: Story = {
+  render: () => <View state={{ kind: "fresh-sent" }} />,
+};
+
+export const LinkMissing: Story = {
+  render: () => <View state={{ kind: "missing" }} />,
 };
 
 export const Locked: Story = {
@@ -62,6 +75,7 @@ export const Locked: Story = {
       }}
       busy={false}
       onContinue={noop}
+      onFresh={noop}
     />
   ),
 };
