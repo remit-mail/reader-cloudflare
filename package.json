@@ -89,6 +89,7 @@
     "zod": "^4.6.7"
   },
   "overrides": {
+    "follow-redirects": "1.16.2",
     "short-uuid": "6.0.3"
   }
 }
