@@ -143,7 +143,9 @@ const main = async () => {
     microsoftPort,
     xoauth2ImapPort,
     xoauth2SmtpPort,
-  ] = await Promise.all(Array.from({ length: 10 }, freePort));
+    faultImapPort,
+    faultControlPort,
+  ] = await Promise.all(Array.from({ length: 12 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -170,6 +172,8 @@ const main = async () => {
     E2E_MSOAUTH_TOKEN_PORT: String(microsoftPort),
     E2E_XOAUTH2_IMAP_PORT: String(xoauth2ImapPort),
     E2E_XOAUTH2_SMTP_PORT: String(xoauth2SmtpPort),
+    E2E_FAULT_IMAP_PORT: String(faultImapPort),
+    E2E_FAULT_CONTROL_PORT: String(faultControlPort),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
   };
@@ -190,6 +194,7 @@ const main = async () => {
   let wrangler;
   let log;
   let xoauth2;
+  let faultProxy;
   try {
     compose(
       "up",
@@ -257,6 +262,11 @@ const main = async () => {
       env,
       stdio: "inherit",
     });
+    faultProxy = spawn(process.execPath, [join(e2eDir, "fault-proxy.mjs")], {
+      cwd: root,
+      env,
+      stdio: "inherit",
+    });
     log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
@@ -293,6 +303,7 @@ const main = async () => {
         join(e2eDir, "playwright.config.ts"),
         "--workers",
         "1",
+        ...process.argv.slice(2),
       ]),
       { env },
     );
@@ -301,6 +312,7 @@ const main = async () => {
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
     if (log !== undefined) closeSync(log);
     xoauth2?.kill();
+    faultProxy?.kill();
     compose("down", "--volumes", "--remove-orphans");
     console.log(`e2e: wrangler log at ${wranglerLog}`);
   }
