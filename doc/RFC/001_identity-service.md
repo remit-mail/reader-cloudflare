@@ -108,7 +108,7 @@ Operators are the addresses in the `operator_emails` field of the deployment con
 4. Consuming the challenge comes before checking the proof. A challenge works once, for its own action and target only. An authenticator time step works once.
 5. A failed proof counts toward backoff and is audited.
 
-To anyone who is not an operator, every admin path answers the same 404 as an unknown path. Disabling and resetting the factors of the operator's own account are refused.
+To anyone who is not an operator, every admin path answers the same 404 as an unknown path. No operator can disable, enable, reset the factors of, or sign out everywhere any operator account, their own included; an operator leaves only through the deployment config. Inviting an operator address is allowed, since it acts on no account and is how later operators join.
 
 The first operator is invited by a scheduled job. While no operator has an account, the job sends each operator email an ordinary 7-day invite. It stops once any operator has an account. Later operators are invited from the admin page.
 
@@ -124,7 +124,7 @@ Assets, in order of value:
 
 1. The signing keys. A forged ID token is any user to Access, and so every tenant.
 2. The auth secret. It decrypts the signing keys, authenticator secrets and backup codes, and signs session cookies.
-3. Operator accounts. An operator invites anyone and disables or resets any other account.
+3. Operator accounts. An operator invites anyone and disables or resets any account that is not an operator's.
 4. Credentials: password hashes, authenticator secrets, backup codes and passkey public keys.
 5. Sessions: login sessions and Access sessions.
 6. The OIDC client secret.

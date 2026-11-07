@@ -11,6 +11,7 @@ const SKIPPED = [
   /^package-lock\.json$/,
   /^infra\/\.terraform\.lock\.hcl$/,
   /^migrations\/(mail\/)?meta\//,
+  /^packages\/login\/migrations\/meta\//,
 ];
 
 const ALLOWED_EMAIL_DOMAINS = ["example.com", "example.org", "users.noreply.github.com"];

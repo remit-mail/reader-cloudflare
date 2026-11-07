@@ -40,10 +40,8 @@ locals {
   debug_account_permissions = [
     "Account Settings Read",
     "Workers Scripts Read",
-    "Workers Tail Read",
     "Workers Observability Write",
     "Workers CI Read",
-    "D1 Read",
     "Queues Read",
   ]
 }

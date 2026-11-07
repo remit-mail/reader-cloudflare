@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { queueFamilyOf } from "../src/queue/routing.ts";
-import { MAIL_SERVER_FAMILIES, STAGES } from "./stages.mjs";
+import { MAIL_SERVER_FAMILIES, PROD, STAGES } from "./stages.mjs";
 
 const root = join(import.meta.dirname, "..");
 
@@ -115,5 +115,60 @@ export const renderWrangler = (base, outputs, config, stage) => {
 export const writeWranglerDeploy = (outputs, config, stage) => {
   const rendered = renderWrangler(readJsonc(WRANGLER_CONFIG), outputs, config, stage);
   writeFileSync(WRANGLER_DEPLOY_CONFIG, `${JSON.stringify(rendered, null, 2)}\n`);
+  return rendered;
+};
+
+export const LOGIN_WRANGLER_CONFIG = join(root, "packages", "login", "wrangler.jsonc");
+export const LOGIN_WRANGLER_DEPLOY_CONFIG = join(
+  root,
+  "packages",
+  "login",
+  "wrangler.deploy.jsonc",
+);
+
+export const loginAuthSecretName = (stage) =>
+  stage === PROD ? "LOGIN_AUTH_SECRET" : `${stage.toUpperCase()}_LOGIN_AUTH_SECRET`;
+
+export const renderLoginWrangler = (base, outputs, config, stage) => {
+  const { env: _environments, routes: _routes, ...portable } = base;
+  const database = only(base.d1_databases, "DB", "D1 database");
+  const email = only(
+    (base.send_email ?? []).map((binding) => ({ ...binding, binding: binding.name })),
+    "EMAIL",
+    "send_email binding",
+  );
+  return {
+    ...portable,
+    name: outputs.login_worker_name,
+    account_id: config.account_id,
+    routes: [{ pattern: outputs.login_hostname, zone_name: config.zone_name, custom_domain: true }],
+    vars: {
+      LOGIN_ORIGIN: `https://${outputs.login_hostname}`,
+      READER_ORIGIN: `https://${outputs.app_hostname}`,
+      LOGIN_OIDC_CLIENT_ID: outputs.login_oidc_client_id,
+      EMAIL_SENDER: outputs.email_sender,
+      OPERATOR_EMAILS: config.operator_emails.join(","),
+    },
+    d1_databases: [
+      {
+        ...database,
+        database_name: outputs.login_d1_database_name,
+        database_id: outputs.login_d1_database_id,
+      },
+    ],
+    send_email: [{ name: email.name, allowed_sender_addresses: [outputs.email_sender] }],
+    secrets_store_secrets: [
+      {
+        binding: "LOGIN_AUTH_SECRET",
+        store_id: outputs.secrets_store_id,
+        secret_name: loginAuthSecretName(stage),
+      },
+    ],
+  };
+};
+
+export const writeLoginWranglerDeploy = (outputs, config, stage) => {
+  const rendered = renderLoginWrangler(readJsonc(LOGIN_WRANGLER_CONFIG), outputs, config, stage);
+  writeFileSync(LOGIN_WRANGLER_DEPLOY_CONFIG, `${JSON.stringify(rendered, null, 2)}\n`);
   return rendered;
 };

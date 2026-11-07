@@ -26,6 +26,28 @@ const check = (step: string, ok: boolean, detail: string): void => {
 const started = Date.now();
 const target = await connect();
 
+const loginUrl = process.env.LOGIN_URL;
+if (!loginUrl) {
+  console.error("set LOGIN_URL to the dev login origin, https://<dev_login_hostname>");
+  process.exit(1);
+}
+const discovery = await fetch(new URL("/api/auth/.well-known/openid-configuration", loginUrl));
+const issuer = discovery.ok ? ((await discovery.json()) as { issuer?: unknown }).issuer : undefined;
+check(
+  "login openid configuration",
+  discovery.status === 200 && issuer === `${loginUrl}/api/auth`,
+  `GET /api/auth/.well-known/openid-configuration answered ${discovery.status} with issuer ${String(issuer)}`,
+);
+const agentOnLogin = await fetch(new URL("/sign-in", loginUrl), {
+  headers: accessHeaders(target),
+  redirect: "manual",
+});
+check(
+  "login refuses the agent token",
+  agentOnLogin.status === 403,
+  `GET /sign-in with the agent service token answered ${agentOnLogin.status}`,
+);
+
 const anonymous = await fetch(new URL("/api/config", target.appUrl), { redirect: "manual" });
 check(
   "access refuses an anonymous call",
