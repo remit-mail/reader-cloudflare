@@ -267,7 +267,13 @@ export const appEndpoints = (deps: AuthDeps) => {
           });
           const session = await ctx.context.internalAdapter.createSession(user.id);
           await setSessionCookie(ctx, { session, user });
-          ctx.setHeader("set-cookie", grantCookie(config, "", 0));
+          ctx.setCookie(grantCookieName(config), "", {
+            path: GRANT_PATH,
+            maxAge: 0,
+            httpOnly: true,
+            sameSite: "strict",
+            secure: config.loginOrigin.startsWith("https://"),
+          });
           await audit(db, {
             actor: "self",
             email: user.email,

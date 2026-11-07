@@ -60,6 +60,11 @@ describe("authorization code after the sign-in ended", () => {
     const user = await createUser(email);
     const answer = await redeem(await authorize((await signIn(user.id)).cookie));
     expect(answer.status).toBe(200);
+    const { id_token: idToken } = (await answer.json()) as { id_token: string };
+    const claims = JSON.parse(
+      atob((idToken.split(".")[1] ?? "").replaceAll("-", "+").replaceAll("_", "/")),
+    ) as { email?: string };
+    expect(claims.email).toBe(email);
     const audited = await testEnv.DB.prepare(
       "SELECT COUNT(*) AS count FROM audit_event WHERE email = ? AND event = 'TokenIssued' AND outcome = 'Succeeded'",
     )

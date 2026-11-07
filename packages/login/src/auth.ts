@@ -348,6 +348,8 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         cachedTrustedClients: new Set([config.clientId]),
         scopes: ["openid", "email", "profile"],
         storeClientSecret: "hashed",
+        customIdTokenClaims: ({ user, scopes }) =>
+          scopes.includes("email") ? { email: user.email, email_verified: user.emailVerified } : {},
       }),
     ],
   } satisfies BetterAuthOptions;
