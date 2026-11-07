@@ -62,6 +62,23 @@ describe("password rules", () => {
     expect(reset.status).not.toBe(200);
   });
 
+  it("signs the invitee in so the second step can confirm the password", async () => {
+    mockPwnedPasswords([]);
+    const password = "a fresh password for the welcome flow";
+    const { token } = await issueInvite(testEnv.DB, uniqueEmail("second-step"), "test");
+    const redeemed = await call("/app/invite/redeem", { body: { token } });
+    const welcomed = await call("/app/welcome/password", {
+      cookie: cookiesOf(redeemed),
+      body: { password },
+    });
+    expect(welcomed.status).toBe(200);
+    const confirmed = await call("/app/security/confirm", {
+      cookie: cookiesOf(welcomed),
+      body: { password },
+    });
+    expect(confirmed.status).toBe(200);
+  });
+
   it("sets nothing when the range API is unreachable", async () => {
     mockPwnedPasswords("unreachable");
     const outcome = await welcome("an otherwise fine password");
