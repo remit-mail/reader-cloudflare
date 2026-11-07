@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { BOOTSTRAP_ISSUER } from "../src/bootstrap";
 import { issueInvite, revokeInvite } from "../src/routes/app";
-import { issueResetLink, requestFreshLink, requestReset } from "../src/routes/reset";
+import {
+  INVITE_RENEWAL_LIMIT_MS,
+  issueResetLink,
+  requestFreshLink,
+  requestReset,
+} from "../src/routes/reset";
 import {
   call,
   createUser,
@@ -99,6 +105,40 @@ describe("fresh link", () => {
     const before = sentCount();
     await freshLink("an-unknown-token");
     expect(sentCount()).toBe(before);
+  });
+
+  it("stops renewing an invite 30 days after it was first sent", async () => {
+    const email = uniqueEmail("old-invite");
+    const first = await issueInvite(testEnv.DB, email, "operator@remit.test");
+    const firstIssuedAt = Date.now() - INVITE_RENEWAL_LIMIT_MS + 60_000;
+    await testEnv.DB.prepare("UPDATE invite SET first_issued_at = ? WHERE email = ?")
+      .bind(firstIssuedAt, email)
+      .run();
+    await expire("invite", email);
+    await freshLink(first.token);
+    const renewed = linkIn(mailsTo(email).at(-1), "/invite");
+    expect(renewed).toBeDefined();
+    const row = await testEnv.DB.prepare(
+      "SELECT first_issued_at FROM invite WHERE email = ? AND state = 'Open'",
+    )
+      .bind(email)
+      .first<{ first_issued_at: number }>();
+    expect(row?.first_issued_at).toBe(firstIssuedAt);
+
+    await testEnv.DB.prepare("UPDATE invite SET first_issued_at = ? WHERE email = ?")
+      .bind(Date.now() - INVITE_RENEWAL_LIMIT_MS - 1000, email)
+      .run();
+    await expire("invite", email);
+    await freshLink(renewed ?? "");
+    expect(mailsTo(email)).toHaveLength(1);
+  });
+
+  it("does not renew a bootstrap invite whose address is no longer an operator", async () => {
+    const email = uniqueEmail("former-operator");
+    const { token } = await issueInvite(testEnv.DB, email, BOOTSTRAP_ISSUER);
+    await expire("invite", email);
+    await freshLink(token);
+    expect(mailsTo(email)).toHaveLength(0);
   });
 
   it("shares the reset quota of the address", async () => {

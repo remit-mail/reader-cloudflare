@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ae0ea006-344d-4dc8-8774-2fe3c67dc4bd",
+  "id": "70a073c2-c241-4599-b3cc-40f5143f4505",
   "prevId": "ca1e7ec8-e4f7-4fc5-8560-d4c384d90efa",
   "tables": {
     "admin_challenge": {
@@ -294,6 +294,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "first_issued_at": {
+          "name": "first_issued_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "expires_at": {
           "name": "expires_at",

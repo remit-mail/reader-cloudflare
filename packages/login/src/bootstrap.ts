@@ -4,6 +4,8 @@ import { log } from "./log";
 import { sendInvite } from "./mail";
 import { issueInvite, revokeInvite } from "./routes/app";
 
+export const BOOTSTRAP_ISSUER = "bootstrap";
+
 export const bootstrapOperators = async (
   db: D1Database,
   email: SendEmail,
@@ -27,7 +29,7 @@ export const bootstrapOperators = async (
   const covered = new Set(open.results.map((row) => row.email));
   let issued = 0;
   for (const operator of operators.filter((candidate) => !covered.has(candidate))) {
-    const { inviteId, token } = await issueInvite(db, operator, "bootstrap");
+    const { inviteId, token } = await issueInvite(db, operator, BOOTSTRAP_ISSUER);
     const sent = await sendInvite(email, config, operator, token);
     if (!sent.ok) {
       await revokeInvite(db, inviteId);

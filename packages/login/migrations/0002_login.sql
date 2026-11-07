@@ -10,4 +10,6 @@ CREATE TABLE `reset_link` (
 );
 --> statement-breakpoint
 CREATE INDEX `reset_link_user` ON `reset_link` (`user_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `reset_link_token_hash` ON `reset_link` (`token_hash`);
+CREATE UNIQUE INDEX `reset_link_token_hash` ON `reset_link` (`token_hash`);--> statement-breakpoint
+ALTER TABLE `invite` ADD `first_issued_at` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+UPDATE `invite` SET `first_issued_at` = `created_at`;
