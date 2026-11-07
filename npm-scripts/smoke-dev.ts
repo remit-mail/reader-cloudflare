@@ -8,6 +8,7 @@ import {
 } from "@remit/api-http-client";
 import { accessHeaders, connect, must, succeeds } from "./dev-api.ts";
 import { CALENDAR, DRAFTS, WEEKLY_SUMMARY } from "./dev-fixtures.ts";
+import { fetchOnceServed } from "./host-ready.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
 const HOUR_MS = 60 * 60_000;
@@ -31,7 +32,9 @@ if (!loginUrl) {
   console.error("set LOGIN_URL to the dev login origin, https://<dev_login_hostname>");
   process.exit(1);
 }
-const discovery = await fetch(new URL("/api/auth/.well-known/openid-configuration", loginUrl));
+const discovery = await fetchOnceServed(
+  new URL("/api/auth/.well-known/openid-configuration", loginUrl),
+);
 const issuer = discovery.ok ? ((await discovery.json()) as { issuer?: unknown }).issuer : undefined;
 check(
   "login openid configuration",
