@@ -1,7 +1,9 @@
 import { join } from "node:path";
 import { z } from "zod";
+import { r2ObjectText } from "./cf-api.mjs";
 import { CONFIG_DIR, PROJECT } from "./env.mjs";
 import { PROD } from "./stages.mjs";
+import { BUILDER_SECRETS_BUCKET } from "./tofu.mjs";
 
 const hostname = z
   .string()
@@ -20,10 +22,6 @@ export const deployConfigSchema = z
     dev_app_hostname: hostname,
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
-    msoauth: z
-      .object({ client_id: z.string().min(1), client_secret: z.string().min(1) })
-      .strict()
-      .optional(),
   })
   .strict()
   .refine((config) => inZone(config.app_hostname, config.zone_name), {
@@ -39,21 +37,58 @@ export const deployConfigSchema = z
     path: ["dev_app_hostname"],
   });
 
+export const deploySecretsSchema = z
+  .object({
+    msoauth: z
+      .object({ client_id: z.string().min(1), client_secret: z.string().min(1) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 export const DEPLOY_CONFIG_OBJECT = "deploy.config.json";
-
+export const DEPLOY_SECRETS_OBJECT = "deploy.secrets.json";
 export const DEPLOY_CONFIG_FILE = join(CONFIG_DIR, DEPLOY_CONFIG_OBJECT);
-export const DEPLOY_CONFIG_SECRET = `${PROJECT}-deploy-config`;
+export const BUILDS_BOOTSTRAP_REPO = "mvhenten/cloudflare-builds-bootstrap";
+export const BUILDS_BOOTSTRAP_PROJECTS = "infra/projects.auto.tfvars.json";
 
-export const parseDeployConfig = (text, source) => {
-  const parsed = deployConfigSchema.safeParse(JSON.parse(text));
+const parseWith = (schema, label) => (text, source) => {
+  const json = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      console.error(`${source} is not JSON`);
+      process.exit(1);
+    }
+  })();
+  const parsed = schema.safeParse(json);
   if (!parsed.success) {
     const problems = parsed.error.issues.map(
       (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
     );
-    console.error(`${source} is not a valid deploy config:\n  ${problems.join("\n  ")}`);
+    console.error(`${source} is not a valid ${label}:\n  ${problems.join("\n  ")}`);
     process.exit(1);
   }
   return parsed.data;
+};
+
+export const parseDeployConfig = parseWith(deployConfigSchema, "deploy config");
+const parseDeploySecrets = parseWith(deploySecretsSchema, "deploy secrets object");
+
+export const readDeploySecrets = async (token, accountId) => {
+  const source = `r2://${BUILDER_SECRETS_BUCKET}/${DEPLOY_SECRETS_OBJECT}`;
+  const object = await r2ObjectText(
+    token,
+    accountId,
+    BUILDER_SECRETS_BUCKET,
+    DEPLOY_SECRETS_OBJECT,
+  );
+  if (object.status === 404) return {};
+  if (!object.ok) {
+    console.error(`reading ${source} returned ${object.status}`);
+    process.exit(1);
+  }
+  return parseDeploySecrets(object.text, source);
 };
 
 const stageConfig = ({ dev_app_hostname, msoauth, ...shared }, stage) =>

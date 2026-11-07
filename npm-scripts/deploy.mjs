@@ -6,8 +6,8 @@ import { failOnHits, scanRepo } from "./check-no-config.mjs";
 import { migrate } from "./db-migrate.mjs";
 import {
   configLiterals,
-  DEPLOY_CONFIG_OBJECT,
   parseDeployConfig,
+  readDeploySecrets,
   tofuVars,
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
@@ -19,7 +19,6 @@ const BUILDER_OBJECTS = [
   "CLOUDFLARE_TOFU_TOKEN",
   "TFSTATE_ACCESS_KEY_ID",
   "TFSTATE_SECRET_ACCESS_KEY",
-  DEPLOY_CONFIG_OBJECT,
 ];
 
 if (!inWorkersBuilds) {
@@ -39,7 +38,10 @@ if (process.env.WORKERS_CI_BRANCH !== "main") {
 delete process.env.WRANGLER_CI_OVERRIDE_NAME;
 delete process.env.WRANGLER_CI_MATCH_TAG;
 
-requireEnv(["CLOUDFLARE_API_TOKEN"], "Workers Builds injects it into the deploy step");
+requireEnv(
+  ["CLOUDFLARE_API_TOKEN", "DEPLOY_CONFIG"],
+  "Workers Builds injects the token, and cloudflare-builds-bootstrap sets DEPLOY_CONFIG on the trigger",
+);
 
 const buildsToken = process.env.CLOUDFLARE_API_TOKEN;
 const accountId = await resolveAccountId(buildsToken);
@@ -47,8 +49,7 @@ const objects = {};
 for (const key of BUILDER_OBJECTS) {
   const object = await r2ObjectText(buildsToken, accountId, BUILDER_SECRETS_BUCKET, key);
   if (object.status === 404) {
-    const flag = key === DEPLOY_CONFIG_OBJECT ? " --config <deploy.config.json>" : "";
-    console.error(`${BUILDER_SECRETS_BUCKET} has no ${key}; run tofu-bootstrap ${PROJECT}${flag}`);
+    console.error(`${BUILDER_SECRETS_BUCKET} has no ${key}; run tofu-bootstrap ${PROJECT}`);
     process.exit(1);
   }
   if (!object.ok) {
@@ -58,13 +59,13 @@ for (const key of BUILDER_OBJECTS) {
   objects[key] = object.text.trim();
 }
 
-const config = parseDeployConfig(
-  objects[DEPLOY_CONFIG_OBJECT],
-  `r2://${BUILDER_SECRETS_BUCKET}/${DEPLOY_CONFIG_OBJECT}`,
-);
+const config = {
+  ...parseDeployConfig(process.env.DEPLOY_CONFIG, "the DEPLOY_CONFIG build variable"),
+  ...(await readDeploySecrets(buildsToken, accountId)),
+};
 if (config.account_id !== accountId) {
   console.error(
-    `${DEPLOY_CONFIG_OBJECT} names account ${config.account_id}, the Builds token deploys to ${accountId}`,
+    `DEPLOY_CONFIG names account ${config.account_id}, the Builds token deploys to ${accountId}`,
   );
   process.exit(1);
 }
