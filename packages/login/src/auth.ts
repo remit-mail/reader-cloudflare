@@ -7,6 +7,7 @@ import { admin, emailOTP, haveIBeenPwned, jwt, twoFactor } from "better-auth/plu
 import { drizzle } from "drizzle-orm/d1";
 import { audit } from "./audit";
 import { addressOf } from "./backoff";
+import { mailerOf } from "./capture";
 import { configOf, type LoginConfig } from "./config";
 import { sha256Base64Url, sha256Hex } from "./crypto";
 import { schema } from "./db/schema";
@@ -379,7 +380,7 @@ export const createAuth = async (
   const auth = build({
     config: configOf(env),
     db: env.DB,
-    email: env.EMAIL,
+    email: mailerOf(env),
     secret,
     waitUntil: (promise) => waitUntil(promise),
   });

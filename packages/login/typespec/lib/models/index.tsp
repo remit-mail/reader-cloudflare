@@ -5,3 +5,4 @@ import "./AuthAttempt.tsp";
 import "./AdminChallenge.tsp";
 import "./TotpUse.tsp";
 import "./AuditEvent.tsp";
+import "./CapturedMail.tsp";

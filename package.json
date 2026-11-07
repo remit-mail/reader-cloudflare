@@ -41,6 +41,7 @@
     "dashboards": "node npm-scripts/dashboards.mjs",
     "access-env:write": "node npm-scripts/access-env-write.mjs",
     "api": "node npm-scripts/api.mjs",
+    "login:mail": "node npm-scripts/login-mail.mjs",
     "smoke:sync": "node npm-scripts/smoke-sync.mjs",
     "seed:dev": "tsx npm-scripts/seed-dev.ts",
     "smoke:dev": "tsx npm-scripts/smoke-dev.ts",

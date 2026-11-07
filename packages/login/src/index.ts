@@ -1,8 +1,9 @@
-import { waitUntil } from "cloudflare:workers";
+import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
+import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
 import { configOf, type LoginConfig } from "./config";
 import type { Env } from "./env";
 import { notFound, text } from "./http";
@@ -123,7 +124,7 @@ const serveApp = async (
   request: Request,
   path: string,
 ): Promise<Response> => {
-  const admin: AdminContext = { auth, config, db: env.DB, email: env.EMAIL };
+  const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
   if (request.method === "GET" && path === "/app/config") {
     return Response.json({ readerOrigin: config.readerOrigin, passkeys: true });
   }
@@ -186,12 +187,19 @@ const route = async (request: Request, env: Env): Promise<Response> => {
   }
   const auth = await createAuth(env, waitUntil);
   if (path.startsWith(`${API_BASE_PATH}/`)) return serveAuth(auth, env, config, request, url);
-  const admin: AdminContext = { auth, config, db: env.DB, email: env.EMAIL };
+  const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
   if (request.method === "GET" && path === "/admin") return renderAdmin(admin, request);
   if (request.method === "GET" && path === "/admin/audit") return renderAudit(admin, request);
   if (path.startsWith("/app/")) return serveApp(auth, env, config, request, path);
   return notFound();
 };
+
+export class CapturedMailReader extends WorkerEntrypoint<Env> {
+  latest(): Promise<CapturedMail[]> {
+    if (!capturesMail(this.env)) throw new Error("this login Worker does not capture mail");
+    return latestCapturedMail(this.env.DB, Date.now());
+  }
+}
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -204,7 +212,7 @@ export default {
   },
   async scheduled(_controller, env): Promise<void> {
     const now = Date.now();
-    const issued = await bootstrapOperators(env.DB, env.EMAIL, configOf(env), now);
+    const issued = await bootstrapOperators(env.DB, mailerOf(env), configOf(env), now);
     await env.DB.batch(purgeStatements(env.DB, now));
     log.info("login cron", { event: "cron", count: issued });
   },

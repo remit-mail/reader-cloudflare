@@ -1,7 +1,8 @@
 export interface Env {
   readonly ASSETS: Fetcher;
   readonly DB: D1Database;
-  readonly EMAIL: SendEmail;
+  readonly EMAIL?: SendEmail;
+  readonly MAIL_CAPTURE?: string;
   readonly LOGIN_AUTH_SECRET: SecretsStoreSecret;
   readonly LOGIN_ORIGIN: string;
   readonly READER_ORIGIN: string;
