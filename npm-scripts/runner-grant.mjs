@@ -8,7 +8,7 @@ const TOKENS_WRITE = "Account API Tokens Write";
 
 export const RUNNER_GROUPS = [
   { name: "Access: Organizations, Identity Providers, and Groups Write", scope: "account" },
-  { name: "Email Sending Write", scope: "zone" },
+  { name: "Email Sending Write", scope: "account" },
 ];
 
 const fail = (message) => {
@@ -25,10 +25,19 @@ export const grantRunner = async (token, accountId, zoneName) => {
   const { id } = accountVerify ?? (await api("GET", `${base}/verify`));
 
   const groups = await api("GET", `${base}/permission_groups`);
+  const similar = (name) => {
+    const stem = name.replace(/ (Read|Write|Edit|Revoke)$/, "").toLowerCase();
+    return groups
+      .filter((group) => group.name.toLowerCase().includes(stem))
+      .map((group) => `${group.name} [${(group.scopes ?? []).join(" ")}]`);
+  };
   const groupOf = ({ name, scope }) =>
     groups.find(
       (group) => group.name === name && (!group.scopes || group.scopes.includes(SCOPES[scope])),
-    ) ?? fail(`no ${scope} permission group named ${name}`);
+    ) ??
+    fail(
+      `no ${scope} permission group named ${name}; groups the runner can list that match: ${similar(name).join("; ") || "none"}`,
+    );
   const tokensWrite = groupOf({ name: TOKENS_WRITE, scope: "account" });
 
   const heldBy = (token) =>
