@@ -3,11 +3,6 @@ locals {
   login_oidc_client_id    = "${local.name}-access"
   email_sender_domain     = split("@", var.email_sender)[1]
   login_idp_name          = "${local.name} login"
-  other_stage_login_idp   = local.prod ? "${var.project}-dev login" : "${var.project} login"
-  other_stage_login_idps  = [for idp in data.cloudflare_zero_trust_access_identity_providers.all.result : idp.id if idp.name == local.other_stage_login_idp]
-  stage_idps              = [cloudflare_zero_trust_access_identity_provider.login.id]
-  reader_allowed_idps     = local.stage_idps
-  public_allowed_idps     = local.stage_idps
   login_oidc_secret_value = random_password.login_oidc_client_secret.result
   access_apps_on_login_host = [
     for app in data.cloudflare_zero_trust_access_applications.all.result : app.name

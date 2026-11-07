@@ -57,7 +57,7 @@ output "access_aud" {
 
 output "access_team_domain" {
   description = "Access team domain, ACCESS_TEAM_DOMAIN in the rendered wrangler.deploy.jsonc."
-  value       = data.cloudflare_zero_trust_organization.this.auth_domain
+  value       = cloudflare_zero_trust_organization.this.auth_domain
 }
 
 output "debug_token" {

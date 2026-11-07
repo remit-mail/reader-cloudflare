@@ -10,9 +10,9 @@ type Probe =
   | { readonly state: "failed"; readonly detail: string };
 
 const IDENTITY_URL = "/cdn-cgi/access/get-identity";
-const LOGIN_ORIGIN: string | undefined = import.meta.env.VITE_LOGIN_ORIGIN || undefined;
-const LOGOUT_URL = LOGIN_ORIGIN ? `${LOGIN_ORIGIN}/sign-out` : "/cdn-cgi/access/logout";
-const SECURITY_URL = LOGIN_ORIGIN ? `${LOGIN_ORIGIN}/security` : undefined;
+const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
+const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
+const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
 const PROBE_INTERVAL_MS = 5 * 60_000;
 const RENEWAL_KEY = "remit-access-renewal-at";
 const RENEWAL_GUARD_MS = 60_000;
@@ -161,9 +161,7 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
       .then((body: unknown) => setEmail(emailOf(body)));
   }, []);
 
-  return (
-    <>{children({ email, signOut, ...(SECURITY_URL ? { securityUrl: SECURITY_URL } : {}) })}</>
-  );
+  return <>{children({ email, signOut, securityUrl: SECURITY_URL })}</>;
 };
 
 export const accessAuthProvider: AuthProvider = {

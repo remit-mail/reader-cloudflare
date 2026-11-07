@@ -148,6 +148,7 @@ const main = async () => {
   const env = {
     ...process.env,
     WRANGLER_SEND_METRICS: "false",
+    VITE_LOGIN_ORIGIN: "http://127.0.0.1:8791",
     E2E_COMMIT: commit,
     E2E_BASE_URL: `http://127.0.0.1:${workerPort}`,
     E2E_HTTP_PORT: String(workerPort),
