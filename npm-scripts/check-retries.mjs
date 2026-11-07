@@ -9,9 +9,22 @@ const scopes = [
   ...Object.entries(config.env ?? {}).map(([name, scope]) => [`env.${name}`, scope]),
 ];
 
+const rateLimitNames = (config.ratelimits ?? [])
+  .map((entry) => entry.name)
+  .sort()
+  .join(", ");
 const problems = [];
 const checked = new Set();
-for (const [scope, { queues, limits }] of scopes) {
+for (const [scope, { queues, limits, ratelimits }] of scopes) {
+  const rateLimits = (ratelimits ?? [])
+    .map((entry) => entry.name)
+    .sort()
+    .join(", ");
+  if (rateLimits !== rateLimitNames) {
+    problems.push(
+      `${scope}: ratelimits binds [${rateLimits}], the top level binds [${rateLimitNames}]`,
+    );
+  }
   const cpuMs = (limits ?? config.limits)?.cpu_ms;
   if (cpuMs !== CPU_MS_PER_INVOCATION) {
     problems.push(
@@ -75,5 +88,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  `check:retries: ${scopes.length} scopes agree with MAX_RETRIES, CONSUMER_SETTINGS, CPU_MS_PER_INVOCATION and one shared dead-letter queue`,
+  `check:retries: ${scopes.length} scopes agree with MAX_RETRIES, CONSUMER_SETTINGS, CPU_MS_PER_INVOCATION, one shared dead-letter queue and the same ratelimits bindings`,
 );

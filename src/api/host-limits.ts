@@ -28,3 +28,8 @@ export const CONSUMER_SETTINGS = {
   smtp: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
   fanout: { maxBatchSize: 10, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
 } as const satisfies Record<QueueFamily, ConsumerSettings>;
+
+export const API_BODY_MAX_BYTES = 1024 * 1024;
+
+// Workers rate limits count per period; wrangler.jsonc sets every ratelimits binding to this period.
+export const RATE_LIMIT_PERIOD_SECONDS = 60;
