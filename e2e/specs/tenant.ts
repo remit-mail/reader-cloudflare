@@ -68,17 +68,23 @@ const SMTP_TO_SINK = {
   smtpStartTls: false,
 };
 
+export interface ImapServer {
+  readonly host: string;
+  readonly port: number;
+}
+
 const connectAccount = async (
   json: Json,
   smtp: typeof NO_SMTP | typeof SMTP_TO_SINK,
+  server: ImapServer,
 ): Promise<ImapAccount> => {
   const imapUser = mintImapUser();
   const { accountId } = await json<{ accountId: string }>("POST", "/accounts", {
     email: imapUser,
     username: imapUser,
     password: imap.password,
-    imapHost: imapFromStack.host,
-    imapPort: imapFromStack.port,
+    imapHost: server.host,
+    imapPort: server.port,
     imapTls: false,
     imapStartTls: false,
     ...smtp,
@@ -95,12 +101,14 @@ const connectAccount = async (
   return { accountId, imapUser };
 };
 
-export const connectImapAccount = (json: Json): Promise<ImapAccount> =>
-  connectAccount(json, NO_SMTP);
+export const connectImapAccount = (
+  json: Json,
+  server: ImapServer = imapFromStack,
+): Promise<ImapAccount> => connectAccount(json, NO_SMTP, server);
 
 // Sends go to the Mailpit sink, which is where a spec reads what left the Worker.
 export const connectSendingAccount = (json: Json): Promise<ImapAccount> =>
-  connectAccount(json, SMTP_TO_SINK);
+  connectAccount(json, SMTP_TO_SINK, imapFromStack);
 
 export interface Invitation {
   readonly summary: string;
