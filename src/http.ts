@@ -21,11 +21,11 @@ export const notFound = (what: string): Response => apiError(404, "NotFound", `$
 export const unauthorized = (reason: string): Response =>
   apiError(401, "Unauthorized", `Sign in again: ${reason}`);
 
-export const rateLimited = (what: string, periodSeconds: number): Response =>
+export const rateLimited = (periodSeconds: number): Response =>
   apiError(
     429,
-    "request_refused",
-    `Too many requests for this ${what}; try again in ${periodSeconds} seconds`,
+    "RateLimited",
+    `Too many requests for this account; try again in ${periodSeconds} seconds`,
     { "retry-after": String(periodSeconds) },
   );
 

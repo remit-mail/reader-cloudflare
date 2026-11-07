@@ -1,6 +1,6 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
-import { API_BODY_MAX_BYTES, RATE_LIMITS } from "./api/host-limits";
+import { API_BODY_MAX_BYTES, RATE_LIMIT_PERIOD_SECONDS } from "./api/host-limits";
 import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
@@ -25,9 +25,9 @@ import {
   withLogContext,
 } from "./log";
 import {
-  calendarFeedTenant,
   calendarFeedTokenHash,
   feedNotFound,
+  feedRateLimited,
   loggedPath,
   microsoftCallbackTenant,
   oauthRefused,
@@ -35,6 +35,7 @@ import {
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
+import { tenantOfFeedToken } from "./tenant-directory";
 
 export { TenantMail as TenantMailV3 } from "./mail/tenant-mail";
 
@@ -152,8 +153,16 @@ const failed =
 
 type Serve = (request: Request, env: Env, tenant: Tenant) => Promise<Response>;
 
-const serveApi: Serve = (request, env, tenant) =>
-  tenantMail(env, tenant.tenantId).api(request, identityOf(tenant), currentCorrelationId());
+const serveApi: Serve = async (request, env, tenant) => {
+  if (request.body !== null) {
+    const size = contentLengthOf(request);
+    if (size === undefined) return lengthRequired("an API request body");
+    if (size > API_BODY_MAX_BYTES) {
+      return payloadTooLarge("An API request body", API_BODY_MAX_BYTES);
+    }
+  }
+  return tenantMail(env, tenant.tenantId).api(request, identityOf(tenant), currentCorrelationId());
+};
 
 const authenticated = async (
   request: Request,
@@ -169,13 +178,7 @@ const authenticated = async (
   const { tenantId } = result.tenant;
   annotateLog({ tenantId });
   const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenantId });
-  if (!success) return rateLimited("account", RATE_LIMITS.TENANT_RATE_LIMIT.periodSeconds);
-  if (path.startsWith(`${API_ROOT}/`) && request.body !== null) {
-    const size = contentLengthOf(request);
-    if (size === undefined) return lengthRequired("an API request body");
-    if (size > API_BODY_MAX_BYTES)
-      return payloadTooLarge("An API request body", API_BODY_MAX_BYTES);
-  }
+  if (!success) return rateLimited(RATE_LIMIT_PERIOD_SECONDS);
   return serve(request, env, result.tenant);
 };
 
@@ -189,10 +192,8 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     const tokenHash = calendarFeedTokenHash(url);
     if (tokenHash === undefined) return feedNotFound();
     const { success } = await env.CALENDAR_FEED_RATE_LIMIT.limit({ key: tokenHash });
-    if (!success) {
-      return rateLimited("calendar feed", RATE_LIMITS.CALENDAR_FEED_RATE_LIMIT.periodSeconds);
-    }
-    const tenantId = await calendarFeedTenant(env, tokenHash);
+    if (!success) return feedRateLimited(RATE_LIMIT_PERIOD_SECONDS);
+    const tenantId = await tenantOfFeedToken(env.DB, tokenHash);
     if (tenantId === undefined) return feedNotFound();
     return servePublic(request, env, tenantId);
   }

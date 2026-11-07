@@ -8,7 +8,7 @@ import {
 import { apiConfig } from "./api/config";
 import { API_ROOT } from "./api/paths";
 import type { Env } from "./env";
-import { tenantOfAccountConfig, tenantOfFeedToken } from "./tenant-directory";
+import { tenantOfAccountConfig } from "./tenant-directory";
 
 export type CallbackTenant =
   | { readonly ok: true; readonly tenantId: string }
@@ -20,14 +20,23 @@ export const calendarFeedTokenHash = (url: URL): string | undefined => {
   return hashCalendarFeedToken(token);
 };
 
-export const calendarFeedTenant = (env: Env, tokenHash: string): Promise<string | undefined> =>
-  tenantOfFeedToken(env.DB, tokenHash);
-
 export const feedNotFound = (): Response =>
   new Response("no calendar feed at this address\n", {
     status: 404,
     headers: { "content-type": "text/plain; charset=utf-8" },
   });
+
+export const feedRateLimited = (periodSeconds: number): Response =>
+  new Response(
+    `too many requests for this calendar feed; try again in ${periodSeconds} seconds\n`,
+    {
+      status: 429,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "retry-after": String(periodSeconds),
+      },
+    },
+  );
 
 export const microsoftCallbackTenant = async (env: Env, url: URL): Promise<CallbackTenant> => {
   const { msOAuth } = apiConfig;
