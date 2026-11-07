@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, rmSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,6 +53,18 @@ const run = (command, args, options = {}) => {
     throw new Error(`${command} ${args.join(" ")} exited with ${result.status}`);
   }
 };
+
+// Playwright runs async so the event loop stays free for the control server.
+const runAsync = (command, args, options = {}) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd: root, stdio: "inherit", ...options });
+    child.once("error", reject);
+    child.once("exit", (status) =>
+      status === 0
+        ? resolve()
+        : reject(new Error(`${command} ${args.join(" ")} exited with ${status}`)),
+    );
+  });
 
 const output = (command, args, options = {}) =>
   spawnSync(command, args, { cwd: root, encoding: "utf8", ...options }).stdout?.trim() ?? "";
@@ -128,6 +141,29 @@ const stop = async (child, marker) => {
   signalGroups(new Set([...groups, ...processGroups(matching(marker))]), "SIGKILL");
 };
 
+// A spec restarts `wrangler dev` through this loopback server to evict every
+// Durable Object mid-run; the restart keeps the same --persist-to and ports.
+const serveControl = (port, restartWrangler) =>
+  new Promise((resolve, reject) => {
+    let restarting = Promise.resolve();
+    const server = createHttpServer((request, response) => {
+      const reply = (status, body) => {
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(JSON.stringify(body));
+      };
+      if (request.method !== "POST" || request.url !== "/wrangler/restart") {
+        return reply(404, { error: `no ${request.method} ${request.url}` });
+      }
+      const started = Date.now();
+      restarting = restarting.then(restartWrangler).then(
+        () => reply(200, { restartedInMs: Date.now() - started }),
+        (error) => reply(500, { error: error instanceof Error ? error.message : String(error) }),
+      );
+    });
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => resolve(server));
+  });
+
 const main = async () => {
   const started = Date.now();
   fetchReader();
@@ -147,7 +183,8 @@ const main = async () => {
     faultControlPort,
     faultSmtpPort,
     faultSmtpControlPort,
-  ] = await Promise.all(Array.from({ length: 14 }, freePort));
+    harnessControlPort,
+  ] = await Promise.all(Array.from({ length: 15 }, freePort));
   const commit = output("git", ["rev-parse", "HEAD"]);
   const env = {
     ...process.env,
@@ -178,6 +215,7 @@ const main = async () => {
     E2E_FAULT_CONTROL_PORT: String(faultControlPort),
     E2E_FAULT_SMTP_PORT: String(faultSmtpPort),
     E2E_FAULT_SMTP_CONTROL_PORT: String(faultSmtpControlPort),
+    E2E_HARNESS_CONTROL_PORT: String(harnessControlPort),
     E2E_QUEUE_PORT: "0",
     E2E_WRANGLER_LOG: wranglerLog,
   };
@@ -197,6 +235,7 @@ const main = async () => {
   mkdirSync(stateDir, { recursive: true });
   let wrangler;
   let log;
+  let control;
   let xoauth2;
   const faultProxies = [];
   try {
@@ -300,14 +339,21 @@ const main = async () => {
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);
-    wrangler = spawn(command, args, {
-      cwd: root,
-      env,
-      detached: true,
-      stdio: ["ignore", log, log],
+    const startWrangler = async () => {
+      wrangler = spawn(command, args, {
+        cwd: root,
+        env,
+        detached: true,
+        stdio: ["ignore", log, log],
+      });
+      await waitForReady(`${env.E2E_BASE_URL}/`, wrangler);
+    };
+    await startWrangler();
+    control = await serveControl(harnessControlPort, async () => {
+      await stop(wrangler, `--inspector-port ${inspectorPort}`);
+      await startWrangler();
     });
-    await waitForReady(`${env.E2E_BASE_URL}/`, wrangler);
-    run(
+    await runAsync(
       ...withCap(bin("playwright"), [
         "test",
         "-c",
@@ -320,6 +366,7 @@ const main = async () => {
     );
     console.log(`e2e: passed in ${Math.round((Date.now() - started) / 1000)}s`);
   } finally {
+    control?.close();
     if (wrangler !== undefined) await stop(wrangler, `--inspector-port ${inspectorPort}`);
     if (log !== undefined) closeSync(log);
     xoauth2?.kill();
