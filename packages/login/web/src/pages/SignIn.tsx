@@ -51,13 +51,14 @@ const ProblemBanner = ({ problem }: { problem: SignInProblem }) => {
     case "wrong":
       return (
         <Notice tone="danger" title="Wrong email or password">
-          Check both and try again. Forgot it? Reset your password with an email code.
+          Check both and try again. Forgot it?{" "}
+          <TextLink href={keepQuery("/reset")}>Reset your password</TextLink>
         </Notice>
       );
     case "locked":
       return (
         <Notice tone="warning" title="Sign-in is paused">
-          {problem.message} Forgot your password? Reset it with an email code.
+          {problem.message} Forgot your password? Reset it with a link by email.
         </Notice>
       );
     case "disabled":
@@ -114,6 +115,7 @@ export const SignInView = ({
         <Button variant="secondary" onClick={onUsePassword} className="w-full">
           Use password
         </Button>
+        <TextLink href={keepQuery("/reset")}>Forgot your password?</TextLink>
       </Page>
     );
   }
@@ -143,7 +145,7 @@ export const SignInView = ({
           {problem?.kind === "server" ? "Try again" : "Sign in"}
         </Submit>
       </Form>
-      <TextLink href="/reset">Forgot your password?</TextLink>
+      <TextLink href={keepQuery("/reset")}>Forgot your password?</TextLink>
       {passkeys ? (
         <>
           <hr className="border-line" />
@@ -236,6 +238,7 @@ const secondStepProblem = (answer: Refused): SecondStepProblem => {
 
 export interface SecondStepViewProps {
   readonly method: SecondStepMethod;
+  readonly afterReset: boolean;
   readonly problem: SecondStepProblem | null;
   readonly busy: boolean;
   readonly onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -264,8 +267,16 @@ const SharedBanner = ({ problem }: { problem: SecondStepProblem | null }) => {
   return null;
 };
 
+const PasswordChanged = ({ show }: { show: boolean }) =>
+  show ? (
+    <Notice tone="success" title="Password changed">
+      Every other device is signed out. Finish signing in with your second step.
+    </Notice>
+  ) : null;
+
 export const SecondStepView = ({
   method,
+  afterReset,
   problem,
   busy,
   onSubmit,
@@ -301,6 +312,7 @@ export const SecondStepView = ({
     const retry = problem !== null;
     return (
       <Page title="Confirm with your passkey">
+        <PasswordChanged show={afterReset && problem === null} />
         {problem?.kind === "passkey-cancelled" ? (
           <Notice tone="warning" title="The passkey check did not finish">
             The browser window closed or timed out. You are not signed in yet.
@@ -329,6 +341,7 @@ export const SecondStepView = ({
   const backup = method === "backup";
   return (
     <Page title={backup ? "Use a backup code" : "Enter your app code"}>
+      <PasswordChanged show={afterReset && problem === null} />
       <SharedBanner problem={problem} />
       <Muted>
         {backup
@@ -365,7 +378,9 @@ export const SecondStepView = ({
 };
 
 export const SecondStep = () => {
-  const initial = (window.history.state as { method?: string } | null)?.method;
+  const entry = window.history.state as { method?: string; reset?: boolean } | null;
+  const initial = entry?.method;
+  const afterReset = entry?.reset === true;
   const [method, setMethod] = useState<SecondStepMethod>(initial === "passkey" ? "passkey" : "app");
   const [problem, setProblem] = useState<SecondStepProblem | null>(null);
   const [busy, setBusy] = useState(false);
@@ -401,6 +416,7 @@ export const SecondStep = () => {
   return (
     <SecondStepView
       method={method}
+      afterReset={afterReset}
       problem={problem}
       busy={busy}
       onSubmit={submit}

@@ -172,11 +172,12 @@ const takeQuota = async (
 export const takeResetQuota = async (
   db: D1Database,
   address: string,
-  email: string,
+  email: string | null,
   now: number,
 ): Promise<boolean> => {
   if (!(await takeQuota(db, `reset:address:${resetAddressPrefix(address)}`, ADDRESS_QUOTA, now))) {
     return false;
   }
+  if (email === null) return true;
   return takeQuota(db, `reset:${(await accountKey(email)).key}`, ACCOUNT_QUOTA, now);
 };

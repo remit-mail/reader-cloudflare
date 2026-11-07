@@ -15,7 +15,8 @@ import {
   renderAudit,
   runAdminAction,
 } from "./routes/admin";
-import { lookupInvite, redeemInvite, requestReset } from "./routes/app";
+import { lookupInvite, redeemInvite } from "./routes/app";
+import { lookupResetLink, type MailDeps, requestFreshLink, requestReset } from "./routes/reset";
 
 const SPA_PAGES: ReadonlySet<string> = new Set([
   "/sign-in",
@@ -25,6 +26,7 @@ const SPA_PAGES: ReadonlySet<string> = new Set([
   "/welcome/second-step",
   "/welcome/backup-codes",
   "/reset",
+  "/reset/password",
   "/security",
   "/sign-out",
 ]);
@@ -130,15 +132,26 @@ const serveApp = async (
   }
   if (request.method !== "POST") return notFound();
   const headers = request.headers;
+  const mail: MailDeps = { db: env.DB, config, email: env.EMAIL, waitUntil };
   switch (path) {
     case "/app/invite/lookup":
       return lookupInvite(env.DB, request, await readJson(request));
     case "/app/invite/redeem":
       return redeemInvite(env.DB, config, request, await readJson(request));
     case "/app/reset/request":
-      return requestReset(env.DB, request, await readJson(request), waitUntil, (email) =>
-        auth.api.sendVerificationOTP({ body: { email, type: "forget-password" } }),
-      );
+      return requestReset(mail, request, await readJson(request));
+    case "/app/reset/lookup":
+      return lookupResetLink(env.DB, request, await readJson(request));
+    case "/app/reset/password":
+      return auth.api.resetPassword({
+        body: (await readJson(request)) as { token: string; password: string },
+        headers,
+        asResponse: true,
+      });
+    case "/app/link/fresh":
+      return requestFreshLink(mail, request, await readJson(request));
+    case "/app/second-step/app":
+      return auth.api.appEnroll({ headers, asResponse: true });
     case "/app/welcome/password":
       return auth.api.welcomePassword({
         body: (await readJson(request)) as { password: string },

@@ -1,6 +1,22 @@
-import { Button, ButtonLink } from "@remit/ui";
+import { Button } from "@remit/ui";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { type Answer, failureOf, finish, navigate, post, type Refused } from "../api";
+import {
+  type Answer,
+  dropLinkToken,
+  failureOf,
+  navigate,
+  post,
+  type Refused,
+  takeLinkToken,
+} from "../api";
+import {
+  FreshLinkSentView,
+  LinkExpiredView,
+  LinkMissingView,
+  type Opening,
+  OpeningRemitView,
+  useOpenRemit,
+} from "../flow";
 import { addPasskey, passkeysSupported } from "../passkeys";
 import { QrCode } from "../qr";
 import {
@@ -17,23 +33,12 @@ import {
   Text,
 } from "../ui";
 
-const goToReader = () => finish({ ok: true, status: 200, body: {} });
-
-let pendingToken: string | null = null;
-
-const takeToken = (): string | null => {
-  const fragment = window.location.hash.slice(1);
-  if (fragment) {
-    pendingToken = fragment;
-    window.history.replaceState(null, "", window.location.pathname);
-  }
-  return pendingToken;
-};
-
 export type InviteState =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly email: string; readonly failure: string | null }
-  | { readonly kind: "expired" }
+  | { readonly kind: "expired"; readonly failure: string | null }
+  | { readonly kind: "fresh-sent" }
+  | { readonly kind: "missing" }
   | { readonly kind: "locked"; readonly message: string }
   | { readonly kind: "failed"; readonly message: string };
 
@@ -41,9 +46,10 @@ export interface InviteViewProps {
   readonly state: InviteState;
   readonly busy: boolean;
   readonly onContinue: () => void;
+  readonly onFresh: () => void;
 }
 
-export const InviteView = ({ state, busy, onContinue }: InviteViewProps) => {
+export const InviteView = ({ state, busy, onContinue, onFresh }: InviteViewProps) => {
   switch (state.kind) {
     case "loading":
       return (
@@ -53,16 +59,12 @@ export const InviteView = ({ state, busy, onContinue }: InviteViewProps) => {
       );
     case "expired":
       return (
-        <Page title="This invite no longer works">
-          <Text>Ask the person who invited you for a new one.</Text>
-          <Muted>
-            An invite works once and for 7 days. A newer invite also replaces an older one.
-          </Muted>
-          <ButtonLink variant="secondary" href="/sign-in">
-            Already have an account? Sign in
-          </ButtonLink>
-        </Page>
+        <LinkExpiredView kind="invite" busy={busy} failure={state.failure} onFresh={onFresh} />
       );
+    case "fresh-sent":
+      return <FreshLinkSentView kind="invite" />;
+    case "missing":
+      return <LinkMissingView kind="invite" />;
     case "locked":
       return (
         <Page title="Too many tries">
@@ -103,32 +105,50 @@ const lookupState = (answer: Answer): InviteState => {
   if (answer.ok) {
     return typeof answer.body.email === "string"
       ? { kind: "ready", email: answer.body.email, failure: null }
-      : { kind: "expired" };
+      : { kind: "expired", failure: null };
   }
   const failure = failureOf(answer);
   if (failure.kind === "locked") return { kind: "locked", message: failure.message };
   if (failure.kind === "server") return { kind: "failed", message: failure.message };
-  return { kind: "expired" };
+  return { kind: "expired", failure: null };
 };
 
 export const Invite = () => {
   const [state, setState] = useState<InviteState>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = takeToken();
-    if (token === null) {
-      setState({ kind: "expired" });
+    const found = takeLinkToken();
+    if (found === null) {
+      setState({ kind: "missing" });
       return;
     }
-    post("/app/invite/lookup", { token }).then((answer) => setState(lookupState(answer)));
+    setToken(found);
+    post("/app/invite/lookup", { token: found }).then((answer) => setState(lookupState(answer)));
   }, []);
+
+  const fresh = async () => {
+    setBusy(true);
+    const answer = await post("/app/link/fresh", { token });
+    setBusy(false);
+    if (!answer.ok) {
+      setState({ kind: "expired", failure: answer.message });
+      return;
+    }
+    dropLinkToken();
+    setState({ kind: "fresh-sent" });
+  };
 
   const redeem = async () => {
     if (state.kind !== "ready") return;
     setBusy(true);
-    const answer = await post("/app/invite/redeem", { token: pendingToken });
+    const answer = await post("/app/invite/redeem", { token });
     setBusy(false);
+    if (!answer.ok && answer.status === 410) {
+      setState({ kind: "expired", failure: null });
+      return;
+    }
     if (!answer.ok) {
       setState(
         failureOf(answer).kind === "locked"
@@ -137,11 +157,11 @@ export const Invite = () => {
       );
       return;
     }
-    pendingToken = null;
+    dropLinkToken();
     navigate("/welcome/password", { email: state.email });
   };
 
-  return <InviteView state={state} busy={busy} onContinue={redeem} />;
+  return <InviteView state={state} busy={busy} onContinue={redeem} onFresh={fresh} />;
 };
 
 export type PasswordProblem =
@@ -237,7 +257,9 @@ const secretOf = (uri: string): string => {
 };
 
 export type AppSetupState =
-  | { readonly kind: "password"; readonly error: string | null }
+  | { readonly kind: "starting" }
+  | { readonly kind: "reauthenticate" }
+  | { readonly kind: "failed"; readonly message: string }
   | {
       readonly kind: "scan";
       readonly uri: string;
@@ -248,8 +270,8 @@ export type AppSetupState =
 export interface AppSetupViewProps {
   readonly state: AppSetupState;
   readonly busy: boolean;
-  readonly onEnable: (event: FormEvent<HTMLFormElement>) => void;
   readonly onVerify: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onRetry: () => void;
   readonly onBack?: () => void;
 }
 
@@ -279,31 +301,26 @@ const CopySecret = ({ secret }: { secret: string }) => {
   );
 };
 
-export const AppSetupView = ({ state, busy, onEnable, onVerify, onBack }: AppSetupViewProps) => {
+export const AppSetupView = ({ state, busy, onVerify, onRetry, onBack }: AppSetupViewProps) => {
   const back = onBack ? (
     <Button variant="ghost" onClick={onBack} className="w-full">
       Choose another way
     </Button>
   ) : null;
 
-  if (state.kind === "password") {
+  if (state.kind === "starting" || state.kind === "reauthenticate") {
+    return <Muted>Making a key for your app…</Muted>;
+  }
+
+  if (state.kind === "failed") {
     return (
       <>
-        {state.error === null ? null : (
-          <Notice tone="danger" title={state.error} report={state.error} />
-        )}
-        <Form onSubmit={onEnable}>
-          <PasswordField
-            id="password"
-            label="Your password, to add an app"
-            autoComplete="current-password"
-            required
-            ref={focusOnMount}
-          />
-          <Submit variant="secondary" disabled={busy}>
-            Add an authenticator app
-          </Submit>
-        </Form>
+        <Notice tone="danger" title="The app could not be added" report={state.message}>
+          {state.message}
+        </Notice>
+        <Button ref={focusOnMount} onClick={onRetry} className="w-full">
+          Try again
+        </Button>
         {back}
       </>
     );
@@ -326,7 +343,7 @@ export const AppSetupView = ({ state, busy, onEnable, onVerify, onBack }: AppSet
           autoComplete="one-time-code"
           className="font-mono"
           required
-          ref={state.error === null ? undefined : focusOnMount}
+          ref={focusOnMount}
           error={state.error}
         />
         <Submit disabled={busy}>Confirm</Submit>
@@ -336,30 +353,42 @@ export const AppSetupView = ({ state, busy, onEnable, onVerify, onBack }: AppSet
   );
 };
 
+const enrollApp = async (): Promise<AppSetupState> => {
+  const answer = await post("/app/second-step/app");
+  if (!answer.ok) {
+    return answer.code === "REAUTHENTICATE"
+      ? { kind: "reauthenticate" }
+      : { kind: "failed", message: answer.message };
+  }
+  const codes = Array.isArray(answer.body.backupCodes)
+    ? answer.body.backupCodes.filter((code): code is string => typeof code === "string")
+    : [];
+  return { kind: "scan", uri: String(answer.body.totpURI ?? ""), codes, error: null };
+};
+
 export const AppSetup = ({
   onDone,
+  onReauthenticate,
   onBack,
 }: {
   onDone: (backupCodes: string[]) => void;
+  onReauthenticate: () => void;
   onBack?: () => void;
 }) => {
-  const [state, setState] = useState<AppSetupState>({ kind: "password", error: null });
+  const [state, setState] = useState<AppSetupState>({ kind: "starting" });
   const [busy, setBusy] = useState(false);
 
-  const enable = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const password = new FormData(event.currentTarget).get("password");
-    setBusy(true);
-    const answer = await post("/api/auth/two-factor/enable", { password });
-    setBusy(false);
-    if (!answer.ok) {
-      setState({ kind: "password", error: answer.message });
-      return;
-    }
-    const codes = Array.isArray(answer.body.backupCodes)
-      ? answer.body.backupCodes.filter((code): code is string => typeof code === "string")
-      : [];
-    setState({ kind: "scan", uri: String(answer.body.totpURI ?? ""), codes, error: null });
+  useEffect(() => {
+    enrollApp().then(setState);
+  }, []);
+
+  useEffect(() => {
+    if (state.kind === "reauthenticate") onReauthenticate();
+  }, [state, onReauthenticate]);
+
+  const start = () => {
+    setState({ kind: "starting" });
+    enrollApp().then(setState);
   };
 
   const verify = async (event: FormEvent<HTMLFormElement>) => {
@@ -383,16 +412,22 @@ export const AppSetup = ({
   };
 
   return (
-    <AppSetupView state={state} busy={busy} onEnable={enable} onVerify={verify} onBack={onBack} />
+    <AppSetupView state={state} busy={busy} onVerify={verify} onRetry={start} onBack={onBack} />
   );
 };
 
+export type SecondStepChoice = "passkey" | "app";
+
 export type OnboardingStep =
-  | { readonly kind: "confirm"; readonly error: string | null }
   | { readonly kind: "choose" }
   | { readonly kind: "passkey-waiting" }
   | { readonly kind: "passkey-failed"; readonly message: string; readonly cancelled: boolean }
-  | { readonly kind: "app" };
+  | { readonly kind: "app" }
+  | {
+      readonly kind: "confirm-again";
+      readonly resume: SecondStepChoice;
+      readonly error: string | null;
+    };
 
 const Option = ({
   title,
@@ -419,6 +454,8 @@ const Option = ({
 export interface WelcomeSecondStepViewProps {
   readonly step: OnboardingStep;
   readonly passkeys: boolean;
+  readonly busy: boolean;
+  readonly opening: Opening | null;
   readonly onConfirm: (event: FormEvent<HTMLFormElement>) => void;
   readonly onPasskey: () => void;
   readonly onApp: () => void;
@@ -430,6 +467,8 @@ export interface WelcomeSecondStepViewProps {
 export const WelcomeSecondStepView = ({
   step,
   passkeys,
+  busy,
+  opening,
   onConfirm,
   onPasskey,
   onApp,
@@ -437,6 +476,8 @@ export const WelcomeSecondStepView = ({
   onSkip,
   app,
 }: WelcomeSecondStepViewProps) => {
+  if (opening !== null) return <OpeningRemitView opening={opening} onRetry={onSkip} />;
+
   const skip = (
     <Button variant="ghost" onClick={onSkip} className="w-full">
       Skip for now
@@ -444,15 +485,15 @@ export const WelcomeSecondStepView = ({
   );
 
   switch (step.kind) {
-    case "confirm":
+    case "confirm-again":
       return (
-        <Page title="Make your account safer">
+        <Page title="Confirm it is you">
           {step.error === null ? null : (
             <Notice tone="danger" title={step.error} report={step.error} />
           )}
           <Muted>
-            Add a passkey or an authenticator app, so a leaked password alone cannot open your mail.
-            You can do this now or later on the Security page. Type your password again to start.
+            More than 5 minutes passed since you set your password. Type it once more to add{" "}
+            {step.resume === "passkey" ? "a passkey" : "an authenticator app"}.
           </Muted>
           <Form onSubmit={onConfirm}>
             <PasswordField
@@ -462,7 +503,7 @@ export const WelcomeSecondStepView = ({
               required
               ref={focusOnMount}
             />
-            <Submit>Continue</Submit>
+            <Submit disabled={busy}>Continue</Submit>
           </Form>
           {skip}
         </Page>
@@ -521,6 +562,7 @@ export const WelcomeSecondStepView = ({
           <Button variant="secondary" onClick={onChoose} className="w-full">
             Choose another way
           </Button>
+          {skip}
         </Page>
       );
     case "app":
@@ -529,23 +571,21 @@ export const WelcomeSecondStepView = ({
 };
 
 export const WelcomeSecondStep = () => {
-  const [step, setStep] = useState<OnboardingStep>({ kind: "confirm", error: null });
+  const [step, setStep] = useState<OnboardingStep>({ kind: "choose" });
+  const [busy, setBusy] = useState(false);
+  const { opening, open } = useOpenRemit();
 
-  const confirm = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const password = new FormData(event.currentTarget).get("password");
-    const answer = await post("/app/security/confirm", { password });
-    if (!answer.ok) {
-      setStep({ kind: "confirm", error: answer.message });
-      return;
-    }
-    setStep({ kind: "choose" });
-  };
+  const reauthenticate = (resume: SecondStepChoice) =>
+    setStep({ kind: "confirm-again", resume, error: null });
 
   const passkey = async () => {
     setStep({ kind: "passkey-waiting" });
     const answer = await addPasskey();
     if (!answer.ok) {
+      if (answer.code === "REAUTHENTICATE") {
+        reauthenticate("passkey");
+        return;
+      }
       setStep({
         kind: "passkey-failed",
         message: answer.message,
@@ -553,7 +593,25 @@ export const WelcomeSecondStep = () => {
       });
       return;
     }
-    await goToReader();
+    await open();
+  };
+
+  const confirm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (step.kind !== "confirm-again") return;
+    const password = new FormData(event.currentTarget).get("password");
+    setBusy(true);
+    const answer = await post("/app/security/confirm", { password });
+    setBusy(false);
+    if (!answer.ok) {
+      setStep({ ...step, error: answer.message });
+      return;
+    }
+    if (step.resume === "passkey") {
+      await passkey();
+      return;
+    }
+    setStep({ kind: "app" });
   };
 
   const choose = () => setStep({ kind: "choose" });
@@ -562,14 +620,17 @@ export const WelcomeSecondStep = () => {
     <WelcomeSecondStepView
       step={step}
       passkeys={passkeysSupported()}
+      busy={busy}
+      opening={opening}
       onConfirm={confirm}
       onPasskey={passkey}
       onApp={() => setStep({ kind: "app" })}
       onChoose={choose}
-      onSkip={goToReader}
+      onSkip={open}
       app={
         <AppSetup
           onDone={(codes) => navigate("/welcome/backup-codes", { codes })}
+          onReauthenticate={() => reauthenticate("app")}
           onBack={choose}
         />
       }
@@ -606,5 +667,7 @@ export const BackupCodesView = ({
 
 export const BackupCodes = () => {
   const codes = (window.history.state as { codes?: string[] } | null)?.codes ?? [];
-  return <BackupCodesView codes={codes} onDone={goToReader} />;
+  const { opening, open } = useOpenRemit();
+  if (opening !== null) return <OpeningRemitView opening={opening} onRetry={open} />;
+  return <BackupCodesView codes={codes} onDone={open} />;
 };

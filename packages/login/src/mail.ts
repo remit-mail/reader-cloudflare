@@ -35,19 +35,19 @@ export const sendInvite = (
     ].join("\n"),
   });
 
-export const sendResetCode = (
+export const sendResetLink = (
   email: SendEmail,
   config: LoginConfig,
   to: string,
-  code: string,
+  token: string,
 ): Promise<SendOutcome> =>
   send(email, config, {
     to,
-    subject: "Your remit reset code",
+    subject: "Reset your remit password",
     text: [
-      `Your code to reset your remit password is ${code}.`,
+      `Open this link to choose a new remit password: ${config.loginOrigin}/reset/password#${token}`,
       "",
-      "It works once and expires in 10 minutes. If you did not ask for it, ignore this message; your password stays as it is.",
+      "The link works once and expires in 1 hour. If you did not ask for it, ignore this message; your password stays as it is.",
     ].join("\n"),
   });
 

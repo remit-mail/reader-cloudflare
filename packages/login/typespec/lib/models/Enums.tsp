@@ -7,6 +7,12 @@ enum InviteState {
   Revoked: "Revoked",
 }
 
+enum ResetLinkState {
+  Open: "Open",
+  Used: "Used",
+  Replaced: "Replaced",
+}
+
 enum AdminAction {
   Invite: "Invite",
   Disable: "Disable",
@@ -36,6 +42,7 @@ enum AuditEventKind {
   Backoff: "Backoff",
   ResetRequested: "ResetRequested",
   PasswordReset: "PasswordReset",
+  FreshLinkRequested: "FreshLinkRequested",
   PasswordChanged: "PasswordChanged",
   FactorAdded: "FactorAdded",
   FactorRemoved: "FactorRemoved",

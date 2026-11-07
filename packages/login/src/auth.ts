@@ -3,7 +3,7 @@ import { passkey } from "@better-auth/passkey";
 import { type BetterAuthOptions, type BetterAuthPlugin, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { admin, emailOTP, haveIBeenPwned, jwt, twoFactor } from "better-auth/plugins";
+import { admin, haveIBeenPwned, jwt, twoFactor } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import { audit } from "./audit";
 import { addressOf } from "./backoff";
@@ -14,11 +14,11 @@ import { schema } from "./db/schema";
 import type { Env } from "./env";
 import { isRecord } from "./http";
 import { log } from "./log";
-import { sendResetCode, sendSecurityChange } from "./mail";
-import { appEndpoints, REAUTH_WINDOW_MS } from "./routes/app";
+import { sendSecurityChange } from "./mail";
+import { APP_ENROLL_PATH, appEndpoints, REAUTH_WINDOW_MS } from "./routes/app";
+import { RESET_PASSWORD_PATH, resetEndpoints } from "./routes/reset";
 import {
   PASSKEY_SIGN_IN_PATH,
-  RESET_PATH,
   SIGN_IN_PATH,
   secondFactorAfter,
   secondFactorBefore,
@@ -38,7 +38,6 @@ export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/get-session",
   "/sign-in/email",
   "/change-password",
-  "/email-otp/reset-password",
   "/passkey/generate-register-options",
   "/passkey/generate-authenticate-options",
   "/passkey/verify-registration",
@@ -46,7 +45,6 @@ export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/passkey/list-user-passkeys",
   "/passkey/delete-passkey",
   "/passkey/update-passkey",
-  "/two-factor/enable",
   "/two-factor/disable",
   "/two-factor/get-totp-uri",
   "/two-factor/verify-totp",
@@ -55,8 +53,9 @@ export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
 ]);
 
 const SERVER_ONLY_PATHS: ReadonlySet<string> = new Set([
-  "/email-otp/send-verification-otp",
   "/app/welcome/password",
+  RESET_PASSWORD_PATH,
+  APP_ENROLL_PATH,
   "/app/security/confirm",
   "/app/sign-out",
   "/app/sign-out-everywhere",
@@ -67,7 +66,7 @@ const FACTOR_GATED: ReadonlySet<string> = new Set([
   "/passkey/verify-registration",
   "/passkey/delete-passkey",
   "/passkey/update-passkey",
-  "/two-factor/enable",
+  APP_ENROLL_PATH,
   "/two-factor/disable",
   "/two-factor/get-totp-uri",
   "/two-factor/generate-backup-codes",
@@ -89,7 +88,7 @@ const FACTOR_CHANGES: ReadonlyMap<
   ["/passkey/verify-registration", { event: "FactorAdded", change: "A passkey was added" }],
   ["/passkey/delete-passkey", { event: "FactorRemoved", change: "A passkey was removed" }],
   ["/passkey/update-passkey", { event: "FactorRenamed", change: "A passkey was renamed" }],
-  ["/two-factor/enable", { event: "FactorAdded", change: "An authenticator app was added" }],
+  [APP_ENROLL_PATH, { event: "FactorAdded", change: "An authenticator app was added" }],
   ["/two-factor/disable", { event: "FactorRemoved", change: "The authenticator app was removed" }],
   [
     "/two-factor/generate-backup-codes",
@@ -181,7 +180,6 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
         {
           matcher: (ctx) =>
             ctx.path === SIGN_IN_PATH ||
-            ctx.path === RESET_PATH ||
             ctx.path === PASSKEY_SIGN_IN_PATH ||
             TWO_FACTOR_PATHS.has(ctx.path ?? ""),
           handler: before,
@@ -193,7 +191,6 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
         {
           matcher: (ctx) =>
             ctx.path === SIGN_IN_PATH ||
-            ctx.path === RESET_PATH ||
             ctx.path === PASSKEY_SIGN_IN_PATH ||
             TWO_FACTOR_PATHS.has(ctx.path ?? ""),
           handler: after,
@@ -282,10 +279,7 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
       window: 60,
       max: 30,
       customRules: Object.fromEntries(
-        [SIGN_IN_PATH, RESET_PATH, ...TWO_FACTOR_PATHS].map((path) => [
-          path,
-          { window: 60, max: 30 },
-        ]),
+        [SIGN_IN_PATH, ...TWO_FACTOR_PATHS].map((path) => [path, { window: 60, max: 30 }]),
       ),
     },
     advanced: {
@@ -313,31 +307,12 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         origin: config.loginOrigin,
         authenticatorSelection: { userVerification: "required", residentKey: "required" },
       }),
-      emailOTP({
-        otpLength: 8,
-        expiresIn: 600,
-        allowedAttempts: 5,
-        storeOTP: "hashed",
-        disableSignUp: true,
-        sendVerificationOTP: async ({ email, otp, type }) => {
-          if (type !== "forget-password") return;
-          const sent = await sendResetCode(deps.email, config, email, otp);
-          if (sent.ok) return;
-          log.warn("reset code email refused", { reason: sent.reason });
-          await audit(deps.db, {
-            actor: "anonymous",
-            email,
-            address: "",
-            event: "ResetRequested",
-            outcome: "Refused",
-          });
-        },
-      }),
       haveIBeenPwned({
-        paths: ["/email-otp/reset-password", "/change-password", "/app/welcome/password"],
+        paths: [RESET_PASSWORD_PATH, "/change-password", "/app/welcome/password"],
       }),
       loginHooks(deps),
       appEndpoints(deps),
+      resetEndpoints(deps),
       oauthProvider({
         loginPage: "/sign-in",
         consentPage: "/sign-in",

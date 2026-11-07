@@ -1,33 +1,27 @@
+import { createOTP } from "@better-auth/utils/otp";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api";
 import { deleteSessionCookie, setSessionCookie } from "better-auth/cookies";
+import { generateRandomString, symmetricEncrypt } from "better-auth/crypto";
 import { z } from "zod";
 import { audit } from "../audit";
 import type { AuthDeps } from "../auth";
-import {
-  addressKey,
-  addressOf,
-  clearKey,
-  refundKey,
-  reserveAttempt,
-  takeResetQuota,
-  userKey,
-} from "../backoff";
-import { type LoginConfig, normalizeEmail } from "../config";
+import { addressKey, addressOf, clearKey, refundKey, reserveAttempt, userKey } from "../backoff";
+import type { LoginConfig } from "../config";
 import { randomId, randomToken, sameHash, sha256Hex } from "../crypto";
 import { json } from "../http";
-import { log } from "../log";
 import { reserveOrAudit } from "../second-factor";
 import { recordTotpStep, totpStepMatchingNow } from "../totp";
 import { isAssertion, passkeyCount, verifyOwnPasskey } from "../webauthn";
 
 export const REAUTH_WINDOW_MS = 5 * 60_000;
+export const APP_ENROLL_PATH = "/app/second-step/app";
 
 const INVITE_LIFE_MS = 7 * 24 * 60 * 60_000;
 const GRANT_LIFE_SECONDS = 30 * 60;
 const GRANT_PATH = "/app/welcome";
-const DEAD_INVITE =
-  "This invite link no longer works. Ask the person who invited you for a new one.";
+const DEAD_INVITE = "This invite link no longer works. Email yourself a fresh one.";
+const BACKUP_CODE_COUNT = 10;
 const PASSKEY_CHALLENGE_COOKIE = "better-auth-passkey";
 
 export const grantCookieName = (config: LoginConfig): string =>
@@ -48,7 +42,7 @@ const tokenOf = (body: unknown): string | null => {
   return parsed.success ? parsed.data.token : null;
 };
 
-const deadInvite = (): Response => json(410, { message: DEAD_INVITE });
+const deadInvite = (): Response => json(410, { message: DEAD_INVITE, code: "LINK_DEAD" });
 
 const backoffResponse = (until: number): Response =>
   json(429, {
@@ -129,43 +123,6 @@ export const redeemInvite = async (
       "set-cookie": grantCookie(config, grant, GRANT_LIFE_SECONDS),
     },
   );
-};
-
-export const RESET_ACCEPTED = {
-  message: "If that address has an account, a code is on its way. It expires in 10 minutes.",
-};
-
-export const requestReset = (
-  db: D1Database,
-  request: Request,
-  body: unknown,
-  waitUntil: (promise: Promise<unknown>) => void,
-  send: (email: string) => Promise<unknown>,
-): Response => {
-  const parsed = z.object({ email: z.string().max(320) }).safeParse(body);
-  const address = addressOf(request);
-  if (parsed.success) {
-    const email = normalizeEmail(parsed.data.email);
-    waitUntil(
-      (async () => {
-        const allowed = await takeResetQuota(db, address, email, Date.now());
-        if (!allowed) return;
-        await audit(db, {
-          actor: "anonymous",
-          email,
-          address,
-          event: "ResetRequested",
-          outcome: "Succeeded",
-        });
-        await send(email);
-      })().catch((error: unknown) => {
-        log.error("reset request failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      }),
-    );
-  }
-  return json(202, RESET_ACCEPTED);
 };
 
 export const issueInvite = async (
@@ -265,7 +222,13 @@ export const appEndpoints = (deps: AuthDeps) => {
             accountId: user.id,
             password: hash,
           });
-          const session = await ctx.context.internalAdapter.createSession(user.id);
+          const created = await ctx.context.internalAdapter.createSession(user.id);
+          const reauthenticatedAt = Date.now();
+          await db
+            .prepare("UPDATE session SET reauthenticated_at = ? WHERE id = ?")
+            .bind(reauthenticatedAt, created.id)
+            .run();
+          const session = { ...created, reauthenticatedAt };
           await setSessionCookie(ctx, { session, user });
           ctx.setCookie(grantCookieName(config), "", {
             path: GRANT_PATH,
@@ -370,6 +333,48 @@ export const appEndpoints = (deps: AuthDeps) => {
             .bind(Date.now(), session.id)
             .run();
           return ctx.json({ confirmedUntil: Date.now() + REAUTH_WINDOW_MS });
+        },
+      ),
+      appEnroll: createAuthEndpoint(
+        APP_ENROLL_PATH,
+        { method: "POST", use: [sessionMiddleware], metadata: { SERVER_ONLY: true } },
+        async (ctx) => {
+          const { user } = ctx.context.session;
+          const existing = await db
+            .prepare(
+              "SELECT id, COALESCE(verified, 1) AS verified FROM two_factor WHERE user_id = ?",
+            )
+            .bind(user.id)
+            .first<{ id: string; verified: number }>();
+          if (existing !== null && existing.verified !== 0) {
+            throw new APIError("BAD_REQUEST", {
+              message: "An authenticator app is already on.",
+              code: "TOTP_ALREADY_ENABLED",
+            });
+          }
+          const codes = Array.from({ length: BACKUP_CODE_COUNT }, () =>
+            generateRandomString(10, "a-z", "0-9", "A-Z"),
+          ).map((code) => `${code.slice(0, 5)}-${code.slice(5)}`);
+          const secret = generateRandomString(32);
+          const key = ctx.context.secretConfig;
+          const encryptedSecret = await symmetricEncrypt({ key, data: secret });
+          const encryptedCodes = await symmetricEncrypt({ key, data: JSON.stringify(codes) });
+          await (existing === null
+            ? db
+                .prepare(
+                  "INSERT INTO two_factor (id, secret, backup_codes, user_id, verified) VALUES (?, ?, ?, ?, 0)",
+                )
+                .bind(randomId(), encryptedSecret, encryptedCodes, user.id)
+            : db
+                .prepare(
+                  "UPDATE two_factor SET secret = ?, backup_codes = ?, verified = 0 WHERE id = ?",
+                )
+                .bind(encryptedSecret, encryptedCodes, existing.id)
+          ).run();
+          return ctx.json({
+            totpURI: createOTP(secret, { digits: 6 }).url("remit", user.email),
+            backupCodes: codes,
+          });
         },
       ),
       appSignOut: createAuthEndpoint(

@@ -38,6 +38,24 @@ export const onboardingGrants = sqliteTable(
   (table) => [uniqueIndex("onboarding_grant_token_hash").on(table.tokenHash)],
 );
 
+export const resetLinks = sqliteTable(
+  "reset_link",
+  {
+    resetLinkId: text("reset_link_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    state: text("state").$type<"Open" | "Used" | "Replaced">().notNull(),
+    createdAt: integer("created_at", { mode: "number" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "number" }).notNull(),
+    stateChangedAt: integer("state_changed_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("reset_link_user").on(table.userId),
+    uniqueIndex("reset_link_token_hash").on(table.tokenHash),
+  ],
+);
+
 export const authAttempts = sqliteTable("auth_attempt", {
   attemptKey: text("attempt_key").primaryKey(),
   attempts: integer("attempts").notNull(),
@@ -103,6 +121,7 @@ export const auditEvents = sqliteTable(
         | "Backoff"
         | "ResetRequested"
         | "PasswordReset"
+        | "FreshLinkRequested"
         | "PasswordChanged"
         | "FactorAdded"
         | "FactorRemoved"

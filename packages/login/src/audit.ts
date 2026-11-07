@@ -72,11 +72,13 @@ export const auditRows = async (db: D1Database, days: number): Promise<readonly 
 };
 
 const DAY_MS = 24 * 60 * 60_000;
+const LINK_KEEP_MS = 30 * DAY_MS;
 
 export const purgeStatements = (db: D1Database, now: number): D1PreparedStatement[] => [
   db.prepare("DELETE FROM audit_event WHERE at < ?").bind(now - RETENTION_MS),
   db.prepare("DELETE FROM totp_use WHERE used_at < ?").bind(now - DAY_MS),
-  db.prepare("DELETE FROM invite WHERE expires_at < ?").bind(now),
+  db.prepare("DELETE FROM invite WHERE expires_at < ?").bind(now - LINK_KEEP_MS),
+  db.prepare("DELETE FROM reset_link WHERE expires_at < ?").bind(now - LINK_KEEP_MS),
   db.prepare("DELETE FROM onboarding_grant WHERE expires_at < ?").bind(now),
   db.prepare("DELETE FROM admin_challenge WHERE expires_at < ?").bind(now),
   db.prepare("DELETE FROM auth_attempt WHERE last_attempt_at < ?").bind(now - DAY_MS),
