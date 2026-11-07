@@ -1,8 +1,8 @@
-import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { z } from "zod";
 import { r2ObjectText } from "./cf-api.mjs";
-import { CONFIG_DIR, PROJECT } from "./env.mjs";
-import { PROD, STAGES } from "./stages.mjs";
+import { PROJECT } from "./env.mjs";
+import { PROD } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET } from "./tofu.mjs";
 
 const hostname = z
@@ -35,7 +35,6 @@ export const deployConfigSchema = z
     zone_name: hostname,
     app_hostname: hostname,
     dev_app_hostname: hostname,
-    owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
     login_hostname: hostname,
     dev_login_hostname: hostname,
@@ -92,11 +91,10 @@ export const deploySecretsSchema = z
   })
   .strict();
 
-export const DEPLOY_CONFIG_OBJECT = "deploy.config.json";
 export const DEPLOY_SECRETS_OBJECT = "deploy.secrets.json";
-export const DEPLOY_CONFIG_FILE = join(CONFIG_DIR, DEPLOY_CONFIG_OBJECT);
-export const BUILDS_BOOTSTRAP_REPO = "mvhenten/cloudflare-builds-bootstrap";
-export const BUILDS_BOOTSTRAP_PROJECTS = "infra/projects.auto.tfvars.json";
+const BUILDS_BOOTSTRAP_REPO = "mvhenten/cloudflare-builds-bootstrap";
+const BUILDS_BOOTSTRAP_PROJECTS = "infra/projects.auto.tfvars.json";
+const BUILDS_BOOTSTRAP_SOURCE = `${BUILDS_BOOTSTRAP_REPO}/${BUILDS_BOOTSTRAP_PROJECTS}`;
 
 const parseWith = (schema, label) => (text, source) => {
   const json = (() => {
@@ -120,6 +118,47 @@ const parseWith = (schema, label) => (text, source) => {
 
 export const parseDeployConfig = parseWith(deployConfigSchema, "deploy config");
 const parseDeploySecrets = parseWith(deploySecretsSchema, "deploy secrets object");
+
+export const fetchBuildsDeployConfig = () => {
+  const fetched = spawnSync(
+    "gh",
+    [
+      "api",
+      "-H",
+      "Accept: application/vnd.github.raw",
+      `repos/${BUILDS_BOOTSTRAP_REPO}/contents/${BUILDS_BOOTSTRAP_PROJECTS}`,
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (fetched.error || fetched.status !== 0) {
+    const detail = fetched.error?.message ?? fetched.stderr.trim().split("\n")[0];
+    return {
+      fetched: false,
+      reason: `gh api could not read ${BUILDS_BOOTSTRAP_SOURCE}: ${detail}`,
+    };
+  }
+  const projects = (() => {
+    try {
+      return JSON.parse(fetched.stdout).projects;
+    } catch {
+      console.error(`${BUILDS_BOOTSTRAP_SOURCE} is not JSON`);
+      process.exit(1);
+    }
+  })();
+  const entry = Object.values(projects ?? {}).find((project) => project?.worker === PROJECT);
+  const deployConfig = entry?.environment?.DEPLOY_CONFIG;
+  if (typeof deployConfig !== "string") {
+    console.error(
+      `${BUILDS_BOOTSTRAP_SOURCE} sets no DEPLOY_CONFIG string for the Worker ${PROJECT}`,
+    );
+    process.exit(1);
+  }
+  return {
+    fetched: true,
+    source: BUILDS_BOOTSTRAP_SOURCE,
+    config: parseDeployConfig(deployConfig, BUILDS_BOOTSTRAP_SOURCE),
+  };
+};
 
 export const readDeploySecrets = async (token, accountId) => {
   const source = `r2://${BUILDER_SECRETS_BUCKET}/${DEPLOY_SECRETS_OBJECT}`;
@@ -155,7 +194,6 @@ export const tofuVars = (config, stage) => {
   return {
     TF_VAR_project: PROJECT,
     TF_VAR_stage: stage,
-    TF_VAR_login_idp: String(STAGES[stage].loginIdp),
     ...Object.fromEntries(
       Object.entries(infra).map(([key, value]) => [
         `TF_VAR_${key}`,
@@ -166,7 +204,6 @@ export const tofuVars = (config, stage) => {
 };
 
 export const configLiterals = ({
-  owner_emails,
   alert_email,
   operator_emails,
   email_sender,
@@ -174,7 +211,7 @@ export const configLiterals = ({
   msoauth,
   ...rest
 }) => {
-  const emails = [...owner_emails, alert_email, ...operator_emails, email_sender, dev_email_sender];
+  const emails = [alert_email, ...operator_emails, email_sender, dev_email_sender];
   return [
     ...new Set([
       ...Object.values(rest),

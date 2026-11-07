@@ -9,7 +9,7 @@ Each decision below carries a number. Disagree by number.
 ## Platform and tenants
 
 1. The build runs on Cloudflare: Workers, D1, Durable Objects, R2, Queues, Secrets Store and Access. The repo carries no UI, no API handlers and no database layer for the shared parts (decision 16).
-2. Cloudflare Access is the only sign-in. The Access JWT, from the cookie or a bearer header, is the identity. Switching the provider (one-time PIN today, Google or GitHub later) is a Tofu change. Access admits the `owner_emails` in the deployment config only.
+2. Cloudflare Access is the only sign-in. The Access JWT, from the cookie or a bearer header, is the identity. The provider is the login Worker in `packages/login`, an OIDC identity provider that admits invited people only; switching or adding a provider is a Tofu change.
 
 ## Storage
 

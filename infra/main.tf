@@ -161,28 +161,6 @@ resource "cloudflare_worker" "reader" {
   }
 }
 
-data "cloudflare_zero_trust_access_identity_providers" "all" {
-  account_id = var.account_id
-}
-
-locals {
-  otp_idp_id = one([
-    for idp in data.cloudflare_zero_trust_access_identity_providers.all.result : idp.id
-    if idp.type == "onetimepin"
-  ])
-}
-
-resource "cloudflare_zero_trust_access_policy" "owner" {
-  account_id = var.account_id
-  name       = "${local.name}-owner"
-  decision   = "allow"
-  include = [for email in var.owner_emails : {
-    email = {
-      email = email
-    }
-  }]
-}
-
 resource "cloudflare_zero_trust_access_application" "reader" {
   account_id = var.account_id
   name       = local.name
@@ -192,39 +170,20 @@ resource "cloudflare_zero_trust_access_application" "reader" {
     type = "public"
     uri  = var.app_hostname
   }]
-  session_duration          = var.login_idp ? "15m" : "720h"
-  auto_redirect_to_identity = !var.login_idp
+  session_duration          = "15m"
+  auto_redirect_to_identity = true
   enable_binding_cookie     = false
   options_preflight_bypass  = false
-  allowed_idps              = local.reader_allowed_idps
-  policies = concat(
-    var.login_idp ? [{ id = cloudflare_zero_trust_access_policy.login.id, precedence = 1 }] : [],
-    [
-      { id = cloudflare_zero_trust_access_policy.owner.id, precedence = var.login_idp ? 2 : 1 },
-      { id = cloudflare_zero_trust_access_policy.agent.id, precedence = var.login_idp ? 3 : 2 },
-    ],
-  )
+  allowed_idps              = [cloudflare_zero_trust_access_identity_provider.login.id]
+  policies = [
+    { id = cloudflare_zero_trust_access_policy.login.id, precedence = 1 },
+    { id = cloudflare_zero_trust_access_policy.agent.id, precedence = 2 },
+  ]
 
   lifecycle {
-    precondition {
-      condition     = local.otp_idp_id != null
-      error_message = "No onetimepin identity provider is visible; the tofu token needs Access: Organizations, Identity Providers, and Groups Read, or allowed_idps would widen to every IdP."
-    }
-    precondition {
-      condition     = length(local.reader_allowed_idps) > 0 && length(setsubtract(local.reader_allowed_idps, local.stage_idps)) == 0
-      error_message = "Access application ${local.name} must list allowed_idps, drawn only from the one-time PIN and this stage's login IdP."
-    }
-    precondition {
-      condition     = length(setintersection(local.reader_allowed_idps, local.other_stage_login_idps)) == 0
-      error_message = "Access application ${local.name} must not allow ${local.other_stage_login_idp}, the other stage's login IdP."
-    }
     precondition {
       condition     = var.app_hostname != var.login_hostname
       error_message = "Access application ${local.name} must not cover the login hostname."
     }
   }
-}
-
-data "cloudflare_zero_trust_organization" "this" {
-  account_id = var.account_id
 }

@@ -34,21 +34,13 @@ resource "cloudflare_zero_trust_access_application" "public" {
     type = "public"
     uri  = path
   }]
-  allowed_idps = local.public_allowed_idps
+  allowed_idps = [cloudflare_zero_trust_access_identity_provider.login.id]
   policies = [{
     id         = cloudflare_zero_trust_access_policy.public.id
     precedence = 1
   }]
 
   lifecycle {
-    precondition {
-      condition     = length(local.public_allowed_idps) > 0 && length(setsubtract(local.public_allowed_idps, local.stage_idps)) == 0
-      error_message = "Access application ${local.name}-public must list allowed_idps, drawn only from the one-time PIN and this stage's login IdP."
-    }
-    precondition {
-      condition     = length(setintersection(local.public_allowed_idps, local.other_stage_login_idps)) == 0
-      error_message = "Access application ${local.name}-public must not allow ${local.other_stage_login_idp}, the other stage's login IdP."
-    }
     precondition {
       condition     = alltrue([for path in local.public_paths : split("/", path)[0] != var.login_hostname])
       error_message = "Access application ${local.name}-public must not cover the login hostname."

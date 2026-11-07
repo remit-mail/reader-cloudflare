@@ -27,11 +27,6 @@ variable "app_hostname" {
   description = "Custom domain of the Worker, guarded by Access. app_hostname in deploy.config.json for prod, dev_app_hostname for dev."
 }
 
-variable "owner_emails" {
-  type        = list(string)
-  description = "Addresses Access lets through with a one-time PIN. owner_emails in deploy.config.json."
-}
-
 variable "alert_email" {
   type        = string
   description = "Address that receives every notification policy in notifications.tf. alert_email in deploy.config.json."
@@ -77,9 +72,4 @@ variable "login_hostname" {
 variable "email_sender" {
   type        = string
   description = "Address the login Worker sends invites and codes from; its domain becomes this stage's Email Sending subdomain. email_sender in deploy.config.json for prod, dev_email_sender for dev."
-}
-
-variable "login_idp" {
-  type        = bool
-  description = "Whether the reader Access application accepts the login Worker as an identity provider, with a 15 minute session; loginIdp in npm-scripts/stages.mjs."
 }
