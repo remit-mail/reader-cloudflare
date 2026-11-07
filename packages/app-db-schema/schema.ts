@@ -15,3 +15,13 @@ export const tenantAccountConfigs = sqliteTable("tenant_account_config", {
   accountConfigId: text("account_config_id").primaryKey(),
   tenantId: text("tenant_id").notNull(),
 });
+
+export const deadLetters = sqliteTable("dead_letter", {
+  deadLetterId: text("dead_letter_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  family: text("family").notNull(),
+  type: text("type").notNull(),
+  correlationId: text("correlation_id").notNull(),
+  attempts: integer("attempts").notNull(),
+  body: text("body").notNull(),
+});
