@@ -4,6 +4,7 @@ import {
   type Logger,
   logContext,
   normalizeLogArguments,
+  redact,
   setLogger,
 } from "@remit/logger";
 
@@ -23,13 +24,15 @@ export const annotateLog = (fields: Fields): void => {
 
 const write = (level: Level, message: string, fields: Fields): void => {
   console[level](
-    JSON.stringify({
-      level,
-      message,
-      time: new Date().toISOString(),
-      ...context.getStore(),
-      ...fields,
-    }),
+    JSON.stringify(
+      redact({
+        level,
+        message,
+        time: new Date().toISOString(),
+        ...context.getStore(),
+        ...fields,
+      }),
+    ),
   );
 };
 
