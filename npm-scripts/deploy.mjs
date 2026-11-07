@@ -6,7 +6,8 @@ import { failOnHits, scanRepo } from "./check-no-config.mjs";
 import { migrate } from "./db-migrate.mjs";
 import {
   configLiterals,
-  DEPLOY_CONFIG_OBJECT,
+  deployConfigFromEnv,
+  deployVariable,
   parseDeployConfig,
   tofuVars,
 } from "./deploy-config.mjs";
@@ -19,7 +20,6 @@ const BUILDER_OBJECTS = [
   "CLOUDFLARE_TOFU_TOKEN",
   "TFSTATE_ACCESS_KEY_ID",
   "TFSTATE_SECRET_ACCESS_KEY",
-  DEPLOY_CONFIG_OBJECT,
 ];
 
 if (!inWorkersBuilds) {
@@ -47,8 +47,7 @@ const objects = {};
 for (const key of BUILDER_OBJECTS) {
   const object = await r2ObjectText(buildsToken, accountId, BUILDER_SECRETS_BUCKET, key);
   if (object.status === 404) {
-    const flag = key === DEPLOY_CONFIG_OBJECT ? " --config <deploy.config.json>" : "";
-    console.error(`${BUILDER_SECRETS_BUCKET} has no ${key}; run tofu-bootstrap ${PROJECT}${flag}`);
+    console.error(`${BUILDER_SECRETS_BUCKET} has no ${key}; run tofu-bootstrap ${PROJECT}`);
     process.exit(1);
   }
   if (!object.ok) {
@@ -59,12 +58,12 @@ for (const key of BUILDER_OBJECTS) {
 }
 
 const config = parseDeployConfig(
-  objects[DEPLOY_CONFIG_OBJECT],
-  `r2://${BUILDER_SECRETS_BUCKET}/${DEPLOY_CONFIG_OBJECT}`,
+  deployConfigFromEnv(process.env),
+  "the DEPLOY_* Workers Builds variables",
 );
 if (config.account_id !== accountId) {
   console.error(
-    `${DEPLOY_CONFIG_OBJECT} names account ${config.account_id}, the Builds token deploys to ${accountId}`,
+    `${deployVariable("account_id")} names account ${config.account_id}, the Builds token deploys to ${accountId}`,
   );
   process.exit(1);
 }

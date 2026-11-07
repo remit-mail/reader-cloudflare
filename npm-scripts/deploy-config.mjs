@@ -44,6 +44,27 @@ export const DEPLOY_CONFIG_OBJECT = "deploy.config.json";
 export const DEPLOY_CONFIG_FILE = join(CONFIG_DIR, DEPLOY_CONFIG_OBJECT);
 export const DEPLOY_CONFIG_SECRET = `${PROJECT}-deploy-config`;
 
+export const deployVariable = (field) => `DEPLOY_${field.toUpperCase()}`;
+
+export const deployConfigFromEnv = (env) => {
+  const config = {};
+  for (const field of Object.keys(deployConfigSchema.shape)) {
+    const value = env[deployVariable(field)];
+    if (value === undefined) continue;
+    if (!/^[[{]/.test(value)) {
+      config[field] = value;
+      continue;
+    }
+    try {
+      config[field] = JSON.parse(value);
+    } catch {
+      console.error(`${deployVariable(field)} is not valid JSON`);
+      process.exit(1);
+    }
+  }
+  return JSON.stringify(config);
+};
+
 export const parseDeployConfig = (text, source) => {
   const parsed = deployConfigSchema.safeParse(JSON.parse(text));
   if (!parsed.success) {
