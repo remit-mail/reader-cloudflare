@@ -158,7 +158,10 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
   useEffect(() => {
     fetch(IDENTITY_URL, { credentials: "same-origin" })
       .then((response) => (response.ok ? response.json() : null))
-      .then((body: unknown) => setEmail(emailOf(body)));
+      .then(
+        (body: unknown) => setEmail(emailOf(body)),
+        () => setEmail(null),
+      );
   }, []);
 
   return <>{children({ email, signOut, securityUrl: SECURITY_URL })}</>;
