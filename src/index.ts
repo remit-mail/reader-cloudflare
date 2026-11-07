@@ -1,11 +1,20 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
+import { API_BODY_MAX_BYTES, RATE_LIMITS } from "./api/host-limits";
 import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import type { Env } from "./env";
 import { errorKindOf, messageOf } from "./error-kind";
-import { apiError, quotaExceeded, unauthorized } from "./http";
+import {
+  apiError,
+  contentLengthOf,
+  lengthRequired,
+  payloadTooLarge,
+  quotaExceeded,
+  rateLimited,
+  unauthorized,
+} from "./http";
 import {
   annotateLog,
   currentCorrelationId,
@@ -17,6 +26,7 @@ import {
 } from "./log";
 import {
   calendarFeedTenant,
+  calendarFeedTokenHash,
   feedNotFound,
   loggedPath,
   microsoftCallbackTenant,
@@ -156,7 +166,16 @@ const authenticated = async (
     log.warn("access denied", { path, reason: result.reason });
     return unauthorized(result.reason);
   }
-  annotateLog({ tenantId: result.tenant.tenantId });
+  const { tenantId } = result.tenant;
+  annotateLog({ tenantId });
+  const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenantId });
+  if (!success) return rateLimited("account", RATE_LIMITS.TENANT_RATE_LIMIT.periodSeconds);
+  if (path.startsWith(`${API_ROOT}/`) && request.body !== null) {
+    const size = contentLengthOf(request);
+    if (size === undefined) return lengthRequired("an API request body");
+    if (size > API_BODY_MAX_BYTES)
+      return payloadTooLarge("An API request body", API_BODY_MAX_BYTES);
+  }
   return serve(request, env, result.tenant);
 };
 
@@ -167,7 +186,13 @@ const servePublic = (request: Request, env: Env, tenantId: string): Promise<Resp
 
 const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
   if (url.pathname.startsWith(CALENDAR_FEED_ROOT)) {
-    const tenantId = await calendarFeedTenant(env, url);
+    const tokenHash = calendarFeedTokenHash(url);
+    if (tokenHash === undefined) return feedNotFound();
+    const { success } = await env.CALENDAR_FEED_RATE_LIMIT.limit({ key: tokenHash });
+    if (!success) {
+      return rateLimited("calendar feed", RATE_LIMITS.CALENDAR_FEED_RATE_LIMIT.periodSeconds);
+    }
+    const tenantId = await calendarFeedTenant(env, tokenHash);
     if (tenantId === undefined) return feedNotFound();
     return servePublic(request, env, tenantId);
   }

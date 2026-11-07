@@ -162,6 +162,18 @@
       "fallthrough": true
     }
   ],
+  "ratelimits": [
+    {
+      "name": "TENANT_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": { "limit": 600, "period": 60 }
+    },
+    {
+      "name": "CALENDAR_FEED_RATE_LIMIT",
+      "namespace_id": "1002",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ],
   "secrets_store_secrets": [
     {
       "binding": "MASTER_KEY",
@@ -277,6 +289,18 @@
           }
         ]
       },
+      "ratelimits": [
+        {
+          "name": "TENANT_RATE_LIMIT",
+          "namespace_id": "1001",
+          "simple": { "limit": 600, "period": 60 }
+        },
+        {
+          "name": "CALENDAR_FEED_RATE_LIMIT",
+          "namespace_id": "1002",
+          "simple": { "limit": 60, "period": 60 }
+        }
+      ],
       "secrets_store_secrets": [
         {
           "binding": "MASTER_KEY",

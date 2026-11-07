@@ -28,3 +28,17 @@ export const CONSUMER_SETTINGS = {
   smtp: { maxBatchSize: 1, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
   fanout: { maxBatchSize: 10, maxBatchTimeoutSeconds: 0, maxConcurrency: "Auto" },
 } as const satisfies Record<QueueFamily, ConsumerSettings>;
+
+export const API_BODY_MAX_BYTES = 1024 * 1024;
+
+export interface RateLimitSettings {
+  readonly namespaceId: string;
+  readonly limit: number;
+  readonly periodSeconds: 60;
+}
+
+// Workers rate limit namespaces are account-wide, so every deployment on the account shares these counters.
+export const RATE_LIMITS = {
+  TENANT_RATE_LIMIT: { namespaceId: "1001", limit: 600, periodSeconds: 60 },
+  CALENDAR_FEED_RATE_LIMIT: { namespaceId: "1002", limit: 60, periodSeconds: 60 },
+} as const satisfies Record<string, RateLimitSettings>;

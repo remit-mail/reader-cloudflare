@@ -1,7 +1,8 @@
+import { OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES } from "@remit/mailbox-service";
 import { parseOutboxAttachmentKey, UPLOAD_ROUTE_PREFIX } from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
-import { apiError, notFound } from "../http";
+import { apiError, contentLengthOf, lengthRequired, notFound, payloadTooLarge } from "../http";
 
 export const isUploadPath = (path: string): boolean => path.startsWith(UPLOAD_ROUTE_PREFIX);
 
@@ -17,6 +18,11 @@ export const serveUpload = async (
   const target = parseOutboxAttachmentKey(key);
   if (target === null || target.accountConfigId !== tenant.accountConfigId) {
     return notFound("Upload target");
+  }
+  const size = contentLengthOf(request);
+  if (size === undefined) return lengthRequired("an attachment upload");
+  if (size > OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES) {
+    return payloadTooLarge("An attachment upload", OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES);
   }
   const contentType = request.headers.get("content-type");
   await env.MAIL.put(

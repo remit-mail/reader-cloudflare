@@ -14,11 +14,14 @@ export type CallbackTenant =
   | { readonly ok: true; readonly tenantId: string }
   | { readonly ok: false; readonly oauthError: "config_error" | "invalid_state" };
 
-export const calendarFeedTenant = async (env: Env, url: URL): Promise<string | undefined> => {
+export const calendarFeedTokenHash = (url: URL): string | undefined => {
   const token = readCalendarFeedToken(url.pathname.slice(API_ROOT.length));
   if (token === null || !isCalendarFeedToken(token)) return undefined;
-  return tenantOfFeedToken(env.DB, hashCalendarFeedToken(token));
+  return hashCalendarFeedToken(token);
 };
+
+export const calendarFeedTenant = (env: Env, tokenHash: string): Promise<string | undefined> =>
+  tenantOfFeedToken(env.DB, tokenHash);
 
 export const feedNotFound = (): Response =>
   new Response("no calendar feed at this address\n", {
