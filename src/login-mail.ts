@@ -1,19 +1,12 @@
+import type { capturedMails } from "login-db-schema";
 import { requireTenant } from "./access";
 import { LOGIN_MAIL_PATH } from "./api/paths";
 import type { Env } from "./env";
 import { apiError, notFound, unauthorized } from "./http";
 import { log } from "./log";
 
-export interface CapturedLoginMail {
-  readonly capturedMailId: string;
-  readonly capturedAt: number;
-  readonly recipient: string;
-  readonly subject: string;
-  readonly body: string;
-}
-
 export interface LoginMailReader {
-  latest(): Promise<CapturedLoginMail[]>;
+  latest(): Promise<(typeof capturedMails.$inferSelect)[]>;
 }
 
 export const serveLoginMail = async (request: Request, env: Env): Promise<Response> => {
