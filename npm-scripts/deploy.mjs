@@ -71,7 +71,7 @@ if (config.account_id !== accountId) {
   process.exit(1);
 }
 failOnHits(scanRepo(configLiterals(config)));
-await grantRunner(objects.CLOUDFLARE_TOFU_TOKEN, accountId);
+await grantRunner(objects.CLOUDFLARE_TOFU_TOKEN, accountId, config.zone_name);
 
 const exitOnFailure = (status) => {
   if (status !== 0) process.exit(status);
