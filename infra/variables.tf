@@ -68,3 +68,18 @@ variable "msoauth" {
   default     = null
   sensitive   = true
 }
+
+variable "login_hostname" {
+  type        = string
+  description = "Custom domain of the login Worker, the OIDC identity provider Access trusts; no Access application may cover it. login_hostname in deploy.config.json for prod, dev_login_hostname for dev."
+}
+
+variable "email_sender" {
+  type        = string
+  description = "Address the login Worker sends invites and codes from; its domain becomes this stage's Email Sending subdomain. email_sender in deploy.config.json for prod, dev_email_sender for dev."
+}
+
+variable "login_idp" {
+  type        = bool
+  description = "Whether the reader Access application accepts the login Worker as an identity provider, with a 15 minute session; loginIdp in npm-scripts/stages.mjs."
+}

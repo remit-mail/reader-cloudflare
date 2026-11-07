@@ -85,3 +85,44 @@ output "microsoft_oauth" {
     secret_name = cloudflare_secrets_store_secret.msoauth_client_secret[0].name
   } : null
 }
+
+output "login_worker_name" {
+  description = "name in the rendered packages/login/wrangler.deploy.jsonc."
+  value       = cloudflare_worker.login.name
+}
+
+output "login_hostname" {
+  description = "Custom domain route and LOGIN_ORIGIN host in the rendered packages/login/wrangler.deploy.jsonc."
+  value       = var.login_hostname
+}
+
+output "login_d1_database_name" {
+  description = "database_name of the login DB binding."
+  value       = cloudflare_d1_database.login.name
+}
+
+output "login_d1_database_id" {
+  description = "database_id of the login DB binding."
+  value       = cloudflare_d1_database.login.uuid
+}
+
+output "login_oidc_secret_name" {
+  description = "secret_name of the LOGIN_OIDC_CLIENT_SECRET binding."
+  value       = cloudflare_secrets_store_secret.login_oidc_client_secret.name
+}
+
+output "login_oidc_client_id" {
+  description = "LOGIN_OIDC_CLIENT_ID and the client_id of the Access identity provider."
+  value       = local.login_oidc_client_id
+}
+
+output "login_oidc_client_secret_hash" {
+  description = "SHA-256 base64url of the OIDC client secret, the client_secret deploy writes to the login oauth_client row."
+  value       = replace(replace(trimsuffix(base64sha256(local.login_oidc_secret_value), "="), "+", "-"), "/", "_")
+  sensitive   = true
+}
+
+output "email_sender" {
+  description = "EMAIL_SENDER and the allowed sender of the EMAIL binding."
+  value       = var.email_sender
+}

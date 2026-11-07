@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { r2ObjectText } from "./cf-api.mjs";
 import { CONFIG_DIR, PROJECT } from "./env.mjs";
-import { PROD } from "./stages.mjs";
+import { PROD, STAGES } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET } from "./tofu.mjs";
 
 const hostname = z
@@ -14,6 +14,21 @@ const hostname = z
 
 const inZone = (name, zone) => name === zone || name.endsWith(`.${zone}`);
 
+const domainOf = (email) => email.slice(email.lastIndexOf("@") + 1);
+
+const lowerEmail = z
+  .string()
+  .email()
+  .refine((email) => email === email.toLowerCase(), "a lower case e-mail address");
+
+const HOSTNAME_FIELDS = [
+  "app_hostname",
+  "dev_app_hostname",
+  "login_hostname",
+  "dev_login_hostname",
+];
+const SENDER_FIELDS = ["email_sender", "dev_email_sender"];
+
 export const deployConfigSchema = z
   .object({
     account_id: z.string().regex(/^[0-9a-f]{32}$/, "a 32 character Cloudflare account id"),
@@ -22,19 +37,50 @@ export const deployConfigSchema = z
     dev_app_hostname: hostname,
     owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
+    login_hostname: hostname,
+    dev_login_hostname: hostname,
+    email_sender: lowerEmail,
+    dev_email_sender: lowerEmail,
+    operator_emails: z.array(lowerEmail).min(1),
   })
   .strict()
-  .refine((config) => inZone(config.app_hostname, config.zone_name), {
-    message: "app_hostname must sit in zone_name",
-    path: ["app_hostname"],
-  })
-  .refine((config) => inZone(config.dev_app_hostname, config.zone_name), {
-    message: "dev_app_hostname must sit in zone_name",
-    path: ["dev_app_hostname"],
-  })
-  .refine((config) => config.dev_app_hostname !== config.app_hostname, {
-    message: "dev_app_hostname must differ from app_hostname",
-    path: ["dev_app_hostname"],
+  .superRefine((config, context) => {
+    for (const field of HOSTNAME_FIELDS) {
+      if (!inZone(config[field], config.zone_name)) {
+        context.addIssue({
+          code: "custom",
+          message: `${field} must sit in zone_name`,
+          path: [field],
+        });
+      }
+      const clash = HOSTNAME_FIELDS.find(
+        (other) => other !== field && config[other] === config[field],
+      );
+      if (clash) {
+        context.addIssue({
+          code: "custom",
+          message: `${field} must differ from ${clash}`,
+          path: [field],
+        });
+      }
+    }
+    for (const field of SENDER_FIELDS) {
+      if (!inZone(domainOf(config[field]), config.zone_name)) {
+        context.addIssue({
+          code: "custom",
+          message: `the domain of ${field} must sit in zone_name`,
+          path: [field],
+        });
+      }
+    }
+    if (domainOf(config.dev_email_sender) === domainOf(config.email_sender)) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "dev_email_sender must use a different domain than email_sender; each stage owns its sending subdomain",
+        path: ["dev_email_sender"],
+      });
+    }
   });
 
 export const deploySecretsSchema = z
@@ -91,24 +137,50 @@ export const readDeploySecrets = async (token, accountId) => {
   return parseDeploySecrets(object.text, source);
 };
 
-const stageConfig = ({ dev_app_hostname, msoauth, ...shared }, stage) =>
+export const stageConfig = (
+  { dev_app_hostname, dev_login_hostname, dev_email_sender, msoauth, ...shared },
+  stage,
+) =>
   stage === PROD
     ? { ...shared, ...(msoauth && { msoauth }) }
-    : { ...shared, app_hostname: dev_app_hostname };
+    : {
+        ...shared,
+        app_hostname: dev_app_hostname,
+        login_hostname: dev_login_hostname,
+        email_sender: dev_email_sender,
+      };
 
-export const tofuVars = (config, stage) => ({
-  TF_VAR_project: PROJECT,
-  TF_VAR_stage: stage,
-  ...Object.fromEntries(
-    Object.entries(stageConfig(config, stage)).map(([key, value]) => [
-      `TF_VAR_${key}`,
-      typeof value === "string" ? value : JSON.stringify(value),
-    ]),
-  ),
-});
+export const tofuVars = (config, stage) => {
+  const { operator_emails: _operators, ...infra } = stageConfig(config, stage);
+  return {
+    TF_VAR_project: PROJECT,
+    TF_VAR_stage: stage,
+    TF_VAR_login_idp: String(STAGES[stage].loginIdp),
+    ...Object.fromEntries(
+      Object.entries(infra).map(([key, value]) => [
+        `TF_VAR_${key}`,
+        typeof value === "string" ? value : JSON.stringify(value),
+      ]),
+    ),
+  };
+};
 
-export const configLiterals = ({ owner_emails, alert_email, msoauth, ...rest }) => {
-  const emails = [...owner_emails, alert_email];
+export const configLiterals = ({
+  owner_emails,
+  alert_email,
+  operator_emails,
+  email_sender,
+  dev_email_sender,
+  msoauth,
+  ...rest
+}) => {
+  const emails = [
+    ...owner_emails,
+    alert_email,
+    ...operator_emails,
+    email_sender,
+    dev_email_sender,
+  ];
   return [
     ...new Set([
       ...Object.values(rest),

@@ -1,0 +1,10 @@
+emit:
+  - "@kattebak/typespec-drizzle-orm-generator"
+options:
+  "@kattebak/typespec-drizzle-orm-generator":
+    emitter-output-dir: "{project-root}/../../login-db-schema"
+    package-name: "login-db-schema"
+    package-version: "0.0.0"
+    frontend: "remit"
+    dialect: "sqlite"
+    schema-only: true

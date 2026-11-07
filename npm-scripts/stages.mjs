@@ -2,8 +2,8 @@ export const PROD = "prod";
 export const DEV = "dev";
 
 export const STAGES = {
-  [DEV]: { mailSync: false },
-  [PROD]: { mailSync: true },
+  [DEV]: { mailSync: false, loginIdp: true },
+  [PROD]: { mailSync: true, loginIdp: false },
 };
 
 export const MAIL_SERVER_FAMILIES = ["sync", "body", "mutation", "smtp"];

@@ -10,7 +10,11 @@ type Probe =
   | { readonly state: "failed"; readonly detail: string };
 
 const IDENTITY_URL = "/cdn-cgi/access/get-identity";
-const LOGOUT_URL = "/cdn-cgi/access/logout";
+const LOGIN_ORIGIN: string | undefined = import.meta.env.VITE_LOGIN_ORIGIN || undefined;
+const LOGOUT_URL = LOGIN_ORIGIN ? `${LOGIN_ORIGIN}/sign-out` : "/cdn-cgi/access/logout";
+const PROBE_INTERVAL_MS = 5 * 60_000;
+const RENEWAL_KEY = "remit-access-renewal-at";
+const RENEWAL_GUARD_MS = 60_000;
 const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -50,6 +54,26 @@ const reportUrl = (detail: string): string => {
 const currentLocation = (): string =>
   `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
+const renewedRecently = (): boolean => {
+  try {
+    const last = Number(window.sessionStorage.getItem(RENEWAL_KEY) ?? "0");
+    return Date.now() - last < RENEWAL_GUARD_MS;
+  } catch {
+    return true;
+  }
+};
+
+const renewOnce = (): boolean => {
+  if (renewedRecently()) return false;
+  try {
+    window.sessionStorage.setItem(RENEWAL_KEY, String(Date.now()));
+  } catch {
+    return false;
+  }
+  window.location.replace(currentLocation());
+  return true;
+};
+
 const Frame = ({ children }: { children: ReactNode }) => (
   <AuthCard>
     <AuthHero />
@@ -68,6 +92,28 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(check, [check]);
+
+  useEffect(() => {
+    const recheck = () => {
+      if (document.visibilityState !== "visible") return;
+      probeApi().then((next) => {
+        if (next.state === "signedOut" && renewOnce()) return;
+        setProbe((current) =>
+          next.state === "ready" && current.state === "ready" ? current : next,
+        );
+      });
+    };
+    const timer = window.setInterval(recheck, PROBE_INTERVAL_MS);
+    document.addEventListener("visibilitychange", recheck);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (probe.state === "signedOut") renewOnce();
+  }, [probe.state]);
 
   if (probe.state === "ready") return <>{children}</>;
   if (probe.state === "checking") {

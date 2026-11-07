@@ -11,10 +11,17 @@ import {
   tofuVars,
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
+import { ensureLoginSecret } from "./login-secret.mjs";
 import { grantRunner } from "./runner-grant.mjs";
-import { DEV, PROD } from "./stages.mjs";
+import { DEV, PROD, STAGES } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
-import { WRANGLER_DEPLOY_CONFIG, writeWranglerDeploy } from "./wrangler-config.mjs";
+import {
+  LOGIN_WRANGLER_DEPLOY_CONFIG,
+  loginAuthSecretName,
+  WRANGLER_DEPLOY_CONFIG,
+  writeLoginWranglerDeploy,
+  writeWranglerDeploy,
+} from "./wrangler-config.mjs";
 
 const BUILDER_OBJECTS = [
   "CLOUDFLARE_TOFU_TOKEN",
@@ -77,6 +84,49 @@ const exitOnFailure = (status) => {
   if (status !== 0) process.exit(status);
 };
 
+const sqlText = (value) => `'${String(value).replaceAll("'", "''")}'`;
+
+const upsertOAuthClient = (outputs) => {
+  const now = Date.now();
+  const row = {
+    id: outputs.login_oidc_client_id,
+    client_id: outputs.login_oidc_client_id,
+    client_secret: outputs.login_oidc_client_secret_hash,
+    disabled: 0,
+    skip_consent: 1,
+    scopes: JSON.stringify(["openid", "email", "profile"]),
+    redirect_uris: JSON.stringify([
+      `https://${outputs.access_team_domain}/cdn-cgi/access/callback`,
+    ]),
+    token_endpoint_auth_method: "client_secret_post",
+    grant_types: JSON.stringify(["authorization_code"]),
+    response_types: JSON.stringify(["code"]),
+    require_pkce: 1,
+    application_type: "web",
+    created_at: now,
+    updated_at: now,
+    name: "Cloudflare Access",
+  };
+  const columns = Object.keys(row);
+  const values = Object.values(row).map((value) =>
+    typeof value === "number" ? String(value) : sqlText(value),
+  );
+  const updates = columns
+    .filter((column) => column !== "id" && column !== "client_id" && column !== "created_at")
+    .map((column) => `${column} = excluded.${column}`);
+  const sql = `INSERT INTO oauth_client (${columns.join(", ")}) VALUES (${values.join(", ")}) ON CONFLICT (client_id) DO UPDATE SET ${updates.join(", ")}`;
+  return wrangler([
+    "d1",
+    "execute",
+    outputs.login_d1_database_name,
+    "--remote",
+    "--config",
+    LOGIN_WRANGLER_DEPLOY_CONFIG,
+    "--command",
+    sql,
+  ]);
+};
+
 const deployStage = async (stage) => {
   console.log(`deploy: stage ${stage}`);
   const tofu = await tofuRunner(
@@ -97,11 +147,28 @@ const deployStage = async (stage) => {
     ]),
   );
 
+  await ensureLoginSecret({
+    token: objects.CLOUDFLARE_TOFU_TOKEN,
+    accountId,
+    storeId: outputs.secrets_store_id,
+    name: loginAuthSecretName(stage),
+    project: PROJECT,
+  });
+
   const rendered = writeWranglerDeploy(outputs, config, stage);
   console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${outputs.app_hostname}`);
+  const login = writeLoginWranglerDeploy(outputs, config, stage);
+  console.log(
+    `rendered ${LOGIN_WRANGLER_DEPLOY_CONFIG} for ${login.name} on ${outputs.login_hostname}`,
+  );
 
   exitOnFailure(migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
   exitOnFailure(backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
+  exitOnFailure(migrate(LOGIN_WRANGLER_DEPLOY_CONFIG, outputs.login_d1_database_name));
+  exitOnFailure(upsertOAuthClient(outputs));
+  exitOnFailure(wrangler(["deploy", "--config", LOGIN_WRANGLER_DEPLOY_CONFIG]));
+  if (STAGES[stage].loginIdp) process.env.VITE_LOGIN_ORIGIN = `https://${outputs.login_hostname}`;
+  else delete process.env.VITE_LOGIN_ORIGIN;
   exitOnFailure(wrangler(["deploy", "--config", WRANGLER_DEPLOY_CONFIG, ...process.argv.slice(2)]));
   return outputs;
 };
@@ -118,6 +185,7 @@ const npmRun = (script, env) => {
 const dev = await deployStage(DEV);
 const devTarget = {
   APP_URL: `https://${dev.app_hostname}`,
+  LOGIN_URL: `https://${dev.login_hostname}`,
   CF_ACCESS_CLIENT_ID: dev.agent_client_id,
   CF_ACCESS_CLIENT_SECRET: dev.agent_client_secret,
 };

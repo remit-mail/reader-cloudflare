@@ -16,5 +16,5 @@
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["src", "packages/*/src"],
-  "exclude": ["packages/web"]
+  "exclude": ["packages/web", "packages/login"]
 }
