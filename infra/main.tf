@@ -161,6 +161,17 @@ resource "cloudflare_worker" "reader" {
   }
 }
 
+resource "cloudflare_zero_trust_access_policy" "owner" {
+  account_id = var.account_id
+  name       = "${local.name}-owner"
+  decision   = "allow"
+  include = [{
+    login_method = {
+      id = cloudflare_zero_trust_access_identity_provider.login.id
+    }
+  }]
+}
+
 resource "cloudflare_zero_trust_access_application" "reader" {
   account_id = var.account_id
   name       = local.name
