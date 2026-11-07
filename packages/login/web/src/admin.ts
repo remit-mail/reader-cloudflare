@@ -3,6 +3,7 @@ import {
   startAuthentication,
 } from "@simplewebauthn/browser";
 import { followColorScheme } from "./scheme";
+import "./styles/login.css";
 
 const FLASH_KEY = "login-admin-flash";
 
