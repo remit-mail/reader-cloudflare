@@ -24,6 +24,14 @@ const STORAGE_URI_BUCKET_LABEL = "reader-cloudflare-mail";
 const EXPORT_PART_BYTES = 8 * 1024 * 1024;
 const R2_DELETE_BATCH_SIZE = 1000;
 
+// reader tells a missing object from any other storage failure by this name.
+class NoSuchKeyError extends Error {
+  constructor(key: string) {
+    super(`object ${key} not found in ${STORAGE_URI_BUCKET_LABEL}`);
+    this.name = "NoSuchKey";
+  }
+}
+
 const parsedBodySchema = z.object({
   text: z.string().nullable(),
   html: z.string().nullable(),
@@ -117,7 +125,7 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
 
   const readExisting = async (key: string): Promise<Buffer> => {
     const content = await read(key);
-    if (content === null) throw new Error(`object ${key} not found in ${STORAGE_URI_BUCKET_LABEL}`);
+    if (content === null) throw new NoSuchKeyError(key);
     return content;
   };
 
