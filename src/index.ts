@@ -1,7 +1,12 @@
 import { api } from "@remit/backend/api";
 import { identityOf, requireTenant, type Tenant } from "./access";
 import { API_BODY_MAX_BYTES, RATE_LIMIT_PERIOD_SECONDS } from "./api/host-limits";
-import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
+import {
+  API_ROOT,
+  CALENDAR_FEED_ROOT,
+  LOGIN_MAIL_PATH,
+  MICROSOFT_OAUTH_CALLBACK,
+} from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import { d1Queries, withD1Meter } from "./db/client";
@@ -25,6 +30,7 @@ import {
   logQueueDeadLetter,
   withLogContext,
 } from "./log";
+import { serveLoginMail } from "./login-mail";
 import {
   calendarFeedTokenHash,
   feedNotFound,
@@ -209,6 +215,7 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     }
     return servePublic(request, env, callback.tenantId);
   }
+  if (url.pathname === LOGIN_MAIL_PATH) return serveLoginMail(request, env);
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
@@ -232,6 +239,7 @@ const operationOf = async (method: string, url: URL): Promise<string> => {
 };
 
 const routeOf = (method: string, url: URL): Promise<string> => {
+  if (url.pathname === LOGIN_MAIL_PATH) return Promise.resolve("login-mail");
   if (url.pathname.startsWith("/api/")) return operationOf(method, url);
   if (isContentPath(url.pathname)) return Promise.resolve("content");
   if (isUploadPath(url.pathname)) return Promise.resolve("upload");

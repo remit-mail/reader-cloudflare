@@ -1,4 +1,5 @@
 import type { auditEvents } from "login-db-schema";
+import { CAPTURE_RETENTION_MS } from "./capture";
 import { randomId } from "./crypto";
 
 type AuditRow = typeof auditEvents.$inferSelect;
@@ -80,4 +81,5 @@ export const purgeStatements = (db: D1Database, now: number): D1PreparedStatemen
   db.prepare("DELETE FROM admin_challenge WHERE expires_at < ?").bind(now),
   db.prepare("DELETE FROM auth_attempt WHERE last_attempt_at < ?").bind(now - DAY_MS),
   db.prepare("DELETE FROM verification WHERE expires_at < ?").bind(now),
+  db.prepare("DELETE FROM captured_mail WHERE captured_at < ?").bind(now - CAPTURE_RETENTION_MS),
 ];

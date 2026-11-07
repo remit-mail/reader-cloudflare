@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapOperators } from "../src/bootstrap";
+import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
 import {
   addPasskeyRow,
@@ -326,14 +327,14 @@ describe("admin step-up", () => {
 
   it("bootstraps operator invites only while no operator has an account", async () => {
     const config = configOf(testEnv);
-    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(0);
+    expect(await bootstrapOperators(testEnv.DB, mailerOf(testEnv), config, Date.now())).toBe(0);
     await testEnv.DB.prepare("DELETE FROM user WHERE email IN (?, ?)")
       .bind(OPERATOR, OTHER_OPERATOR)
       .run();
     await testEnv.DB.prepare("DELETE FROM invite WHERE email IN (?, ?)")
       .bind(OPERATOR, OTHER_OPERATOR)
       .run();
-    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(2);
-    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(0);
+    expect(await bootstrapOperators(testEnv.DB, mailerOf(testEnv), config, Date.now())).toBe(2);
+    expect(await bootstrapOperators(testEnv.DB, mailerOf(testEnv), config, Date.now())).toBe(0);
   });
 });

@@ -124,3 +124,15 @@ export const auditEvents = sqliteTable(
   },
   (table) => [index("audit_event_at").on(table.at)],
 );
+
+export const capturedMails = sqliteTable(
+  "captured_mail",
+  {
+    capturedMailId: text("captured_mail_id").primaryKey(),
+    capturedAt: integer("captured_at", { mode: "number" }).notNull(),
+    recipient: text("recipient").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+  },
+  (table) => [index("captured_mail_captured_at").on(table.capturedAt)],
+);

@@ -1,16 +1,15 @@
 import { accessEnvOf, readEnvFile } from "./env.mjs";
 import { PROD } from "./stages.mjs";
 
-const ACCESS_ENV = accessEnvOf(PROD);
-
-export const appApi = () => {
+export const appApi = (stage = PROD) => {
+  const ACCESS_ENV = accessEnvOf(stage);
   const env = readEnvFile(ACCESS_ENV);
   const clientId = env.CF_ACCESS_CLIENT_ID;
   const clientSecret = env.CF_ACCESS_CLIENT_SECRET;
   const appUrl = env.APP_URL;
   if (!clientId || !clientSecret || !appUrl) {
     console.error(
-      `${ACCESS_ENV} does not set APP_URL, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET; run npm run access-env:write`,
+      `${ACCESS_ENV} does not set APP_URL, CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET; run npm run access-env:write ${stage}`,
     );
     process.exit(1);
   }
