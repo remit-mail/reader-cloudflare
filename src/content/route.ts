@@ -1,7 +1,12 @@
-import { buildExportArchiveKey, parseOutboxAttachmentKey } from "@remit/storage-service";
+import {
+  buildExportArchiveKey,
+  parseContentStorageKey,
+  parseOutboxAttachmentKey,
+} from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
-import { notFound } from "../http";
+import { apiError, notFound } from "../http";
+import { tenantMail } from "../stubs";
 
 export const CONTENT_PREFIX = "/content/";
 const BODY_PART_KEY =
@@ -24,6 +29,31 @@ const served = (object: R2ObjectBody, headers: Record<string, string> = {}): Res
 
 const notReady = (): Response =>
   new Response("body not yet synced", { status: 202, headers: { "retry-after": "5" } });
+
+const unrecoverable = (): Response =>
+  apiError(
+    502,
+    "UnrecoverableBody",
+    "This message could not be fetched from the mail server; report it if it persists",
+  );
+
+const servedAfterMiss = async (env: Env, tenant: Tenant, key: string): Promise<Response> => {
+  const ids = parseContentStorageKey(key);
+  if (ids === null) return notReady();
+  const miss = await tenantMail(env, tenant.tenantId).bodyReadMiss(tenant.tenantId, ids);
+  switch (miss) {
+    case "Pending":
+      return notReady();
+    case "Broken":
+      return unrecoverable();
+    case "NotFound":
+      return notFound("Message");
+    case "Ready": {
+      const part = await env.MAIL.get(key);
+      return part === null ? notFound("Content") : served(part);
+    }
+  }
+};
 
 export const serveContent = async (
   request: Request,
@@ -50,6 +80,6 @@ export const serveContent = async (
   const bodyPart = BODY_PART_KEY.exec(key);
   if (bodyPart === null || bodyPart[1] !== tenant.accountConfigId) return notFound("Content");
   const part = await env.MAIL.get(key);
-  if (part === null) return notReady();
+  if (part === null) return servedAfterMiss(env, tenant, key);
   return served(part);
 };
