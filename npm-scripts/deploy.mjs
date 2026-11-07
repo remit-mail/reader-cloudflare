@@ -6,9 +6,8 @@ import { failOnHits, scanRepo } from "./check-no-config.mjs";
 import { migrate } from "./db-migrate.mjs";
 import {
   configLiterals,
-  deployConfigFromEnv,
-  deployVariable,
   parseDeployConfig,
+  readDeploySecrets,
   tofuVars,
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
@@ -39,7 +38,10 @@ if (process.env.WORKERS_CI_BRANCH !== "main") {
 delete process.env.WRANGLER_CI_OVERRIDE_NAME;
 delete process.env.WRANGLER_CI_MATCH_TAG;
 
-requireEnv(["CLOUDFLARE_API_TOKEN"], "Workers Builds injects it into the deploy step");
+requireEnv(
+  ["CLOUDFLARE_API_TOKEN", "DEPLOY_CONFIG"],
+  "Workers Builds injects the token, and cloudflare-builds-bootstrap sets DEPLOY_CONFIG on the trigger",
+);
 
 const buildsToken = process.env.CLOUDFLARE_API_TOKEN;
 const accountId = await resolveAccountId(buildsToken);
@@ -57,13 +59,13 @@ for (const key of BUILDER_OBJECTS) {
   objects[key] = object.text.trim();
 }
 
-const config = parseDeployConfig(
-  deployConfigFromEnv(process.env),
-  "the DEPLOY_* Workers Builds variables",
-);
+const config = {
+  ...parseDeployConfig(process.env.DEPLOY_CONFIG, "the DEPLOY_CONFIG build variable"),
+  ...(await readDeploySecrets(buildsToken, accountId)),
+};
 if (config.account_id !== accountId) {
   console.error(
-    `${deployVariable("account_id")} names account ${config.account_id}, the Builds token deploys to ${accountId}`,
+    `DEPLOY_CONFIG names account ${config.account_id}, the Builds token deploys to ${accountId}`,
   );
   process.exit(1);
 }
