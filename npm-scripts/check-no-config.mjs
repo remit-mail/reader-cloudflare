@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { configLiterals, DEPLOY_CONFIG_FILE, DEPLOY_CONFIG_OBJECT } from "./deploy-config.mjs";
+import { configLiterals, fetchBuildsDeployConfig } from "./deploy-config.mjs";
 import { TOFU_SHA256 } from "./tofu.mjs";
 
 const root = join(import.meta.dirname, "..");
@@ -56,7 +56,7 @@ export const scanRepo = (literals) => {
         }
       }
       for (const literal of literals) {
-        if (line.includes(literal)) hits.push(`${where}: a value from ${DEPLOY_CONFIG_OBJECT}`);
+        if (line.includes(literal)) hits.push(`${where}: a value from the deploy config`);
       }
     });
   }
@@ -67,23 +67,19 @@ export const failOnHits = ({ hits }) => {
   if (hits.length === 0) return;
   for (const hit of hits) console.error(`check:no-config: ${hit}`);
   console.error(
-    "check:no-config: deployment values belong in deploy.config.json and tofu outputs, never in the repo",
+    "check:no-config: deployment values belong in the DEPLOY_CONFIG build variable and tofu outputs, never in the repo",
   );
   process.exit(1);
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const configFiles = [DEPLOY_CONFIG_FILE, join(root, DEPLOY_CONFIG_OBJECT)].filter((file) =>
-    existsSync(file),
-  );
-  const literals = [
-    ...new Set(
-      configFiles.flatMap((file) => configLiterals(JSON.parse(readFileSync(file, "utf8")))),
-    ),
-  ];
+  const builds = fetchBuildsDeployConfig();
+  if (!builds.fetched)
+    console.log(`check:no-config: ${builds.reason}; scanning without deploy config values`);
+  const literals = builds.fetched ? configLiterals(builds.config) : [];
   const scan = scanRepo(literals);
   failOnHits(scan);
   console.log(
-    `check:no-config: ${scan.files} files carry no deployment value${literals.length ? `, including the ${literals.length} in ${configFiles.join(" and ")}` : ""}`,
+    `check:no-config: ${scan.files} files carry no deployment value${builds.fetched ? `, including the ${literals.length} in ${builds.source}` : ""}`,
   );
 }
