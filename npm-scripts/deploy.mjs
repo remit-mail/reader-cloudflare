@@ -13,7 +13,7 @@ import {
 import { PROJECT } from "./env.mjs";
 import { ensureLoginSecret } from "./login-secret.mjs";
 import { grantRunner } from "./runner-grant.mjs";
-import { DEV, PROD, STAGES } from "./stages.mjs";
+import { DEV, PROD } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
 import {
   LOGIN_WRANGLER_DEPLOY_CONFIG,
@@ -167,8 +167,7 @@ const deployStage = async (stage) => {
   exitOnFailure(migrate(LOGIN_WRANGLER_DEPLOY_CONFIG, outputs.login_d1_database_name));
   exitOnFailure(upsertOAuthClient(outputs));
   exitOnFailure(wrangler(["deploy", "--config", LOGIN_WRANGLER_DEPLOY_CONFIG]));
-  if (STAGES[stage].loginIdp) process.env.VITE_LOGIN_ORIGIN = `https://${outputs.login_hostname}`;
-  else delete process.env.VITE_LOGIN_ORIGIN;
+  process.env.VITE_LOGIN_ORIGIN = `https://${outputs.login_hostname}`;
   exitOnFailure(wrangler(["deploy", "--config", WRANGLER_DEPLOY_CONFIG, ...process.argv.slice(2)]));
   return outputs;
 };
