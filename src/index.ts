@@ -22,7 +22,7 @@ import {
   microsoftCallbackTenant,
   oauthRefused,
 } from "./public-api";
-import { bodyBytesOf, parkDeadLetter } from "./queue/dead-letter";
+import { parkDeadLetter } from "./queue/dead-letter";
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
 import { tenantMail } from "./stubs";
@@ -107,7 +107,6 @@ const consumeEnveloped = async (
 const deadLetter = async (env: Env, message: Message<unknown>): Promise<void> => {
   const parsed = parseEnvelope(message.body);
   const seen = { id: message.id, attempt: message.attempts };
-  if (parsed.ok) await parkDeadLetter(env.DB, message.id, message.attempts, parsed.envelope);
   logQueueDeadLetter(
     parsed.ok
       ? {
@@ -117,13 +116,9 @@ const deadLetter = async (env: Env, message: Message<unknown>): Promise<void> =>
           tenantId: parsed.envelope.tenantId,
           correlationId: parsed.envelope.correlationId,
         }
-      : {
-          ...seen,
-          type: "Unreadable",
-          reason: parsed.reason,
-          bodyBytes: bodyBytesOf(message.body),
-        },
+      : { ...seen, type: "Unreadable", reason: parsed.reason },
   );
+  if (parsed.ok) await parkDeadLetter(env.DB, message.id, message.attempts, parsed.envelope);
   message.ack();
 };
 

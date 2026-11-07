@@ -5,7 +5,7 @@ using Drizzle;
 
 namespace ReaderCloudflare;
 
-@doc("A queue message that exhausted its retries, parked with the envelope it carried.")
+@doc("A queue message that exhausted its retries, parked with the ids its event carried.")
 @entity("deadLetter", "app")
 @index(
   "DeadLetter",
@@ -17,9 +17,7 @@ namespace ReaderCloudflare;
 model DeadLetter {
   deadLetterId: string;
   tenantId: string;
-  family: string;
   type: string;
-  correlationId: string;
   attempts: int32;
   body: string;
 }

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "842de57b-8ff1-4763-aa69-0e821de024e3",
+  "id": "b3b9cdaf-b721-45bc-9cac-6a4a9302a17a",
   "prevId": "ea254c00-61ad-40a6-a623-8f79cbd7f03b",
   "tables": {
     "account_config": {
@@ -1173,22 +1173,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "family": {
-          "name": "family",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "type": {
           "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "correlation_id": {
-          "name": "correlation_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

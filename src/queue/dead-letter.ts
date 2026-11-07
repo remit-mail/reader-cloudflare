@@ -1,6 +1,13 @@
 import { openAppDb } from "../db/client";
 import { deadLetters } from "../db/schema";
-import { FAMILY_OF, type QueueEnvelope } from "./routing";
+import type { QueueEnvelope } from "./routing";
+
+const ID_FIELD = /Ids?$/;
+
+const idsOf = (envelope: QueueEnvelope): Record<string, unknown> => ({
+  correlationId: envelope.correlationId,
+  ...Object.fromEntries(Object.entries(envelope.event).filter(([key]) => ID_FIELD.test(key))),
+});
 
 export const parkDeadLetter = async (
   binding: D1Database,
@@ -13,14 +20,9 @@ export const parkDeadLetter = async (
     .values({
       deadLetterId,
       tenantId: envelope.tenantId,
-      family: FAMILY_OF[envelope.event.type],
       type: envelope.event.type,
-      correlationId: envelope.correlationId,
       attempts,
-      body: JSON.stringify(envelope),
+      body: JSON.stringify(idsOf(envelope)),
     })
     .onConflictDoNothing();
 };
-
-export const bodyBytesOf = (body: unknown): number =>
-  new TextEncoder().encode(JSON.stringify(body) ?? "").byteLength;
