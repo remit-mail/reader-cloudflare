@@ -10,7 +10,12 @@ export const QrCode = ({ value }: { value: string }) => {
     }
   }
   return (
-    <svg className="qr" viewBox={`-2 -2 ${size + 4} ${size + 4}`} role="img" aria-label="QR code">
+    <svg
+      className="size-48 rounded-md bg-white p-2"
+      viewBox={`-2 -2 ${size + 4} ${size + 4}`}
+      role="img"
+      aria-label="QR code"
+    >
       <path d={path} fill="#000000" />
     </svg>
   );

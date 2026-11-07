@@ -1,77 +1,189 @@
+import { ButtonLink } from "@remit/ui";
 import { type FormEvent, useState } from "react";
-import { navigate, post } from "../api";
-import { Failure, Field, Notice, Page } from "../ui";
+import { type Answer, post } from "../api";
+import {
+  Field,
+  Form,
+  focusOnMount,
+  LinkButton,
+  Muted,
+  NEW_PASSWORD_HINT,
+  Notice,
+  Page,
+  PasswordField,
+  ReportLink,
+  Submit,
+  Text,
+  TextLink,
+} from "../ui";
+
+type Refused = Extract<Answer, { ok: false }>;
+
+export type ResetProblem =
+  | { readonly kind: "code"; readonly message: string }
+  | { readonly kind: "password"; readonly message: string }
+  | { readonly kind: "locked"; readonly message: string }
+  | { readonly kind: "failed"; readonly message: string };
+
+const resetProblem = (answer: Refused): ResetProblem => {
+  if (answer.status === 429) return { kind: "locked", message: answer.message };
+  if (answer.status === 0 || answer.status >= 500)
+    return { kind: "failed", message: answer.message };
+  if (answer.code.includes("PASSWORD")) return { kind: "password", message: answer.message };
+  if (answer.code.includes("OTP") || answer.status === 400 || answer.status === 401) {
+    return {
+      kind: "code",
+      message:
+        "That code is wrong or too old. A code works for 10 minutes. Send a new code if it has been longer.",
+    };
+  }
+  return { kind: "failed", message: answer.message };
+};
+
+export type ResetState =
+  | { readonly kind: "email"; readonly failure: string | null }
+  | { readonly kind: "code"; readonly email: string; readonly problem: ResetProblem | null }
+  | { readonly kind: "done" };
+
+export interface ResetViewProps {
+  readonly state: ResetState;
+  readonly busy: boolean;
+  readonly onRequest: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onReset: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onResend: () => void;
+}
+
+export const ResetView = ({ state, busy, onRequest, onReset, onResend }: ResetViewProps) => {
+  if (state.kind === "done") {
+    return (
+      <Page title="Password changed">
+        <Text>You are signed out on every other device. Sign in with your new password.</Text>
+        <Muted>Use an authenticator app or a passkey? Sign-in still asks for it.</Muted>
+        <ButtonLink href="/sign-in">Sign in</ButtonLink>
+      </Page>
+    );
+  }
+
+  if (state.kind === "email") {
+    return (
+      <Page title="Reset your password">
+        {state.failure === null ? null : (
+          <Notice tone="danger" title={state.failure} report={state.failure} />
+        )}
+        <Muted>Type your email. We send you a code that works for 10 minutes.</Muted>
+        <Form onSubmit={onRequest}>
+          <Field
+            id="email"
+            label="Email"
+            type="email"
+            autoComplete="username"
+            placeholder="you@example.com"
+            required
+            ref={focusOnMount}
+          />
+          <Submit disabled={busy}>Send code</Submit>
+        </Form>
+        <TextLink href="/sign-in">Back to sign-in</TextLink>
+      </Page>
+    );
+  }
+
+  const { problem } = state;
+  return (
+    <Page title="Check your email">
+      {problem === null ? (
+        <Notice title="If this email has an account, a code is on its way">
+          Sent to {state.email}. Look in spam too. Your second step stays as it is.
+        </Notice>
+      ) : null}
+      {problem?.kind === "locked" ? (
+        <Notice tone="warning" title="Resetting is paused">
+          {problem.message}
+        </Notice>
+      ) : null}
+      {problem?.kind === "failed" ? (
+        <Notice tone="danger" title="The password was not changed" report={problem.message}>
+          {problem.message} Try again in a minute.
+        </Notice>
+      ) : null}
+      <Form onSubmit={onReset}>
+        <Field
+          id="otp"
+          label="Code from the email"
+          placeholder="123 456"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          className="font-mono"
+          required
+          ref={problem === null || problem.kind === "code" ? focusOnMount : undefined}
+          error={problem?.kind === "code" ? problem.message : null}
+        />
+        <PasswordField
+          id="password"
+          label="New password"
+          autoComplete="new-password"
+          placeholder="12 to 128 characters"
+          minLength={12}
+          maxLength={128}
+          required
+          hint={NEW_PASSWORD_HINT}
+          error={problem?.kind === "password" ? problem.message : null}
+        />
+        <Submit disabled={busy || problem?.kind === "locked"}>Set new password</Submit>
+      </Form>
+      <LinkButton onClick={onResend}>Didn't get it? Send a new code</LinkButton>
+      <p className="text-sm text-fg-muted">
+        Still nothing? <ReportLink detail="The reset code email did not arrive." />
+      </p>
+    </Page>
+  );
+};
 
 export const Reset = () => {
-  const [email, setEmail] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<ResetState>({ kind: "email", failure: null });
   const [busy, setBusy] = useState(false);
 
-  const request = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const address = String(new FormData(event.currentTarget).get("email") ?? "");
+  const send = async (email: string): Promise<void> => {
     setBusy(true);
-    const answer = await post("/app/reset/request", { email: address });
+    const answer = await post("/app/reset/request", { email });
     setBusy(false);
     if (!answer.ok) {
-      setError(answer.message);
+      setState({ kind: "email", failure: answer.message });
       return;
     }
-    setEmail(address);
+    setState({ kind: "code", email, problem: null });
+  };
+
+  const request = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    return send(String(new FormData(event.currentTarget).get("email") ?? ""));
   };
 
   const reset = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (state.kind !== "code") return;
     const form = new FormData(event.currentTarget);
     setBusy(true);
     const answer = await post("/api/auth/email-otp/reset-password", {
-      email,
+      email: state.email,
       otp: String(form.get("otp") ?? "").trim(),
       password: form.get("password"),
     });
     setBusy(false);
     if (!answer.ok) {
-      setError(answer.message);
+      setState({ ...state, problem: resetProblem(answer) });
       return;
     }
-    navigate("/sign-in");
+    setState({ kind: "done" });
   };
 
-  if (email === null) {
-    return (
-      <Page title="Reset your password">
-        <Failure message={error} />
-        <form onSubmit={request}>
-          <Field id="email" label="Email" type="email" autoComplete="username" required />
-          <button type="submit" className="button primary" disabled={busy}>
-            Send a code
-          </button>
-        </form>
-      </Page>
-    );
-  }
   return (
-    <Page title="Enter your code">
-      <Notice>
-        If {email} has an account, a code is on its way. It expires in 10 minutes. Your second step
-        stays as it is.
-      </Notice>
-      <Failure message={error} />
-      <form onSubmit={reset}>
-        <Field id="otp" label="Code" inputMode="numeric" autoComplete="one-time-code" required />
-        <Field
-          id="password"
-          label="New password"
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-          maxLength={128}
-          required
-        />
-        <button type="submit" className="button primary" disabled={busy}>
-          Set the password
-        </button>
-      </form>
-    </Page>
+    <ResetView
+      state={state}
+      busy={busy}
+      onRequest={request}
+      onReset={reset}
+      onResend={() => (state.kind === "code" ? send(state.email) : undefined)}
+    />
   );
 };
