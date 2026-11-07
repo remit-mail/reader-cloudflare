@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["playwright.config.ts", "specs"]
+  "include": ["playwright.config.ts", "login.playwright.config.ts", "specs", "login"]
 }

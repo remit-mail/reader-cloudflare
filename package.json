@@ -38,6 +38,7 @@
     "builds": "node npm-scripts/builds.mjs list",
     "builds:log": "node npm-scripts/builds.mjs log",
     "e2e": "node npm-scripts/e2e.mjs",
+    "e2e:login": "node npm-scripts/e2e-login.mjs",
     "dashboards": "node npm-scripts/dashboards.mjs",
     "access-env:write": "node npm-scripts/access-env-write.mjs",
     "api": "node npm-scripts/api.mjs",
