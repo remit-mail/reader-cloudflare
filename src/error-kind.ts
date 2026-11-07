@@ -33,6 +33,7 @@ const CODE_KINDS: Readonly<Record<string, ErrorKind>> = {
   Unauthorized: "auth",
   NotFound: "notFound",
   MethodNotAllowed: "client",
+  RateLimited: "client",
   NotImplemented: "notImplemented",
   request_refused: "quota",
 };

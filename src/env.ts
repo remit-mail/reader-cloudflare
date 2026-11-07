@@ -12,6 +12,8 @@ export interface Env {
   readonly BODY_QUEUE: Queue<QueueEnvelope>;
   readonly MASTER_KEY: SecretsStoreSecret;
   readonly TENANT_MAIL: DurableObjectNamespace<TenantMail>;
+  readonly TENANT_RATE_LIMIT: RateLimit;
+  readonly CALENDAR_FEED_RATE_LIMIT: RateLimit;
   readonly ACCESS_TEAM_DOMAIN: string;
   readonly ACCESS_AUD: string;
   readonly PUBLIC_ORIGIN: string;

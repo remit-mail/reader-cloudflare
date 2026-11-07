@@ -111,7 +111,6 @@ export type QueueDeadLetter =
       readonly attempt: number;
       readonly type: "Unreadable";
       readonly reason: string;
-      readonly body: unknown;
     };
 
 export const logQueueDeadLetter = (record: QueueDeadLetter): void =>
