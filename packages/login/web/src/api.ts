@@ -74,20 +74,27 @@ export const navigate = (path: string, state?: unknown): void => {
 
 export const keepQuery = (path: string): string => `${path}${window.location.search}`;
 
+export const FAILURE_EVENT = "login-failure";
+
 let readerOrigin: string | null = null;
 
 const readerOriginOf = async (): Promise<string> => {
   if (readerOrigin !== null) return readerOrigin;
   const config = await get("/app/config");
-  readerOrigin =
-    config.ok && typeof config.body.readerOrigin === "string" ? config.body.readerOrigin : "/";
+  if (!config.ok || typeof config.body.readerOrigin !== "string") {
+    throw new Error(
+      `GET /app/config did not name the reader origin: ${config.ok ? "no readerOrigin" : config.message}`,
+    );
+  }
+  readerOrigin = config.body.readerOrigin;
   return readerOrigin;
 };
 
-const returnPath = (): string => {
-  const requested = new URLSearchParams(window.location.search).get("return");
-  if (requested === null || !requested.startsWith("/") || requested.startsWith("//")) return "/";
-  return requested;
+export const returnTarget = (requested: string | null, readerOrigin: string): string => {
+  const root = new URL("/", readerOrigin).toString();
+  if (requested === null) return root;
+  const target = URL.canParse(requested, readerOrigin) ? new URL(requested, readerOrigin) : null;
+  return target?.origin === new URL(readerOrigin).origin ? target.toString() : root;
 };
 
 export const finish = async (answer: Answer): Promise<void> => {
@@ -102,6 +109,16 @@ export const finish = async (answer: Answer): Promise<void> => {
     window.location.assign(`/api/auth/oauth2/authorize?${params.toString()}`);
     return;
   }
-  const origin = await readerOriginOf();
-  window.location.assign(new URL(returnPath(), origin).toString());
+  const origin = await readerOriginOf().catch((error: unknown) => {
+    window.dispatchEvent(
+      new CustomEvent(FAILURE_EVENT, {
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return null;
+  });
+  if (origin === null) return;
+  window.location.assign(
+    returnTarget(new URLSearchParams(window.location.search).get("return"), origin),
+  );
 };

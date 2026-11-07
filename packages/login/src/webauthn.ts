@@ -6,6 +6,7 @@ import {
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import type { LoginConfig } from "./config";
+import { isRecord } from "./http";
 
 interface PasskeyRow {
   readonly id: string;
@@ -14,9 +15,6 @@ interface PasskeyRow {
   readonly counter: number;
   readonly transports: string | null;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 export const isAssertion = (value: unknown): value is AuthenticationResponseJSON =>
   isRecord(value) &&
@@ -38,8 +36,13 @@ const passkeysOf = async (db: D1Database, userId: string): Promise<readonly Pass
   return rows.results;
 };
 
-export const passkeyCount = async (db: D1Database, userId: string): Promise<number> =>
-  (await passkeysOf(db, userId)).length;
+export const passkeyCount = async (db: D1Database, userId: string): Promise<number> => {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS count FROM passkey WHERE user_id = ?")
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+};
 
 const fromBase64Url = (value: string): Uint8Array<ArrayBuffer> => {
   const padded = value.replaceAll("-", "+").replaceAll("_", "/");

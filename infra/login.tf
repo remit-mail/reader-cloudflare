@@ -1,7 +1,6 @@
 locals {
   login_origin            = "https://${var.login_hostname}"
   login_oidc_client_id    = "${local.name}-access"
-  login_oidc_secret_name  = local.prod ? "LOGIN_OIDC_CLIENT_SECRET" : "${upper(var.stage)}_LOGIN_OIDC_CLIENT_SECRET"
   email_sender_domain     = split("@", var.email_sender)[1]
   login_idp_name          = "${local.name} login"
   other_stage_login_idp   = local.prod ? "${var.project}-dev login" : "${var.project} login"
@@ -62,15 +61,6 @@ resource "random_password" "login_oidc_client_secret" {
   special = false
 }
 
-resource "cloudflare_secrets_store_secret" "login_oidc_client_secret" {
-  account_id = var.account_id
-  store_id   = local.secrets_store_id
-  name       = local.login_oidc_secret_name
-  value      = local.login_oidc_secret_value
-  scopes     = ["workers"]
-  comment    = "OIDC client secret Access presents to the ${local.name} login Worker"
-}
-
 resource "cloudflare_zero_trust_access_identity_provider" "login" {
   account_id = var.account_id
   name       = local.login_idp_name
@@ -110,13 +100,13 @@ resource "cloudflare_email_sending_subdomain" "login" {
 }
 
 import {
-  for_each = local.prod && var.login_idp ? toset([var.account_id]) : toset([])
+  for_each = var.login_idp ? toset([var.account_id]) : toset([])
   to       = cloudflare_zero_trust_organization.this[0]
   id       = "accounts/${each.value}"
 }
 
 resource "cloudflare_zero_trust_organization" "this" {
-  count            = local.prod && var.login_idp ? 1 : 0
+  count            = var.login_idp ? 1 : 0
   account_id       = var.account_id
   session_duration = "15m"
 

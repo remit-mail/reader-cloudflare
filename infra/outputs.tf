@@ -106,11 +106,6 @@ output "login_d1_database_id" {
   value       = cloudflare_d1_database.login.uuid
 }
 
-output "login_oidc_secret_name" {
-  description = "secret_name of the LOGIN_OIDC_CLIENT_SECRET binding."
-  value       = cloudflare_secrets_store_secret.login_oidc_client_secret.name
-}
-
 output "login_oidc_client_id" {
   description = "LOGIN_OIDC_CLIENT_ID and the client_id of the Access identity provider."
   value       = local.login_oidc_client_id

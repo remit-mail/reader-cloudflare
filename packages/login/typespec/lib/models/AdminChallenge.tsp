@@ -15,6 +15,12 @@ namespace Login;
   }
 )
 @Drizzle.indexDef("admin_challenge_operator", [AdminChallenge.operatorUserId])
+@Drizzle.indexDef(
+  "admin_challenge_one_open",
+  [AdminChallenge.operatorUserId],
+  true,
+  "state = 'Open'"
+)
 model AdminChallenge {
   adminChallengeId: string;
   operatorUserId: string;

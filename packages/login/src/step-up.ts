@@ -2,7 +2,7 @@ import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/serv
 import type { adminChallenges } from "login-db-schema";
 import type { LoginConfig } from "./config";
 import { randomId, randomToken } from "./crypto";
-import { currentTotpStep, totpMatchesStep } from "./totp";
+import { currentTotpStep, recordTotpStep, totpMatchesStep } from "./totp";
 import { isAssertion, ownPasskeyOptions, passkeyCount, verifyOwnPasskey } from "./webauthn";
 
 type ChallengeRow = typeof adminChallenges.$inferSelect;
@@ -85,21 +85,27 @@ export const openChallenge = async (
   if (method === null) return null;
   const adminChallengeId = randomId();
   const challenge = randomToken();
-  await db
-    .prepare(
-      "INSERT INTO admin_challenge (admin_challenge_id, operator_user_id, session_id, action, target_email, challenge, method, state, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'Open', ?)",
-    )
-    .bind(
-      adminChallengeId,
-      binding.operatorUserId,
-      binding.sessionId,
-      binding.action,
-      binding.targetEmail,
-      challenge,
-      method,
-      now + CHALLENGE_LIFE_MS,
-    )
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        "UPDATE admin_challenge SET state = 'Expired' WHERE operator_user_id = ? AND state = 'Open'",
+      )
+      .bind(binding.operatorUserId),
+    db
+      .prepare(
+        "INSERT INTO admin_challenge (admin_challenge_id, operator_user_id, session_id, action, target_email, challenge, method, state, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'Open', ?)",
+      )
+      .bind(
+        adminChallengeId,
+        binding.operatorUserId,
+        binding.sessionId,
+        binding.action,
+        binding.targetEmail,
+        challenge,
+        method,
+        now + CHALLENGE_LIFE_MS,
+      ),
+  ]);
   if (method === "Totp") return { adminChallengeId, method };
   return {
     adminChallengeId,
@@ -152,11 +158,5 @@ export const verifyProof = async (
   if (operator.totpSecret === null) return false;
   const step = currentTotpStep(now);
   if (!(await totpMatchesStep(secretKey, operator.totpSecret, proof.code, step))) return false;
-  const recorded = await db
-    .prepare(
-      "INSERT OR IGNORE INTO admin_totp_use (operator_user_id, totp_step, admin_challenge_id, used_at) VALUES (?, ?, ?, ?) RETURNING totp_step",
-    )
-    .bind(operator.userId, step, adminChallengeId, now)
-    .first();
-  return recorded !== null;
+  return recordTotpStep(db, operator.userId, step, adminChallengeId, now);
 };

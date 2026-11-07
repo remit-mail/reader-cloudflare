@@ -174,13 +174,7 @@ export const configLiterals = ({
   msoauth,
   ...rest
 }) => {
-  const emails = [
-    ...owner_emails,
-    alert_email,
-    ...operator_emails,
-    email_sender,
-    dev_email_sender,
-  ];
+  const emails = [...owner_emails, alert_email, ...operator_emails, email_sender, dev_email_sender];
   return [
     ...new Set([
       ...Object.values(rest),

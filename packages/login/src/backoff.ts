@@ -1,7 +1,7 @@
 import { normalizeEmail } from "./config";
-import { sha256Hex } from "./crypto";
+import { randomId, sha256Hex } from "./crypto";
 
-const FREE_FAILURES = 5;
+const FREE_ATTEMPTS = 5;
 const RESET_AFTER_MS = 24 * 60 * 60_000;
 
 interface Curve {
@@ -17,8 +17,11 @@ export interface AttemptKey {
   readonly curve: Curve;
 }
 
-export const addressOf = (request: { headers: Headers }): string =>
-  request.headers.get("cf-connecting-ip") ?? "unknown";
+export const addressOf = (request: { headers: Headers }): string => {
+  const address = request.headers.get("cf-connecting-ip");
+  if (address === null) throw new Error("the request carries no cf-connecting-ip header");
+  return address;
+};
 
 const addressPrefix = (address: string): string => {
   if (!address.includes(":")) return address;
@@ -44,76 +47,89 @@ export const accountKey = async (email: string): Promise<AttemptKey> => ({
   curve: ACCOUNT_CURVE,
 });
 
-export const delayMs = (failures: number, curve: Curve): number => {
-  if (failures <= FREE_FAILURES) return 0;
-  return Math.min(curve.capMs, curve.baseMs * 2 ** Math.min(failures - FREE_FAILURES, 20));
-};
+export const userKey = (userId: string): AttemptKey => ({
+  key: `user:${userId}`,
+  curve: ACCOUNT_CURVE,
+});
 
-export const retryAt = async (
-  db: D1Database,
-  keys: readonly AttemptKey[],
-  now: number,
-): Promise<number | null> => {
-  if (keys.length === 0) return null;
-  const rows = await db
-    .prepare(
-      `SELECT next_allowed_at FROM auth_attempt WHERE attempt_key IN (${keys.map(() => "?").join(",")}) AND next_allowed_at > ? AND last_failure_at > ?`,
-    )
-    .bind(...keys.map(({ key }) => key), now, now - RESET_AFTER_MS)
-    .all<{ next_allowed_at: number }>();
-  const latest = Math.max(0, ...rows.results.map((row) => row.next_allowed_at));
-  return latest > now ? latest : null;
-};
-
-const UPSERT = `INSERT INTO auth_attempt (attempt_key, failures, last_failure_at, next_allowed_at)
-VALUES (?1, 1, ?2, 0)
+const RESERVE = `INSERT INTO auth_attempt (attempt_key, attempts, last_attempt_at, next_allowed_at, last_attempt_id)
+VALUES (?1, 1, ?2, 0, ?7)
 ON CONFLICT (attempt_key) DO UPDATE SET
-  failures = CASE WHEN last_failure_at < ?2 - ?3 THEN 1 ELSE failures + 1 END,
-  last_failure_at = ?2,
+  attempts = CASE
+    WHEN next_allowed_at > ?2 THEN attempts
+    WHEN last_attempt_at < ?2 - ?3 THEN 1
+    ELSE attempts + 1
+  END,
+  last_attempt_at = CASE WHEN next_allowed_at > ?2 THEN last_attempt_at ELSE ?2 END,
+  last_attempt_id = CASE WHEN next_allowed_at > ?2 THEN last_attempt_id ELSE ?7 END,
   next_allowed_at = CASE
-    WHEN (CASE WHEN last_failure_at < ?2 - ?3 THEN 1 ELSE failures + 1 END) <= ?4 THEN 0
-    ELSE ?2 + MIN(?6, ?5 * (1 << MIN((CASE WHEN last_failure_at < ?2 - ?3 THEN 1 ELSE failures + 1 END) - ?4, 20)))
+    WHEN next_allowed_at > ?2 THEN next_allowed_at
+    WHEN last_attempt_at < ?2 - ?3 THEN 0
+    WHEN attempts + 1 <= ?4 THEN 0
+    ELSE ?2 + MIN(?6, ?5 * (1 << MIN(attempts + 1 - ?4, 20)))
   END
-RETURNING attempt_key, failures, next_allowed_at`;
+RETURNING attempt_key, attempts, next_allowed_at, last_attempt_id`;
 
-export interface FailureOutcome {
-  readonly key: string;
-  readonly failures: number;
-  readonly nextAllowedAt: number;
-}
+export type Reservation =
+  | { readonly allowed: true; readonly firstDelay: boolean }
+  | { readonly allowed: false; readonly retryAt: number };
 
-export const recordFailure = async (
+export const reserveAttempt = async (
   db: D1Database,
   keys: readonly AttemptKey[],
   now: number,
-): Promise<readonly FailureOutcome[]> => {
+): Promise<Reservation> => {
+  const attemptId = randomId();
   const results = await db.batch<{
     attempt_key: string;
-    failures: number;
+    attempts: number;
     next_allowed_at: number;
+    last_attempt_id: string;
   }>(
     keys.map(({ key, curve }) =>
-      db.prepare(UPSERT).bind(key, now, RESET_AFTER_MS, FREE_FAILURES, curve.baseMs, curve.capMs),
+      db
+        .prepare(RESERVE)
+        .bind(key, now, RESET_AFTER_MS, FREE_ATTEMPTS, curve.baseMs, curve.capMs, attemptId),
     ),
   );
-  return results.flatMap((result) =>
-    result.results.map((row) => ({
-      key: row.attempt_key,
-      failures: row.failures,
-      nextAllowedAt: row.next_allowed_at,
-    })),
-  );
+  const rows = results.flatMap((result) => result.results);
+  const blocked = rows.filter((row) => row.last_attempt_id !== attemptId);
+  if (blocked.length > 0) {
+    return { allowed: false, retryAt: Math.max(...blocked.map((row) => row.next_allowed_at)) };
+  }
+  return { allowed: true, firstDelay: rows.some((row) => row.attempts === FREE_ATTEMPTS + 1) };
 };
-
-export const firstDelay = (outcomes: readonly FailureOutcome[]): boolean =>
-  outcomes.some((outcome) => outcome.failures === FREE_FAILURES + 1);
 
 export const clearKey = async (db: D1Database, key: AttemptKey): Promise<void> => {
   await db.prepare("DELETE FROM auth_attempt WHERE attempt_key = ?").bind(key.key).run();
 };
 
+export const refundKey = async (db: D1Database, key: AttemptKey): Promise<void> => {
+  await db
+    .prepare(
+      "UPDATE auth_attempt SET attempts = MAX(attempts - 1, 0), next_allowed_at = CASE WHEN attempts - 1 <= ? THEN 0 ELSE next_allowed_at END WHERE attempt_key = ?",
+    )
+    .bind(FREE_ATTEMPTS, key.key)
+    .run();
+};
+
 const QUOTA_WINDOW_MS = 15 * 60_000;
 const QUOTA = 5;
+
+const QUOTA_UPSERT = `INSERT INTO auth_attempt (attempt_key, attempts, last_attempt_at, next_allowed_at, last_attempt_id)
+VALUES (?1, 1, ?2, 0, ?1)
+ON CONFLICT (attempt_key) DO UPDATE SET
+  attempts = CASE WHEN last_attempt_at < ?2 - ?3 THEN 1 ELSE attempts + 1 END,
+  last_attempt_at = CASE WHEN last_attempt_at < ?2 - ?3 THEN ?2 ELSE last_attempt_at END
+RETURNING attempts`;
+
+const takeQuota = async (db: D1Database, key: string, now: number): Promise<boolean> => {
+  const row = await db
+    .prepare(QUOTA_UPSERT)
+    .bind(key, now, QUOTA_WINDOW_MS)
+    .first<{ attempts: number }>();
+  return row !== null && row.attempts <= QUOTA;
+};
 
 export const takeResetQuota = async (
   db: D1Database,
@@ -121,20 +137,6 @@ export const takeResetQuota = async (
   email: string,
   now: number,
 ): Promise<boolean> => {
-  const keys = [`reset:${addressKey(address).key}`, `reset:${(await accountKey(email)).key}`];
-  const results = await db.batch<{ failures: number }>(
-    keys.map((key) =>
-      db
-        .prepare(
-          `INSERT INTO auth_attempt (attempt_key, failures, last_failure_at, next_allowed_at)
-VALUES (?1, 1, ?2, 0)
-ON CONFLICT (attempt_key) DO UPDATE SET
-  failures = CASE WHEN last_failure_at < ?2 - ?3 THEN 1 ELSE failures + 1 END,
-  last_failure_at = CASE WHEN last_failure_at < ?2 - ?3 THEN ?2 ELSE last_failure_at END
-RETURNING failures`,
-        )
-        .bind(key, now, QUOTA_WINDOW_MS),
-    ),
-  );
-  return results.every((result) => (result.results[0]?.failures ?? 0) <= QUOTA);
+  if (!(await takeQuota(db, `reset:${addressKey(address).key}`, now))) return false;
+  return takeQuota(db, `reset:${(await accountKey(email)).key}`, now);
 };

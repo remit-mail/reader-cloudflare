@@ -11,6 +11,7 @@ import { configOf, type LoginConfig } from "./config";
 import { sha256Base64Url, sha256Hex } from "./crypto";
 import { schema } from "./db/schema";
 import type { Env } from "./env";
+import { isRecord } from "./http";
 import { log } from "./log";
 import { sendResetCode, sendSecurityChange } from "./mail";
 import { appEndpoints, REAUTH_WINDOW_MS } from "./routes/app";
@@ -33,7 +34,6 @@ export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/oauth2/authorize",
   "/oauth2/userinfo",
   "/oauth2/token",
-  "/oauth2/continue",
   "/get-session",
   "/sign-in/email",
   "/change-password",
@@ -61,30 +61,41 @@ const SERVER_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/app/sign-out-everywhere",
 ]);
 
-const FACTOR_CHANGES: Readonly<Record<string, string>> = {
-  "/passkey/generate-register-options": "",
-  "/passkey/verify-registration": "A passkey was added",
-  "/passkey/delete-passkey": "A passkey was removed",
-  "/passkey/update-passkey": "A passkey was renamed",
-  "/two-factor/enable": "An authenticator app was added",
-  "/two-factor/disable": "The authenticator app was removed",
-  "/two-factor/get-totp-uri": "",
-  "/two-factor/generate-backup-codes": "New backup codes were made",
-  "/change-password": "The password was changed",
-  "/app/sign-out-everywhere": "",
-};
+const FACTOR_GATED: ReadonlySet<string> = new Set([
+  "/passkey/generate-register-options",
+  "/passkey/verify-registration",
+  "/passkey/delete-passkey",
+  "/passkey/update-passkey",
+  "/two-factor/enable",
+  "/two-factor/disable",
+  "/two-factor/get-totp-uri",
+  "/two-factor/generate-backup-codes",
+  "/change-password",
+  "/app/sign-out-everywhere",
+]);
 
-const AUDIT_OF_CHANGE: Readonly<
-  Record<string, "FactorAdded" | "FactorRemoved" | "BackupCodesRegenerated" | "PasswordChanged">
-> = {
-  "/passkey/verify-registration": "FactorAdded",
-  "/passkey/delete-passkey": "FactorRemoved",
-  "/passkey/update-passkey": "FactorAdded",
-  "/two-factor/enable": "FactorAdded",
-  "/two-factor/disable": "FactorRemoved",
-  "/two-factor/generate-backup-codes": "BackupCodesRegenerated",
-  "/change-password": "PasswordChanged",
-};
+type FactorEvent =
+  | "FactorAdded"
+  | "FactorRemoved"
+  | "FactorRenamed"
+  | "BackupCodesRegenerated"
+  | "PasswordChanged";
+
+const FACTOR_CHANGES: ReadonlyMap<
+  string,
+  { readonly event: FactorEvent; readonly change: string }
+> = new Map([
+  ["/passkey/verify-registration", { event: "FactorAdded", change: "A passkey was added" }],
+  ["/passkey/delete-passkey", { event: "FactorRemoved", change: "A passkey was removed" }],
+  ["/passkey/update-passkey", { event: "FactorRenamed", change: "A passkey was renamed" }],
+  ["/two-factor/enable", { event: "FactorAdded", change: "An authenticator app was added" }],
+  ["/two-factor/disable", { event: "FactorRemoved", change: "The authenticator app was removed" }],
+  [
+    "/two-factor/generate-backup-codes",
+    { event: "BackupCodesRegenerated", change: "New backup codes were made" },
+  ],
+  ["/change-password", { event: "PasswordChanged", change: "The password was changed" }],
+]);
 
 export interface AuthDeps {
   readonly config: LoginConfig;
@@ -93,9 +104,6 @@ export interface AuthDeps {
   readonly secret: string;
   readonly waitUntil: (promise: Promise<unknown>) => void;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const refuseAuthorizationCode = (description: string): APIError =>
   new APIError("BAD_REQUEST", { error: "invalid_grant", error_description: description });
@@ -128,7 +136,20 @@ const tokenRaceGuard = (db: D1Database) =>
             )
             .bind(stored.userId, Date.now())
             .first();
-    if (live === null) throw refuseAuthorizationCode("the sign-in behind this code has ended");
+    if (live !== null) return;
+    const user = await db
+      .prepare("SELECT email FROM user WHERE id = ?")
+      .bind(stored.userId)
+      .first<{ email: string }>();
+    await audit(db, {
+      actor: "self",
+      email: user?.email ?? "",
+      address: addressOf({ headers: ctx.headers ?? new Headers() }),
+      event: "TokenIssued",
+      outcome: "Refused",
+      clientId: typeof ctx.body.client_id === "string" ? ctx.body.client_id : "none",
+    });
+    throw refuseAuthorizationCode("the sign-in behind this code has ended");
   });
 
 const factorGate = createAuthMiddleware(async (ctx) => {
@@ -164,7 +185,7 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
             TWO_FACTOR_PATHS.has(ctx.path ?? ""),
           handler: before,
         },
-        { matcher: (ctx) => Object.hasOwn(FACTOR_CHANGES, ctx.path ?? ""), handler: factorGate },
+        { matcher: (ctx) => FACTOR_GATED.has(ctx.path ?? ""), handler: factorGate },
         { matcher: (ctx) => ctx.path === "/oauth2/token", handler: tokenGuard },
       ],
       after: [
@@ -177,14 +198,14 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
           handler: after,
         },
         {
-          matcher: (ctx) => Object.hasOwn(AUDIT_OF_CHANGE, ctx.path ?? ""),
+          matcher: (ctx) => FACTOR_CHANGES.has(ctx.path ?? ""),
           handler: createAuthMiddleware(async (ctx) => {
             if (ctx.context.returned instanceof APIError) return;
             const session = ctx.context.newSession ?? (await getSessionFromCtx(ctx));
             if (!session) return;
-            const event = AUDIT_OF_CHANGE[ctx.path];
-            const change = FACTOR_CHANGES[ctx.path];
-            if (event === undefined || !change) return;
+            const factorChange = FACTOR_CHANGES.get(ctx.path);
+            if (factorChange === undefined) return;
+            const { event, change } = factorChange;
             const address = addressOf({ headers: ctx.headers ?? new Headers() });
             await audit(deps.db, {
               actor: "self",
@@ -205,14 +226,22 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
         {
           matcher: (ctx) => ctx.path === "/oauth2/token",
           handler: createAuthMiddleware(async (ctx) => {
-            const clientId = isRecord(ctx.body) ? ctx.body.client_id : undefined;
+            const returned = ctx.context.returned;
+            if (!isRecord(returned) || typeof returned.access_token !== "string") return;
+            const issued = await deps.db
+              .prepare(
+                "SELECT user.email AS email, oauth_access_token.client_id AS client_id FROM oauth_access_token JOIN user ON user.id = oauth_access_token.user_id WHERE oauth_access_token.token = ?",
+              )
+              .bind(await sha256Base64Url(returned.access_token))
+              .first<{ email: string; client_id: string }>();
+            if (issued === null) return;
             await audit(deps.db, {
               actor: "self",
-              email: "",
+              email: issued.email,
               address: addressOf({ headers: ctx.headers ?? new Headers() }),
               event: "TokenIssued",
-              outcome: ctx.context.returned instanceof APIError ? "Refused" : "Succeeded",
-              clientId: typeof clientId === "string" ? clientId : "none",
+              outcome: "Succeeded",
+              clientId: issued.client_id,
             });
           }),
         },
@@ -246,14 +275,18 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         reauthenticatedAt: { type: "number", required: true, input: false, defaultValue: 0 },
       },
     },
-    databaseHooks: {
-      session: {
-        create: {
-          before: async (session) => ({ data: { ...session, reauthenticatedAt: Date.now() } }),
-        },
-      },
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      window: 60,
+      max: 30,
+      customRules: Object.fromEntries(
+        [SIGN_IN_PATH, RESET_PATH, "/change-password", ...TWO_FACTOR_PATHS].map((path) => [
+          path,
+          { window: 60, max: 30 },
+        ]),
+      ),
     },
-    rateLimit: { enabled: true, storage: "database", window: 60, max: 30 },
     advanced: {
       useSecureCookies: config.loginOrigin.startsWith("https://"),
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
@@ -331,7 +364,7 @@ const build = (deps: AuthDeps) => {
 
 export type Auth = ReturnType<typeof build>;
 
-const cache = new Map<string, Auth>();
+const cache = new WeakMap<Env, { readonly key: string; readonly auth: Auth }>();
 
 export const createAuth = async (
   env: Env,
@@ -339,8 +372,8 @@ export const createAuth = async (
 ): Promise<Auth> => {
   const secret = await env.LOGIN_AUTH_SECRET.get();
   const key = await sha256Hex(`${secret}|${env.LOGIN_ORIGIN}|${env.OPERATOR_EMAILS}`);
-  const cached = cache.get(key);
-  if (cached) return cached;
+  const cached = cache.get(env);
+  if (cached?.key === key) return cached.auth;
   const auth = build({
     config: configOf(env),
     db: env.DB,
@@ -348,7 +381,6 @@ export const createAuth = async (
     secret,
     waitUntil: (promise) => waitUntil(promise),
   });
-  cache.clear();
-  cache.set(key, auth);
+  cache.set(env, { key, auth });
   return auth;
 };

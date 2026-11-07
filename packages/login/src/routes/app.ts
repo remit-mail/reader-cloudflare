@@ -5,19 +5,19 @@ import { z } from "zod";
 import { audit } from "../audit";
 import type { AuthDeps } from "../auth";
 import {
-  accountKey,
   addressKey,
   addressOf,
-  clearKey,
-  recordFailure,
-  retryAt,
+  refundKey,
+  reserveAttempt,
   takeResetQuota,
+  userKey,
 } from "../backoff";
 import { type LoginConfig, normalizeEmail } from "../config";
 import { randomId, randomToken, sameHash, sha256Hex } from "../crypto";
+import { json } from "../http";
 import { log } from "../log";
-import { countFailure, refuseWhileDelayed } from "../second-factor";
-import { totpMatchesNow } from "../totp";
+import { reserveOrAudit, settleSuccess } from "../second-factor";
+import { recordTotpStep, totpStepMatchingNow } from "../totp";
 import { isAssertion, passkeyCount, verifyOwnPasskey } from "../webauthn";
 
 export const REAUTH_WINDOW_MS = 5 * 60_000;
@@ -42,21 +42,12 @@ const grantCookie = (config: LoginConfig, value: string, maxAge: number): string
     ...(config.loginOrigin.startsWith("https://") ? ["Secure"] : []),
   ].join("; ");
 
-const json = (status: number, body: unknown, headers: HeadersInit = {}): Response =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store", ...Object.fromEntries(new Headers(headers)) },
-  });
-
 const tokenOf = (body: unknown): string | null => {
   const parsed = z.object({ token: z.string().min(1).max(200) }).safeParse(body);
   return parsed.success ? parsed.data.token : null;
 };
 
-const deadInvite = async (db: D1Database, address: string): Promise<Response> => {
-  await recordFailure(db, [addressKey(address)], Date.now());
-  return json(410, { message: DEAD_INVITE });
-};
+const deadInvite = (): Response => json(410, { message: DEAD_INVITE });
 
 const backoffResponse = (until: number): Response =>
   json(429, {
@@ -71,10 +62,10 @@ export const lookupInvite = async (
 ): Promise<Response> => {
   const address = addressOf(request);
   const now = Date.now();
-  const until = await retryAt(db, [addressKey(address)], now);
-  if (until !== null) return backoffResponse(until);
+  const reservation = await reserveAttempt(db, [addressKey(address)], now);
+  if (!reservation.allowed) return backoffResponse(reservation.retryAt);
   const token = tokenOf(body);
-  if (token === null) return deadInvite(db, address);
+  if (token === null) return deadInvite();
   const tokenHash = await sha256Hex(token);
   const invite = await db
     .prepare(
@@ -82,7 +73,8 @@ export const lookupInvite = async (
     )
     .bind(tokenHash, now)
     .first<{ email: string; token_hash: string }>();
-  if (invite === null || !sameHash(invite.token_hash, tokenHash)) return deadInvite(db, address);
+  if (invite === null || !sameHash(invite.token_hash, tokenHash)) return deadInvite();
+  await refundKey(db, addressKey(address));
   return json(200, { email: invite.email });
 };
 
@@ -94,10 +86,10 @@ export const redeemInvite = async (
 ): Promise<Response> => {
   const address = addressOf(request);
   const now = Date.now();
-  const until = await retryAt(db, [addressKey(address)], now);
-  if (until !== null) return backoffResponse(until);
+  const reservation = await reserveAttempt(db, [addressKey(address)], now);
+  if (!reservation.allowed) return backoffResponse(reservation.retryAt);
   const token = tokenOf(body);
-  if (token === null) return deadInvite(db, address);
+  if (token === null) return deadInvite();
   const tokenHash = await sha256Hex(token);
   const redeemed = await db
     .prepare(
@@ -106,8 +98,9 @@ export const redeemInvite = async (
     .bind(now, tokenHash)
     .first<{ invite_id: string; email: string; token_hash: string }>();
   if (redeemed === null || !sameHash(redeemed.token_hash, tokenHash)) {
-    return deadInvite(db, address);
+    return deadInvite();
   }
+  await refundKey(db, addressKey(address));
   const grant = randomToken();
   await db
     .prepare(
@@ -295,8 +288,6 @@ export const appEndpoints = (deps: AuthDeps) => {
         async (ctx) => {
           const { session, user } = ctx.context.session;
           const address = addressOf({ headers: ctx.headers ?? new Headers() });
-          const keys = [addressKey(address), await accountKey(user.email)];
-          await refuseWhileDelayed(db, keys);
           const twoFactor = await db
             .prepare("SELECT secret FROM two_factor WHERE user_id = ?")
             .bind(user.id)
@@ -304,14 +295,29 @@ export const appEndpoints = (deps: AuthDeps) => {
           const hasApp = Boolean(user.twoFactorEnabled) && twoFactor !== null;
           const hasPasskey = (await passkeyCount(db, user.id)) > 0;
           const body = ctx.body;
+          if ("password" in body && (hasApp || hasPasskey)) {
+            throw new APIError("FORBIDDEN", {
+              message: "Confirm with your passkey or your authenticator app.",
+              code: "FACTOR_REQUIRED",
+            });
+          }
+          const personal = userKey(user.id);
+          const reservation = await reserveOrAudit(
+            db,
+            [addressKey(address), personal],
+            user.email,
+            user.email,
+            address,
+          );
+          if (!reservation.allowed) {
+            throw new APIError("TOO_MANY_REQUESTS", {
+              message: "Too many attempts. Try again later.",
+              code: "BACKOFF",
+              retryAt: new Date(reservation.retryAt).toISOString(),
+            });
+          }
           const confirmed = await (async (): Promise<boolean> => {
             if ("password" in body) {
-              if (hasApp || hasPasskey) {
-                throw new APIError("FORBIDDEN", {
-                  message: "Confirm with your passkey or your authenticator app.",
-                  code: "FACTOR_REQUIRED",
-                });
-              }
               const credential = (await ctx.context.internalAdapter.findAccounts(user.id)).find(
                 (account) => account.providerId === "credential",
               );
@@ -323,12 +329,14 @@ export const appEndpoints = (deps: AuthDeps) => {
             }
             if ("totpCode" in body) {
               if (!hasApp || twoFactor === null) return false;
-              return totpMatchesNow(
+              const now = Date.now();
+              const step = await totpStepMatchingNow(
                 ctx.context.secretConfig,
                 twoFactor.secret,
                 body.totpCode,
-                Date.now(),
+                now,
               );
+              return step !== null && recordTotpStep(db, user.id, step, "SecurityConfirm", now);
             }
             if (!hasPasskey || !isAssertion(body.passkey)) return false;
             const cookie = ctx.context.createAuthCookie(PASSKEY_CHALLENGE_COOKIE);
@@ -345,13 +353,12 @@ export const appEndpoints = (deps: AuthDeps) => {
             return verifyOwnPasskey(db, config, user.id, body.passkey, expectedChallenge);
           })();
           if (!confirmed) {
-            await countFailure(db, keys, user.email, address);
             throw new APIError("UNAUTHORIZED", {
               message: "That did not match. Try again.",
               code: "NOT_CONFIRMED",
             });
           }
-          await clearKey(db, keys[1] ?? addressKey(address));
+          await settleSuccess(db, address, personal);
           await db
             .prepare("UPDATE session SET reauthenticated_at = ? WHERE id = ?")
             .bind(Date.now(), session.id)

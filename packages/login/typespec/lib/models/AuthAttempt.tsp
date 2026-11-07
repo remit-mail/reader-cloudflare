@@ -5,7 +5,7 @@ using Drizzle;
 
 namespace Login;
 
-@doc("Failure counter for one account or one network address, driving backoff.")
+@doc("Attempts counted for one account, user or network address, driving backoff. Each attempt is reserved before its proof is checked.")
 @entity("authAttempt", "login")
 @index(
   "AuthAttempt",
@@ -16,7 +16,8 @@ namespace Login;
 )
 model AuthAttempt {
   attemptKey: string;
-  failures: int32;
-  lastFailureAt: int64;
+  attempts: int32;
+  lastAttemptAt: int64;
   nextAllowedAt: int64;
+  lastAttemptId: string;
 }

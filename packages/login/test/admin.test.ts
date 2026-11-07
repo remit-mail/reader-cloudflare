@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootstrapOperators } from "../src/bootstrap";
+import { configOf } from "../src/config";
 import {
+  addPasskeyRow,
   call,
   createUser,
   OPERATOR,
   OTHER_OPERATOR,
+  PASSWORD,
   type SignedIn,
   signIn,
   testEnv,
   totpCode,
+  uniqueEmail,
 } from "./helpers";
 
 const STEP_MS = 30_000;
@@ -24,16 +29,16 @@ const openTotpChallenge = async (operator: SignedIn, action: string, targetEmail
   return body.adminChallengeId;
 };
 
-const act = async (
+const act = (
   operator: SignedIn,
   adminChallengeId: string,
   action: string,
   targetEmail: string,
-  totpCode: string,
+  code: string,
 ) =>
   call("/app/admin/action", {
     cookie: operator.cookie,
-    body: { adminChallengeId, action, targetEmail, totpCode },
+    body: { adminChallengeId, action, targetEmail, totpCode: code },
   });
 
 const isBanned = async (email: string): Promise<boolean> => {
@@ -48,6 +53,13 @@ const sessionsOf = async (email: string): Promise<number> => {
     "SELECT COUNT(*) AS count FROM session JOIN user ON user.id = session.user_id WHERE user.email = ?",
   )
     .bind(email)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+};
+
+const count = async (sql: string, ...values: unknown[]): Promise<number> => {
+  const row = await testEnv.DB.prepare(sql)
+    .bind(...values)
     .first<{ count: number }>();
   return row?.count ?? 0;
 };
@@ -67,8 +79,8 @@ describe("admin step-up", () => {
       .run();
     const operatorUser = await createUser(OPERATOR, { totp: true });
     operator = await signIn(operatorUser.id);
-    alice = `alice-${crypto.randomUUID()}@remit.test`;
-    bob = `bob-${crypto.randomUUID()}@remit.test`;
+    alice = uniqueEmail("alice");
+    bob = uniqueEmail("bob");
     await signIn((await createUser(alice)).id);
     await signIn((await createUser(bob)).id);
   });
@@ -78,16 +90,31 @@ describe("admin step-up", () => {
   });
 
   it("answers 404 to a signed-in non-operator and to no session", async () => {
-    const outsider = await signIn((await createUser(`x-${crypto.randomUUID()}@remit.test`)).id);
+    const outsider = await signIn((await createUser(uniqueEmail("x"))).id);
     for (const cookie of [outsider.cookie, undefined]) {
       expect((await call("/admin", cookie ? { cookie } : {})).status).toBe(404);
       expect((await call("/admin/audit?days=7", cookie ? { cookie } : {})).status).toBe(404);
-      const opened = await call("/app/admin/challenge", {
-        ...(cookie ? { cookie } : {}),
-        body: { action: "Disable", targetEmail: alice },
-      });
-      expect(opened.status).toBe(404);
+      for (const path of ["/app/admin/challenge", "/app/admin/action"]) {
+        const answer = await call(path, {
+          ...(cookie ? { cookie } : {}),
+          body: { action: "Disable", targetEmail: alice },
+        });
+        expect(answer.status).toBe(404);
+      }
     }
+  });
+
+  it("shows an operator without a factor only the enroll page and refuses actions", async () => {
+    await testEnv.DB.prepare("DELETE FROM user WHERE email = ?").bind(OPERATOR).run();
+    const bare = await signIn((await createUser(OPERATOR)).id);
+    const page = await call("/admin", { cookie: bare.cookie });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Add a second factor");
+    const opened = await call("/app/admin/challenge", {
+      cookie: bare.cookie,
+      body: { action: "Disable", targetEmail: alice },
+    });
+    expect(opened.status).toBe(403);
   });
 
   it("runs a challenge only for its own action and target", async () => {
@@ -109,6 +136,20 @@ describe("admin step-up", () => {
     vi.setSystemTime((step + 1) * STEP_MS + 10_000);
     const again = await act(operator, id, "Disable", alice, await totpCode(step + 1));
     expect(again.status).toBe(403);
+  });
+
+  it("keeps one open challenge per operator", async () => {
+    const first = await openTotpChallenge(operator, "Disable", alice);
+    await openTotpChallenge(operator, "Disable", bob);
+    const stale = await act(operator, first, "Disable", alice, await totpCode(step));
+    expect(stale.status).toBe(403);
+    expect(await isBanned(alice)).toBe(false);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM admin_challenge WHERE operator_user_id = ? AND state = 'Open'",
+        operator.userId,
+      ),
+    ).toBe(1);
   });
 
   it("refuses a challenge after two minutes and from another session", async () => {
@@ -146,13 +187,10 @@ describe("admin step-up", () => {
 
     vi.setSystemTime((step + 1) * STEP_MS + 10_000);
     const raceCode = await totpCode(step + 1);
-    const [one, two] = await Promise.all([
-      openTotpChallenge(operator, "Disable", bob),
-      openTotpChallenge(operator, "ResetFactors", alice),
-    ]);
+    const raced = await openTotpChallenge(operator, "Disable", bob);
     const statuses = await Promise.all([
-      act(operator, one, "Disable", bob, raceCode),
-      act(operator, two, "ResetFactors", alice, raceCode),
+      act(operator, raced, "Disable", bob, raceCode),
+      act(operator, raced, "Disable", bob, raceCode),
     ]).then((responses) => responses.map((response) => response.status).sort());
     expect(statuses).toEqual([200, 403]);
   });
@@ -163,12 +201,35 @@ describe("admin step-up", () => {
     const answer = await act(operator, id, "Disable", alice, wrong);
     expect(answer.status).toBe(403);
     expect(await isBanned(alice)).toBe(false);
-    const refused = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND event = 'AdminStepUp' AND outcome = 'Refused'",
-    )
-      .bind(OPERATOR, alice)
-      .first<{ count: number }>();
-    expect(refused?.count).toBe(1);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND event = 'AdminStepUp' AND outcome = 'Refused'",
+        OPERATOR,
+        alice,
+      ),
+    ).toBe(1);
+  });
+
+  it("slows step-ups after repeated failed proofs, apart from anonymous password failures", async () => {
+    const wrong = (await totpCode(step)) === "000000" ? "111111" : "000000";
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await call("/api/auth/sign-in/email", {
+        body: { email: OPERATOR, password: "not it at all" },
+      });
+    }
+    const unaffected = await openTotpChallenge(operator, "SignOutEverywhere", alice);
+    expect(
+      (await act(operator, unaffected, "SignOutEverywhere", alice, await totpCode(step))).status,
+    ).toBe(200);
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const id = await openTotpChallenge(operator, "Disable", alice);
+      expect((await act(operator, id, "Disable", alice, wrong)).status).toBe(403);
+    }
+    const id = await openTotpChallenge(operator, "Disable", alice);
+    const delayed = await act(operator, id, "Disable", alice, await totpCode(step));
+    expect(delayed.status).toBe(429);
+    expect(await isBanned(alice)).toBe(false);
   });
 
   it("refuses an action on another operator", async () => {
@@ -182,12 +243,77 @@ describe("admin step-up", () => {
     expect(self.status).toBe(403);
     expect(await isBanned(OTHER_OPERATOR)).toBe(false);
     expect(await sessionsOf(OTHER_OPERATOR)).toBe(1);
-    const audited = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND outcome = 'Refused'",
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND outcome = 'Refused'",
+        OPERATOR,
+        OTHER_OPERATOR,
+      ),
+    ).toBe(3);
+  });
+
+  it("keeps an old signing key on rotate and drops every key on revoke", async () => {
+    await testEnv.DB.prepare("DELETE FROM jwks").run();
+    expect((await call("/api/auth/jwks")).status).toBe(200);
+    const keys = () => count("SELECT COUNT(*) AS count FROM jwks");
+    expect(await keys()).toBe(1);
+
+    const rotate = await openTotpChallenge(operator, "RotateKeys", OPERATOR);
+    expect((await act(operator, rotate, "RotateKeys", OPERATOR, await totpCode(step))).status).toBe(
+      200,
+    );
+    expect(await keys()).toBe(1);
+
+    vi.setSystemTime((step + 1) * STEP_MS + 10_000);
+    const revoke = await openTotpChallenge(operator, "RevokeKeys", OPERATOR);
+    const revoked = await act(operator, revoke, "RevokeKeys", OPERATOR, await totpCode(step + 1));
+    expect(revoked.status).toBe(200);
+    expect(await keys()).toBe(0);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND event = 'KeysRevoked'",
+        OPERATOR,
+      ),
+    ).toBe(1);
+  });
+
+  it("refuses a password alone on security confirm for a user with a factor", async () => {
+    const withApp = await createUser(uniqueEmail("app"), { totp: true, password: PASSWORD });
+    const withPasskey = await createUser(uniqueEmail("key"), { password: PASSWORD });
+    await addPasskeyRow(withPasskey.id, crypto.randomUUID());
+    for (const user of [withApp, withPasskey]) {
+      const session = await signIn(user.id);
+      const answer = await call("/app/security/confirm", {
+        cookie: session.cookie,
+        body: { password: PASSWORD },
+      });
+      expect(answer.status).toBe(403);
+    }
+  });
+
+  it("accepts an app code on security confirm once per time step", async () => {
+    const user = await createUser(uniqueEmail("replay"), { totp: true, password: PASSWORD });
+    const session = await signIn(user.id);
+    const code = await totpCode(step);
+    const confirm = () =>
+      call("/app/security/confirm", { cookie: session.cookie, body: { totpCode: code } });
+    expect((await confirm()).status).toBe(200);
+    expect((await confirm()).status).toBe(401);
+  });
+
+  it("escapes stored values on the admin and audit pages", async () => {
+    const hostile = `<script>alert(1)</script>${crypto.randomUUID()}@remit.test`;
+    await createUser(hostile);
+    await testEnv.DB.prepare(
+      "INSERT INTO audit_event (audit_event_id, at, actor, email, address, event, outcome, client_id) VALUES (?, ?, 'self', ?, '<b>x</b>', 'SignIn', 'Succeeded', 'none')",
     )
-      .bind(OPERATOR, OTHER_OPERATOR)
-      .first<{ count: number }>();
-    expect(audited?.count).toBe(3);
+      .bind(crypto.randomUUID(), Date.now(), hostile)
+      .run();
+    for (const path of ["/admin", "/admin/audit?days=7"]) {
+      const body = await (await call(path, { cookie: operator.cookie })).text();
+      expect(body).not.toContain("<script>alert(1)");
+      expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
   });
 
   it("refuses requests that carry Access credentials", async () => {
@@ -196,5 +322,18 @@ describe("admin step-up", () => {
       headers: { "CF-Access-Client-Id": "agent" },
     });
     expect(answer.status).toBe(403);
+  });
+
+  it("bootstraps operator invites only while no operator has an account", async () => {
+    const config = configOf(testEnv);
+    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(0);
+    await testEnv.DB.prepare("DELETE FROM user WHERE email IN (?, ?)")
+      .bind(OPERATOR, OTHER_OPERATOR)
+      .run();
+    await testEnv.DB.prepare("DELETE FROM invite WHERE email IN (?, ?)")
+      .bind(OPERATOR, OTHER_OPERATOR)
+      .run();
+    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(2);
+    expect(await bootstrapOperators(testEnv.DB, testEnv.EMAIL, config, Date.now())).toBe(0);
   });
 });

@@ -1,3 +1,67 @@
+CREATE TABLE `admin_challenge` (
+	`admin_challenge_id` text PRIMARY KEY NOT NULL,
+	`operator_user_id` text NOT NULL,
+	`session_id` text NOT NULL,
+	`action` text NOT NULL,
+	`target_email` text NOT NULL,
+	`challenge` text NOT NULL,
+	`method` text NOT NULL,
+	`state` text NOT NULL,
+	`expires_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `admin_challenge_one_open` ON `admin_challenge` (`operator_user_id`) WHERE state = 'Open';--> statement-breakpoint
+CREATE INDEX `admin_challenge_operator` ON `admin_challenge` (`operator_user_id`);--> statement-breakpoint
+CREATE TABLE `audit_event` (
+	`audit_event_id` text PRIMARY KEY NOT NULL,
+	`at` integer NOT NULL,
+	`actor` text NOT NULL,
+	`email` text NOT NULL,
+	`address` text NOT NULL,
+	`event` text NOT NULL,
+	`outcome` text NOT NULL,
+	`client_id` text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `audit_event_at` ON `audit_event` (`at`);--> statement-breakpoint
+CREATE TABLE `auth_attempt` (
+	`attempt_key` text PRIMARY KEY NOT NULL,
+	`attempts` integer NOT NULL,
+	`last_attempt_at` integer NOT NULL,
+	`next_allowed_at` integer NOT NULL,
+	`last_attempt_id` text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `invite` (
+	`invite_id` text PRIMARY KEY NOT NULL,
+	`email` text NOT NULL,
+	`token_hash` text NOT NULL,
+	`state` text NOT NULL,
+	`created_at` integer NOT NULL,
+	`expires_at` integer NOT NULL,
+	`state_changed_at` integer NOT NULL,
+	`issued_by` text NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `invite_email` ON `invite` (`email`);--> statement-breakpoint
+CREATE UNIQUE INDEX `invite_token_hash` ON `invite` (`token_hash`);--> statement-breakpoint
+CREATE TABLE `onboarding_grant` (
+	`onboarding_grant_id` text PRIMARY KEY NOT NULL,
+	`invite_id` text NOT NULL,
+	`email` text NOT NULL,
+	`token_hash` text NOT NULL,
+	`expires_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `onboarding_grant_token_hash` ON `onboarding_grant` (`token_hash`);--> statement-breakpoint
+CREATE TABLE `totp_use` (
+	`user_id` text NOT NULL,
+	`totp_step` integer NOT NULL,
+	`used_for` text NOT NULL,
+	`used_at` integer NOT NULL,
+	PRIMARY KEY(`user_id`, `totp_step`)
+);
+--> statement-breakpoint
 CREATE TABLE `account` (
 	`id` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
@@ -257,66 +321,4 @@ CREATE TABLE `verification` (
 	`updated_at` integer DEFAULT (cast(unixepoch('subsecond') * 1000 as integer)) NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);--> statement-breakpoint
-CREATE TABLE `admin_challenge` (
-	`admin_challenge_id` text PRIMARY KEY NOT NULL,
-	`operator_user_id` text NOT NULL,
-	`session_id` text NOT NULL,
-	`action` text NOT NULL,
-	`target_email` text NOT NULL,
-	`challenge` text NOT NULL,
-	`method` text NOT NULL,
-	`state` text NOT NULL,
-	`expires_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `admin_challenge_operator` ON `admin_challenge` (`operator_user_id`);--> statement-breakpoint
-CREATE TABLE `admin_totp_use` (
-	`operator_user_id` text NOT NULL,
-	`totp_step` integer NOT NULL,
-	`admin_challenge_id` text NOT NULL,
-	`used_at` integer NOT NULL,
-	PRIMARY KEY(`operator_user_id`, `totp_step`)
-);
---> statement-breakpoint
-CREATE TABLE `audit_event` (
-	`audit_event_id` text PRIMARY KEY NOT NULL,
-	`at` integer NOT NULL,
-	`actor` text NOT NULL,
-	`email` text NOT NULL,
-	`address` text NOT NULL,
-	`event` text NOT NULL,
-	`outcome` text NOT NULL,
-	`client_id` text NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `audit_event_at` ON `audit_event` (`at`);--> statement-breakpoint
-CREATE TABLE `auth_attempt` (
-	`attempt_key` text PRIMARY KEY NOT NULL,
-	`failures` integer NOT NULL,
-	`last_failure_at` integer NOT NULL,
-	`next_allowed_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE `invite` (
-	`invite_id` text PRIMARY KEY NOT NULL,
-	`email` text NOT NULL,
-	`token_hash` text NOT NULL,
-	`state` text NOT NULL,
-	`created_at` integer NOT NULL,
-	`expires_at` integer NOT NULL,
-	`state_changed_at` integer NOT NULL,
-	`issued_by` text NOT NULL
-);
---> statement-breakpoint
-CREATE INDEX `invite_email` ON `invite` (`email`);--> statement-breakpoint
-CREATE UNIQUE INDEX `invite_token_hash` ON `invite` (`token_hash`);--> statement-breakpoint
-CREATE TABLE `onboarding_grant` (
-	`onboarding_grant_id` text PRIMARY KEY NOT NULL,
-	`invite_id` text NOT NULL,
-	`email` text NOT NULL,
-	`token_hash` text NOT NULL,
-	`expires_at` integer NOT NULL
-);
---> statement-breakpoint
-CREATE UNIQUE INDEX `onboarding_grant_token_hash` ON `onboarding_grant` (`token_hash`);
+CREATE INDEX `verification_identifier_idx` ON `verification` (`identifier`);

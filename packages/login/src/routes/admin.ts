@@ -9,11 +9,11 @@ import {
 } from "../admin-page";
 import { type AuditEntry, auditRows, auditStatement } from "../audit";
 import type { Auth } from "../auth";
-import { accountKey, addressKey, addressOf, retryAt } from "../backoff";
+import { addressKey, addressOf, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
-import { notFound } from "../http";
+import { json, notFound } from "../http";
 import { sendInvite } from "../mail";
-import { countFailure } from "../second-factor";
+import { reserveOrAudit, settleSuccess } from "../second-factor";
 import {
   type AdminAction,
   type Binding,
@@ -40,9 +40,6 @@ interface OperatorSession {
   readonly operator: Operator;
   readonly sessionId: string;
 }
-
-const json = (status: number, body: unknown): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
 export const operatorSession = async (
   context: AdminContext,
@@ -172,7 +169,7 @@ const AUDIT_EVENT: Readonly<Record<AdminAction, AuditEntry["event"]>> = {
   ResetFactors: "FactorReset",
   SignOutEverywhere: "SignOutEverywhere",
   RotateKeys: "KeysRotated",
-  RevokeKeys: "KeysRotated",
+  RevokeKeys: "KeysRevoked",
 };
 
 const refuse = async (
@@ -219,14 +216,6 @@ export const openAdminChallenge = async (
   const address = addressOf(request);
   const target = checkTarget(context.config, operator, action, targetEmail);
   if (!target.ok) return refuse(context, operator, action, targetEmail, address, target.message);
-  const keys = [addressKey(address), await accountKey(operator.email)];
-  const until = await retryAt(context.db, keys, Date.now());
-  if (until !== null) {
-    return json(429, {
-      message: "Too many failed confirmations. Try again later.",
-      retryAt: new Date(until).toISOString(),
-    });
-  }
   const opened = await openChallenge(
     context.db,
     context.config,
@@ -356,15 +345,21 @@ export const runAdminAction = async (
   const address = addressOf(request);
   const target = checkTarget(context.config, operator, action, targetEmail);
   if (!target.ok) return refuse(context, operator, action, targetEmail, address, target.message);
-  const keys = [addressKey(address), await accountKey(operator.email)];
-  const now = Date.now();
-  const until = await retryAt(context.db, keys, now);
-  if (until !== null) {
+  const personal = userKey(operator.userId);
+  const reservation = await reserveOrAudit(
+    context.db,
+    [addressKey(address), personal],
+    operator.email,
+    operator.email,
+    address,
+  );
+  if (!reservation.allowed) {
     return json(429, {
       message: "Too many failed confirmations. Try again later.",
-      retryAt: new Date(until).toISOString(),
+      retryAt: new Date(reservation.retryAt).toISOString(),
     });
   }
+  const now = Date.now();
   const binding: Binding = {
     operatorUserId: operator.userId,
     sessionId: session.sessionId,
@@ -405,9 +400,9 @@ export const runAdminAction = async (
   };
   await auditStatement(context.db, stepUp, now).run();
   if (!verified) {
-    await countFailure(context.db, keys, operator.email, address);
     return json(403, { message: "The confirmation did not verify. Nothing was changed." });
   }
+  await settleSuccess(context.db, address, personal);
   const outcome = await runAction(context, operator, action, targetEmail, {
     actor: operator.email,
     email: targetEmail,

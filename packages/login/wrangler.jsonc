@@ -50,11 +50,6 @@
       "binding": "LOGIN_AUTH_SECRET",
       "store_id": "00000000000000000000000000000000",
       "secret_name": "LOGIN_AUTH_SECRET"
-    },
-    {
-      "binding": "LOGIN_OIDC_CLIENT_SECRET",
-      "store_id": "00000000000000000000000000000000",
-      "secret_name": "LOGIN_OIDC_CLIENT_SECRET"
     }
   ],
   "env": {
@@ -89,11 +84,6 @@
           "binding": "LOGIN_AUTH_SECRET",
           "store_id": "00000000000000000000000000000000",
           "secret_name": "LOGIN_AUTH_SECRET"
-        },
-        {
-          "binding": "LOGIN_OIDC_CLIENT_SECRET",
-          "store_id": "00000000000000000000000000000000",
-          "secret_name": "LOGIN_OIDC_CLIENT_SECRET"
         }
       ]
     }

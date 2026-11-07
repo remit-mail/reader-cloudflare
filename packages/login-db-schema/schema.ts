@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -39,9 +40,10 @@ export const onboardingGrants = sqliteTable(
 
 export const authAttempts = sqliteTable("auth_attempt", {
   attemptKey: text("attempt_key").primaryKey(),
-  failures: integer("failures").notNull(),
-  lastFailureAt: integer("last_failure_at", { mode: "number" }).notNull(),
+  attempts: integer("attempts").notNull(),
+  lastAttemptAt: integer("last_attempt_at", { mode: "number" }).notNull(),
   nextAllowedAt: integer("next_allowed_at", { mode: "number" }).notNull(),
+  lastAttemptId: text("last_attempt_id").notNull(),
 });
 
 export const adminChallenges = sqliteTable(
@@ -67,20 +69,21 @@ export const adminChallenges = sqliteTable(
     state: text("state").$type<"Open" | "Used" | "Expired">().notNull(),
     expiresAt: integer("expires_at", { mode: "number" }).notNull(),
   },
-  (table) => [index("admin_challenge_operator").on(table.operatorUserId)],
+  (table) => [
+    uniqueIndex("admin_challenge_one_open").on(table.operatorUserId).where(sql`state = 'Open'`),
+    index("admin_challenge_operator").on(table.operatorUserId),
+  ],
 );
 
-export const adminTotpUses = sqliteTable(
-  "admin_totp_use",
+export const totpUses = sqliteTable(
+  "totp_use",
   {
-    operatorUserId: text("operator_user_id").notNull(),
+    userId: text("user_id").notNull(),
     totpStep: integer("totp_step", { mode: "number" }).notNull(),
-    adminChallengeId: text("admin_challenge_id").notNull(),
+    usedFor: text("used_for").notNull(),
     usedAt: integer("used_at", { mode: "number" }).notNull(),
   },
-  (table) => [
-    primaryKey({ name: "admin_totp_use_pk", columns: [table.operatorUserId, table.totpStep] }),
-  ],
+  (table) => [primaryKey({ name: "totp_use_pk", columns: [table.userId, table.totpStep] })],
 );
 
 export const auditEvents = sqliteTable(
@@ -103,6 +106,7 @@ export const auditEvents = sqliteTable(
         | "PasswordChanged"
         | "FactorAdded"
         | "FactorRemoved"
+        | "FactorRenamed"
         | "BackupCodesRegenerated"
         | "SignOut"
         | "SignOutEverywhere"
@@ -112,6 +116,7 @@ export const auditEvents = sqliteTable(
         | "Disabled"
         | "Enabled"
         | "KeysRotated"
+        | "KeysRevoked"
       >()
       .notNull(),
     outcome: text("outcome").$type<"Succeeded" | "Refused">().notNull(),

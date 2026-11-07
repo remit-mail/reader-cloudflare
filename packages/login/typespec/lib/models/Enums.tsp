@@ -39,6 +39,7 @@ enum AuditEventKind {
   PasswordChanged: "PasswordChanged",
   FactorAdded: "FactorAdded",
   FactorRemoved: "FactorRemoved",
+  FactorRenamed: "FactorRenamed",
   BackupCodesRegenerated: "BackupCodesRegenerated",
   SignOut: "SignOut",
   SignOutEverywhere: "SignOutEverywhere",
@@ -48,6 +49,7 @@ enum AuditEventKind {
   Disabled: "Disabled",
   Enabled: "Enabled",
   KeysRotated: "KeysRotated",
+  KeysRevoked: "KeysRevoked",
 }
 
 enum AuditOutcome {

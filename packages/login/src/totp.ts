@@ -28,15 +28,31 @@ export const totpMatchesStep = async (
   return sameHash(expected, code);
 };
 
-export const totpMatchesNow = async (
+export const totpStepMatchingNow = async (
   key: SecretKey,
   encryptedSecret: string,
   code: string,
   now: number,
-): Promise<boolean> => {
+): Promise<number | null> => {
   const step = currentTotpStep(now);
-  for (const candidate of [step - 1, step, step + 1]) {
-    if (await totpMatchesStep(key, encryptedSecret, code, candidate)) return true;
+  for (const candidate of [step, step - 1, step + 1]) {
+    if (await totpMatchesStep(key, encryptedSecret, code, candidate)) return candidate;
   }
-  return false;
+  return null;
+};
+
+export const recordTotpStep = async (
+  db: D1Database,
+  userId: string,
+  step: number,
+  usedFor: string,
+  now: number,
+): Promise<boolean> => {
+  const recorded = await db
+    .prepare(
+      "INSERT OR IGNORE INTO totp_use (user_id, totp_step, used_for, used_at) VALUES (?, ?, ?, ?) RETURNING totp_step",
+    )
+    .bind(userId, step, usedFor, now)
+    .first();
+  return recorded !== null;
 };

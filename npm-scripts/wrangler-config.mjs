@@ -163,11 +163,6 @@ export const renderLoginWrangler = (base, outputs, config, stage) => {
         store_id: outputs.secrets_store_id,
         secret_name: loginAuthSecretName(stage),
       },
-      {
-        binding: "LOGIN_OIDC_CLIENT_SECRET",
-        store_id: outputs.secrets_store_id,
-        secret_name: outputs.login_oidc_secret_name,
-      },
     ],
   };
 };

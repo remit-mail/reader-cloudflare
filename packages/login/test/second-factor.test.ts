@@ -1,0 +1,78 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  addPasskeyRow,
+  auth,
+  call,
+  cookiesOf,
+  createUser,
+  mockPwnedPasswords,
+  PASSWORD,
+  sent,
+  testEnv,
+  uniqueEmail,
+} from "./helpers";
+
+const sessionCount = async (userId: string): Promise<number> => {
+  const row = await testEnv.DB.prepare("SELECT COUNT(*) AS count FROM session WHERE user_id = ?")
+    .bind(userId)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+};
+
+const passkeyUser = async () => {
+  const email = uniqueEmail("passkey");
+  const user = await createUser(email, { password: PASSWORD });
+  await addPasskeyRow(user.id, `cred-${crypto.randomUUID()}`);
+  return { email, user };
+};
+
+const expectSecondStep = async (email: string, password: string, userId: string) => {
+  const answer = await call("/api/auth/sign-in/email", { body: { email, password } });
+  expect(answer.status).toBe(200);
+  expect(await answer.json()).toEqual({ secondStep: ["passkey"] });
+  expect(cookiesOf(answer)).not.toContain("session_token");
+  expect(await sessionCount(userId)).toBe(0);
+  return answer;
+};
+
+describe("password path second step", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("creates no session from a correct password for a passkey user", async () => {
+    const { email, user } = await passkeyUser();
+    await expectSecondStep(email, PASSWORD, user.id);
+  });
+
+  it("refuses a passkey assertion of another account on the second step", async () => {
+    const { email, user } = await passkeyUser();
+    const other = await createUser(uniqueEmail("other"));
+    const otherCredential = `cred-${crypto.randomUUID()}`;
+    await addPasskeyRow(other.id, otherCredential);
+    const pending = await expectSecondStep(email, PASSWORD, user.id);
+    const answer = await call("/api/auth/passkey/verify-authentication", {
+      cookie: cookiesOf(pending),
+      body: {
+        response: { id: otherCredential, rawId: otherCredential, type: "public-key", response: {} },
+      },
+    });
+    expect(answer.status).toBe(403);
+    expect(await sessionCount(other.id)).toBe(0);
+  });
+
+  it("still asks for the passkey after a reset by email code", async () => {
+    mockPwnedPasswords([]);
+    const { email, user } = await passkeyUser();
+    await (await auth()).api.sendVerificationOTP({ body: { email, type: "forget-password" } });
+    const mail = sent.findLast((message) => message.to === email);
+    const code = mail?.text.match(/\b(\d{8})\b/)?.[1];
+    expect(code).toBeDefined();
+    const fresh = "a brand new long password";
+    const reset = await call("/api/auth/email-otp/reset-password", {
+      body: { email, otp: code, password: fresh },
+    });
+    expect(reset.status).toBe(200);
+    await expectSecondStep(email, fresh, user.id);
+  });
+});

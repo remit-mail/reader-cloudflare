@@ -173,6 +173,19 @@ export const AppSetup = ({ onDone }: { onDone: (backupCodes: string[]) => void }
 
 export const WelcomeSecondStep = () => {
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+
+  const confirm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const password = new FormData(event.currentTarget).get("password");
+    const answer = await post("/app/security/confirm", { password });
+    if (!answer.ok) {
+      setError(answer.message);
+      return;
+    }
+    setError(null);
+    setConfirmed(true);
+  };
 
   const passkey = async () => {
     const answer = await addPasskey();
@@ -183,26 +196,51 @@ export const WelcomeSecondStep = () => {
     await finish({ ok: true, status: 200, body: {} });
   };
 
+  const skip = (
+    <button
+      type="button"
+      className="button"
+      onClick={() => finish({ ok: true, status: 200, body: {} })}
+    >
+      Skip for now
+    </button>
+  );
+
+  if (!confirmed) {
+    return (
+      <Page title="Add a second step">
+        <Failure message={error} />
+        <p>
+          A passkey or an authenticator app protects your account if your password leaks. Once
+          added, every password sign-in asks for it. Enter your password again to add one.
+        </p>
+        <form onSubmit={confirm}>
+          <Field
+            id="password"
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
+          <button type="submit" className="button primary">
+            Continue
+          </button>
+        </form>
+        {skip}
+      </Page>
+    );
+  }
+
   return (
     <Page title="Add a second step">
       <Failure message={error} />
-      <p>
-        A passkey or an authenticator app protects your account if your password leaks. Once added,
-        every password sign-in asks for it.
-      </p>
       {passkeysSupported() ? (
         <button type="button" className="button primary" onClick={passkey}>
           Add a passkey
         </button>
       ) : null}
       <AppSetup onDone={(codes) => navigate("/welcome/backup-codes", { codes })} />
-      <button
-        type="button"
-        className="button"
-        onClick={() => finish({ ok: true, status: 200, body: {} })}
-      >
-        Skip for now
-      </button>
+      {skip}
     </Page>
   );
 };

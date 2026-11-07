@@ -3,7 +3,6 @@ export interface Env {
   readonly DB: D1Database;
   readonly EMAIL: SendEmail;
   readonly LOGIN_AUTH_SECRET: SecretsStoreSecret;
-  readonly LOGIN_OIDC_CLIENT_SECRET: SecretsStoreSecret;
   readonly LOGIN_ORIGIN: string;
   readonly READER_ORIGIN: string;
   readonly LOGIN_OIDC_CLIENT_ID: string;

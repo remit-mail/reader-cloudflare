@@ -1,10 +1,12 @@
 import { type ReactNode, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { FAILURE_EVENT } from "./api";
 import { BackupCodes, Invite, WelcomePassword, WelcomeSecondStep } from "./pages/Invite";
 import { Reset } from "./pages/Reset";
 import { Security } from "./pages/Security";
 import { SecondStep, SignIn } from "./pages/SignIn";
 import { SignOut } from "./pages/SignOut";
+import { Failure } from "./ui";
 
 const PAGES: Readonly<Record<string, () => ReactNode>> = {
   "/sign-in": () => <SignIn />,
@@ -20,13 +22,24 @@ const PAGES: Readonly<Record<string, () => ReactNode>> = {
 
 const App = () => {
   const [path, setPath] = useState(window.location.pathname);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    const show = (event: Event) => setFailure(String((event as CustomEvent<unknown>).detail));
+    window.addEventListener(FAILURE_EVENT, show);
+    return () => window.removeEventListener(FAILURE_EVENT, show);
+  }, []);
   useEffect(() => {
     const update = () => setPath(window.location.pathname);
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
   const page = PAGES[path] ?? PAGES["/sign-in"];
-  return <>{page?.()}</>;
+  return (
+    <>
+      <Failure message={failure} />
+      {page?.()}
+    </>
+  );
 };
 
 const root = document.getElementById("root");
