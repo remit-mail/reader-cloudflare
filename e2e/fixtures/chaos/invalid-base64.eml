@@ -1,0 +1,12 @@
+From: Chaos <chaos@remit.test>
+To: reader@remit.test
+Subject: Chaos: invalid base64
+Date: Mon, 02 Nov 2026 09:01:00 +0000
+Message-ID: <invalid-base64@chaos.remit.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+!!!! this is not base64 at all ****
+@@@@====####%%%%^^^^&&&&
+SGVsbG8=V29ybGQ===!
