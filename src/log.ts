@@ -85,8 +85,12 @@ interface QueueFailure {
 }
 
 export type ConsumeReport =
-  | { readonly outcome: "Acked"; readonly poolWaitMs: number }
-  | ({ readonly outcome: "Retried"; readonly poolWaitMs: number } & QueueFailure);
+  | { readonly outcome: "Acked"; readonly poolWaitMs: number; readonly d1Queries: number }
+  | ({
+      readonly outcome: "Retried";
+      readonly poolWaitMs: number;
+      readonly d1Queries: number;
+    } & QueueFailure);
 
 export type QueueConsume =
   | (QueueConsumeBase & ConsumeReport)
