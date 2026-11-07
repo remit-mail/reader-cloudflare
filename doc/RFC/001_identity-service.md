@@ -175,7 +175,7 @@ sequenceDiagram
 
 The login app registers one client per stage, seeded by the deploy, with the Access callback of that stage as its only redirect URI. Dynamic client registration is off. Consent is skipped for that client. The grant type is authorization code with PKCE, so no refresh token exists. An authorization code lives 60 seconds. ID and access tokens live 15 minutes. Scopes are `openid`, `email` and `profile`.
 
-Access reads the email claim and asserts the subject the login app issues. Reader derives the tenant from that subject.
+Access reads the email claim from the login app's ID token and asserts its own subject for that identity, not the login app's. Reader derives the tenant from the Access subject, so a person whose Access subject changes at cutover gets a new tenant.
 
 The signing keys rotate every 90 days and the old public key stays published for 2 days. An operator can rotate them from the admin page, with a step-up. On a suspected compromise the same action removes every old key and every session, so every device fails renewal within 15 minutes.
 
