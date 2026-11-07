@@ -3,7 +3,7 @@
   "name": "reader-cloudflare-login",
   "main": "src/index.ts",
   "build": {
-    "command": "npm run build"
+    "command": "npm run build --workspace login"
   },
   "assets": {
     "directory": "dist",
@@ -55,7 +55,7 @@
   "env": {
     "e2e": {
       "build": {
-        "command": "npm run build"
+        "command": "npm run build --workspace login"
       },
       "routes": [],
       "vars": {
