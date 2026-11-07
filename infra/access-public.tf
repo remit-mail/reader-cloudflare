@@ -43,7 +43,7 @@ resource "cloudflare_zero_trust_access_application" "public" {
   lifecycle {
     precondition {
       condition     = length(local.public_allowed_idps) > 0 && length(setsubtract(local.public_allowed_idps, local.stage_idps)) == 0
-      error_message = "Access application ${local.name}-public must list allowed_idps, drawn only from the one-time PIN and this stage's login IdP."
+      error_message = "Access application ${local.name}-public must list allowed_idps, limited to this stage's login IdP."
     }
     precondition {
       condition     = length(setintersection(local.public_allowed_idps, local.other_stage_login_idps)) == 0

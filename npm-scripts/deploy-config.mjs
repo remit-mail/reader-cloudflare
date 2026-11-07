@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { r2ObjectText } from "./cf-api.mjs";
 import { CONFIG_DIR, PROJECT } from "./env.mjs";
-import { PROD, STAGES } from "./stages.mjs";
+import { PROD } from "./stages.mjs";
 import { BUILDER_SECRETS_BUCKET } from "./tofu.mjs";
 
 const hostname = z
@@ -35,7 +35,6 @@ export const deployConfigSchema = z
     zone_name: hostname,
     app_hostname: hostname,
     dev_app_hostname: hostname,
-    owner_emails: z.array(z.string().email()).min(1),
     alert_email: z.string().email(),
     login_hostname: hostname,
     dev_login_hostname: hostname,
@@ -155,7 +154,6 @@ export const tofuVars = (config, stage) => {
   return {
     TF_VAR_project: PROJECT,
     TF_VAR_stage: stage,
-    TF_VAR_login_idp: String(STAGES[stage].loginIdp),
     ...Object.fromEntries(
       Object.entries(infra).map(([key, value]) => [
         `TF_VAR_${key}`,
@@ -166,7 +164,6 @@ export const tofuVars = (config, stage) => {
 };
 
 export const configLiterals = ({
-  owner_emails,
   alert_email,
   operator_emails,
   email_sender,
@@ -174,7 +171,7 @@ export const configLiterals = ({
   msoauth,
   ...rest
 }) => {
-  const emails = [...owner_emails, alert_email, ...operator_emails, email_sender, dev_email_sender];
+  const emails = [alert_email, ...operator_emails, email_sender, dev_email_sender];
   return [
     ...new Set([
       ...Object.values(rest),
