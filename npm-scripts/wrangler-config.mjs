@@ -49,8 +49,19 @@ const only = (entries, binding, what) => {
   return entries[0];
 };
 
+export const CAPTURED_MAIL_ENTRYPOINT = "CapturedMailReader";
+
+const capturesLoginMail = (stage) => {
+  const { captureLoginMail } = STAGES[stage];
+  if (captureLoginMail && stage === PROD) {
+    throw new Error("prod sends login mail; captureLoginMail must stay off for prod");
+  }
+  return captureLoginMail;
+};
+
 export const renderWrangler = (base, outputs, config, stage) => {
   const { mailSync } = STAGES[stage];
+  const captureLoginMail = capturesLoginMail(stage);
   const { env: _environments, routes: _routes, ...portable } = base;
   const queueOf = (queue) => {
     const name = outputs.queues[queueFamilyOf(queue)];
@@ -75,7 +86,17 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
       ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
+      ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
     },
+    ...(captureLoginMail && {
+      services: [
+        {
+          binding: "LOGIN_MAIL",
+          service: outputs.login_worker_name,
+          entrypoint: CAPTURED_MAIL_ENTRYPOINT,
+        },
+      ],
+    }),
     d1_databases: [
       { ...database, database_name: outputs.d1_database_name, database_id: outputs.d1_database_id },
     ],
@@ -130,7 +151,8 @@ export const loginAuthSecretName = (stage) =>
   stage === PROD ? "LOGIN_AUTH_SECRET" : `${stage.toUpperCase()}_LOGIN_AUTH_SECRET`;
 
 export const renderLoginWrangler = (base, outputs, config, stage) => {
-  const { env: _environments, routes: _routes, ...portable } = base;
+  const captureLoginMail = capturesLoginMail(stage);
+  const { env: _environments, routes: _routes, send_email: _sendEmail, ...portable } = base;
   const database = only(base.d1_databases, "DB", "D1 database");
   const email = only(
     (base.send_email ?? []).map((binding) => ({ ...binding, binding: binding.name })),
@@ -148,6 +170,7 @@ export const renderLoginWrangler = (base, outputs, config, stage) => {
       LOGIN_OIDC_CLIENT_ID: outputs.login_oidc_client_id,
       EMAIL_SENDER: outputs.email_sender,
       OPERATOR_EMAILS: config.operator_emails.join(","),
+      ...(captureLoginMail && { MAIL_CAPTURE: "on" }),
     },
     d1_databases: [
       {
@@ -156,7 +179,9 @@ export const renderLoginWrangler = (base, outputs, config, stage) => {
         database_id: outputs.login_d1_database_id,
       },
     ],
-    send_email: [{ name: email.name, allowed_sender_addresses: [outputs.email_sender] }],
+    ...(!captureLoginMail && {
+      send_email: [{ name: email.name, allowed_sender_addresses: [outputs.email_sender] }],
+    }),
     secrets_store_secrets: [
       {
         binding: "LOGIN_AUTH_SECRET",

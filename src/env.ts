@@ -1,3 +1,4 @@
+import type { LoginMailReader } from "./login-mail";
 import type { TenantMail } from "./mail/tenant-mail";
 import type { QueueEnvelope } from "./queue/routing";
 
@@ -22,6 +23,8 @@ export interface Env {
   readonly MSOAUTH_CLIENT_ID?: string;
   readonly MSOAUTH_CLIENT_SECRET?: SecretsStoreSecret;
   readonly MSOAUTH_OVERRIDES?: string;
+  readonly LOGIN_MAIL?: LoginMailReader;
+  readonly LOGIN_MAIL_READER?: string;
 }
 
 type WorkerEnv = Env;
