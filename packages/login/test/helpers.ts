@@ -3,6 +3,7 @@ import { createOTP } from "@better-auth/utils/otp";
 import { hashPassword, makeSignature, symmetricEncrypt } from "better-auth/crypto";
 import { vi } from "vitest";
 import { createAuth } from "../src/auth";
+import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
 import type { Env } from "../src/env";
 import worker from "../src/index";
@@ -167,7 +168,7 @@ const background: Promise<unknown>[] = [];
 export const mailDeps = (env: Env = testEnv): MailDeps => ({
   db: env.DB,
   config: configOf(env),
-  email: env.EMAIL,
+  email: mailerOf(env),
   waitUntil: (promise) => {
     background.push(promise);
   },
