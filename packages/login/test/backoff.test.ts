@@ -103,6 +103,20 @@ describe("backoff", () => {
     expect(await takeResetQuota(testEnv.DB, randomAddress(), victim, now)).toBe(true);
   });
 
+  it("counts every /64 of one /48 as one address for reset requests", async () => {
+    const victim = uniqueEmail("reset-v6");
+    const site = `2001:db8:${Math.floor(Math.random() * 0xffff).toString(16)}`;
+    const now = Date.now();
+    const answers: boolean[] = [];
+    for (let subnet = 1; subnet <= 8; subnet += 1) {
+      answers.push(
+        await takeResetQuota(testEnv.DB, `${site}:${subnet.toString(16)}::1`, victim, now),
+      );
+    }
+    expect(answers.filter(Boolean).length).toBe(5);
+    expect(await takeResetQuota(testEnv.DB, randomAddress(), victim, now)).toBe(true);
+  });
+
   it("runs the cron cleanup against the migrated schema", async () => {
     const old = Date.now() - 100 * 24 * 60 * 60_000;
     await testEnv.DB.batch([

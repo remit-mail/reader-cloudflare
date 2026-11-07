@@ -23,19 +23,24 @@ export const addressOf = (request: { headers: Headers }): string => {
   return address;
 };
 
-const addressPrefix = (address: string): string => {
-  if (!address.includes(":")) return address;
+const ipv6Prefix = (address: string, groups: number): string => {
   const [head = "", tail = ""] = address.split("::");
   const left = head === "" ? [] : head.split(":");
   const right = tail === "" ? [] : tail.split(":");
-  const groups = address.includes("::")
+  const expanded = address.includes("::")
     ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
     : left;
-  return `${groups
-    .slice(0, 4)
+  return `${expanded
+    .slice(0, groups)
     .map((group) => group.toLowerCase().replace(/^0+(?=.)/, ""))
-    .join(":")}::/64`;
+    .join(":")}::/${groups * 16}`;
 };
+
+const addressPrefix = (address: string): string =>
+  address.includes(":") ? ipv6Prefix(address, 4) : address;
+
+const resetAddressPrefix = (address: string): string =>
+  address.includes(":") ? ipv6Prefix(address, 3) : address;
 
 export const addressKey = (address: string): AttemptKey => ({
   key: `address:${addressPrefix(address)}`,
@@ -49,7 +54,7 @@ export const accountKey = async (email: string): Promise<AttemptKey> => ({
 
 export const userKey = (userId: string): AttemptKey => ({
   key: `user:${userId}`,
-  curve: ACCOUNT_CURVE,
+  curve: ADDRESS_CURVE,
 });
 
 const RESERVE = `INSERT INTO auth_attempt (attempt_key, attempts, last_attempt_at, next_allowed_at, last_attempt_id)
@@ -170,7 +175,7 @@ export const takeResetQuota = async (
   email: string,
   now: number,
 ): Promise<boolean> => {
-  if (!(await takeQuota(db, `reset:${addressKey(address).key}`, ADDRESS_QUOTA, now))) {
+  if (!(await takeQuota(db, `reset:address:${resetAddressPrefix(address)}`, ADDRESS_QUOTA, now))) {
     return false;
   }
   return takeQuota(db, `reset:${(await accountKey(email)).key}`, ACCOUNT_QUOTA, now);

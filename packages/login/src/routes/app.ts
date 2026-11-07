@@ -331,7 +331,12 @@ export const appEndpoints = (deps: AuthDeps) => {
                 body.totpCode,
                 now,
               );
-              return step !== null && recordTotpStep(db, user.id, step, "SecurityConfirm", now);
+              if (step === null) return false;
+              if (await recordTotpStep(db, user.id, step, "SecurityConfirm", now)) return true;
+              throw new APIError("UNAUTHORIZED", {
+                message: "That code was already used. Wait for the next one.",
+                code: "TOTP_STEP_USED",
+              });
             }
             if (!hasPasskey || !isAssertion(body.passkey)) return false;
             const cookie = ctx.context.createAuthCookie(PASSKEY_CHALLENGE_COOKIE);

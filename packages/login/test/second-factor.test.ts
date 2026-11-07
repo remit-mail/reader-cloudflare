@@ -80,24 +80,30 @@ describe("password path second step", () => {
 
   it("spends a sign-in app code so it cannot confirm a security change", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const step = 60_000_000 + Math.floor(Math.random() * 1_000_000);
-    vi.setSystemTime(step * 30_000 + 10_000);
-    const email = uniqueEmail("app");
-    const user = await createUser(email, { totp: true, password: PASSWORD });
-    const first = await call("/api/auth/sign-in/email", { body: { email, password: PASSWORD } });
-    expect(((await first.json()) as { twoFactorRedirect?: boolean }).twoFactorRedirect).toBe(true);
-    const code = await totpCode(step);
-    const verified = await call("/api/auth/two-factor/verify-totp", {
-      cookie: cookiesOf(first),
-      body: { code },
-    });
-    expect(verified.status).toBe(200);
-    const session = await signIn(user.id);
-    const replay = await call("/app/security/confirm", {
-      cookie: session.cookie,
-      body: { totpCode: code },
-    });
-    expect(replay.status).toBe(401);
-    vi.useRealTimers();
+    try {
+      const step = 60_000_000 + Math.floor(Math.random() * 1_000_000);
+      vi.setSystemTime(step * 30_000 + 10_000);
+      const email = uniqueEmail("app");
+      const user = await createUser(email, { totp: true, password: PASSWORD });
+      const first = await call("/api/auth/sign-in/email", { body: { email, password: PASSWORD } });
+      expect(((await first.json()) as { twoFactorRedirect?: boolean }).twoFactorRedirect).toBe(
+        true,
+      );
+      const code = await totpCode(step);
+      const verified = await call("/api/auth/two-factor/verify-totp", {
+        cookie: cookiesOf(first),
+        body: { code },
+      });
+      expect(verified.status).toBe(200);
+      const session = await signIn(user.id);
+      const replay = await call("/app/security/confirm", {
+        cookie: session.cookie,
+        body: { totpCode: code },
+      });
+      expect(replay.status).toBe(401);
+      expect(((await replay.json()) as { code?: string }).code).toBe("TOTP_STEP_USED");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
