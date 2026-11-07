@@ -102,7 +102,7 @@ resource "cloudflare_email_sending_subdomain" "login" {
 import {
   for_each = var.login_idp ? toset([var.account_id]) : toset([])
   to       = cloudflare_zero_trust_organization.this[0]
-  id       = "accounts/${each.value}"
+  id       = each.value
 }
 
 resource "cloudflare_zero_trust_organization" "this" {
