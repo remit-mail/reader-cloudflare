@@ -16,8 +16,13 @@ import {
 } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
+import {
+  type BodyReadMiss,
+  type BodyReadMissInput,
+  resolveBodyReadMiss,
+} from "@remit/mailbox-service";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
-import type { ParsedContentStorageKey, StorageService } from "@remit/storage-service";
+import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
@@ -32,7 +37,6 @@ import { type ConsumeReport, log, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
-import { type BodyReadMiss, bodyReadMiss } from "./body-read-miss";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
@@ -231,8 +235,8 @@ export class TenantMail extends DurableObject<Env> {
     );
   }
 
-  async bodyReadMiss(tenantId: string, part: ParsedContentStorageKey): Promise<BodyReadMiss> {
-    return bodyReadMiss(this.compose(tenantId).client, part);
+  async bodyReadMiss(tenantId: string, input: BodyReadMissInput): Promise<BodyReadMiss> {
+    return resolveBodyReadMiss(this.compose(tenantId).client, input);
   }
 
   async schedulerTick(
