@@ -4,6 +4,7 @@ import { API_BODY_MAX_BYTES, RATE_LIMIT_PERIOD_SECONDS } from "./api/host-limits
 import { API_ROOT, CALENDAR_FEED_ROOT, MICROSOFT_OAUTH_CALLBACK } from "./api/paths";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
+import { d1Queries, withD1Meter } from "./db/client";
 import type { Env } from "./env";
 import { errorKindOf, messageOf } from "./error-kind";
 import {
@@ -78,6 +79,7 @@ const consumeEnveloped = async (
       durationMs: 0,
       outcome: "Retried",
       poolWaitMs: 0,
+      d1Queries: 0,
       errorKind: "validation",
       error: parsed.reason,
     });
@@ -247,25 +249,28 @@ const tagged = (response: Response, correlationId: string): Response => {
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     const correlationId = correlationIdOf(request);
-    return withLogContext({ correlationId }, async () => {
-      const url = new URL(request.url);
-      const path = loggedPath(url.pathname);
-      annotateLog({ route: await routeOf(request.method, url) });
-      log.info("request", { method: request.method, path });
-      const started = Date.now();
-      const response = await Promise.resolve()
-        .then(() => route(request, env, url))
-        .catch(failed(request.method, path));
-      log.info("response", {
-        event: "http.response",
-        method: request.method,
-        path,
-        status: response.status,
-        statusClass: statusClassOf(response.status),
-        durationMs: Date.now() - started,
-      });
-      return tagged(response, correlationId);
-    });
+    return withLogContext({ correlationId }, () =>
+      withD1Meter(async () => {
+        const url = new URL(request.url);
+        const path = loggedPath(url.pathname);
+        annotateLog({ route: await routeOf(request.method, url) });
+        log.info("request", { method: request.method, path });
+        const started = Date.now();
+        const response = await Promise.resolve()
+          .then(() => route(request, env, url))
+          .catch(failed(request.method, path));
+        log.info("response", {
+          event: "http.response",
+          method: request.method,
+          path,
+          status: response.status,
+          statusClass: statusClassOf(response.status),
+          durationMs: Date.now() - started,
+          d1Queries: d1Queries(),
+        });
+        return tagged(response, correlationId);
+      }),
+    );
   },
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {

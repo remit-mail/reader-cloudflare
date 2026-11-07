@@ -24,11 +24,11 @@ import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
-import { openAppStore } from "../db/client";
+import { d1Queries, openAppStore, withD1Meter } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
-import { type ConsumeReport, withLogContext } from "../log";
+import { type ConsumeReport, log, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
@@ -141,6 +141,19 @@ const consumeSmtp = (
   }
 };
 
+const served = (serve: () => Promise<Response>): Promise<Response> =>
+  withD1Meter(async () => {
+    const started = Date.now();
+    const response = await serve();
+    log.info("tenant api served", {
+      event: "tenant.api",
+      status: response.status,
+      durationMs: Date.now() - started,
+      d1Queries: d1Queries(),
+    });
+    return response;
+  });
+
 export class TenantMail extends DurableObject<Env> {
   private readonly mail: SqliteRepositories;
   private readonly stores: SqliteStores;
@@ -163,10 +176,12 @@ export class TenantMail extends DurableObject<Env> {
   }
 
   async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
-    return withLogContext({ correlationId, tenantId: identity.sub }, async () => {
-      await this.bootstrap(identity.sub);
-      return serveRequest(request, identity, this.compose(identity.sub).client, correlationId);
-    });
+    return withLogContext({ correlationId, tenantId: identity.sub }, () =>
+      served(async () => {
+        await this.bootstrap(identity.sub);
+        return serveRequest(request, identity, this.compose(identity.sub).client, correlationId);
+      }),
+    );
   }
 
   // A tenant comes into being on its first signed-in request: its data key and
@@ -183,7 +198,7 @@ export class TenantMail extends DurableObject<Env> {
 
   async publicApi(request: Request, tenantId: string, correlationId: string): Promise<Response> {
     return withLogContext({ correlationId, tenantId }, () =>
-      serveRequest(request, ANONYMOUS, this.compose(tenantId).client, correlationId),
+      served(() => serveRequest(request, ANONYMOUS, this.compose(tenantId).client, correlationId)),
     );
   }
 
@@ -196,14 +211,21 @@ export class TenantMail extends DurableObject<Env> {
     const meter = { waitedMs: 0 };
     const fields = { correlationId, tenantId, family, attempt: attempts, ...accountOf(event) };
     return withLogContext(fields, () =>
-      metered(meter, () => this.dispatch(family, event, tenantId, attempts)).then(
-        (): ConsumeReport => ({ outcome: "Acked", poolWaitMs: meter.waitedMs }),
-        (error: unknown): ConsumeReport => ({
-          outcome: "Retried",
-          poolWaitMs: meter.waitedMs,
-          errorKind: errorKindOf(error),
-          error: messageOf(error),
-        }),
+      withD1Meter(() =>
+        metered(meter, () => this.dispatch(family, event, tenantId, attempts)).then(
+          (): ConsumeReport => ({
+            outcome: "Acked",
+            poolWaitMs: meter.waitedMs,
+            d1Queries: d1Queries(),
+          }),
+          (error: unknown): ConsumeReport => ({
+            outcome: "Retried",
+            poolWaitMs: meter.waitedMs,
+            d1Queries: d1Queries(),
+            errorKind: errorKindOf(error),
+            error: messageOf(error),
+          }),
+        ),
       ),
     );
   }
