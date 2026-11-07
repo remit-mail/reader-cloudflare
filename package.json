@@ -73,7 +73,7 @@
     "@remit/drizzle-service": "2.0.2",
     "@remit/drizzle-sqlite-schema": "0.0.42",
     "@remit/imap-worker": "2.0.3",
-    "@remit/logger": "0.0.2",
+    "@remit/logger": "0.1.0",
     "@remit/mail-oauth-service": "0.0.13",
     "@remit/mailbox-service": "2.0.2",
     "@remit/secrets-service": "0.0.11",
