@@ -1,0 +1,10 @@
+From: Chaos <chaos@remit.test>
+To: reader@remit.test
+Subject: Chaos: header without colon
+Date: Mon, 02 Nov 2026 09:03:00 +0000
+Message-ID: <header-without-colon@chaos.remit.test>
+X-Broken this header line has no colon
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+The header block above holds a line with no colon.

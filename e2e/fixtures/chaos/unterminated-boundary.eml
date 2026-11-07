@@ -1,0 +1,18 @@
+From: Chaos <chaos@remit.test>
+To: reader@remit.test
+Subject: Chaos: unterminated boundary
+Date: Mon, 02 Nov 2026 09:00:00 +0000
+Message-ID: <unterminated-boundary@chaos.remit.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="chaos-open"
+
+--chaos-open
+Content-Type: text/plain; charset=utf-8
+
+The first part opens and never closes.
+--chaos-open
+Content-Type: application/octet-stream; name="cut.bin"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="cut.bin"
+
+VGhpcyBhdHRhY2htZW50IGlzIGN1dCBvZm

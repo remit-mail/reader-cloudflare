@@ -293,6 +293,7 @@ const main = async () => {
         join(e2eDir, "playwright.config.ts"),
         "--workers",
         "1",
+        ...process.argv.slice(2),
       ]),
       { env },
     );
