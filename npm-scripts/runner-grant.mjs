@@ -1,4 +1,5 @@
-const API = "https://api.cloudflare.com/client/v4";
+import { cfApi } from "./cf-api.mjs";
+
 const SCOPES = {
   account: "com.cloudflare.api.account",
   zone: "com.cloudflare.api.account.zone",
@@ -16,29 +17,14 @@ const fail = (message) => {
 };
 
 export const grantRunner = async (token, accountId, zoneName) => {
-  const call = async (method, path, body) => {
-    const response = await fetch(`${API}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const json = await response.json().catch(() => ({ success: false, errors: [] }));
-    if (response.ok && json.success) return { ok: true, result: json.result };
-    const errors = (json.errors ?? []).map((e) => `${e.code} ${e.message}`).join("; ");
-    return { ok: false, message: `${method} ${path} returned ${response.status}: ${errors}` };
-  };
-  const must = async (method, path, body) => {
-    const response = await call(method, path, body);
-    if (!response.ok) fail(response.message);
-    return response.result;
-  };
+  const api = (method, path, body) => cfApi(token, method, path, body);
 
   const accountBase = `/accounts/${accountId}/tokens`;
-  const accountVerify = await call("GET", `${accountBase}/verify`);
-  const base = accountVerify.ok ? accountBase : "/user/tokens";
-  const { id } = accountVerify.ok ? accountVerify.result : await must("GET", `${base}/verify`);
+  const accountVerify = await api("GET", `${accountBase}/verify`).catch(() => undefined);
+  const base = accountVerify ? accountBase : "/user/tokens";
+  const { id } = accountVerify ?? (await api("GET", `${base}/verify`));
 
-  const groups = await must("GET", `${base}/permission_groups`);
+  const groups = await api("GET", `${base}/permission_groups`);
   const groupOf = ({ name, scope }) =>
     groups.find(
       (group) => group.name === name && (!group.scopes || group.scopes.includes(SCOPES[scope])),
@@ -51,7 +37,7 @@ export const grantRunner = async (token, accountId, zoneName) => {
         .filter((policy) => policy.effect === "allow")
         .flatMap((policy) => policy.permission_groups.map((group) => group.id)),
     );
-  const runner = await must("GET", `${base}/${id}`);
+  const runner = await api("GET", `${base}/${id}`);
   const held = heldBy(runner);
   const missing = RUNNER_GROUPS.map((wanted) => ({ ...wanted, group: groupOf(wanted) })).filter(
     ({ group }) => !held.has(group.id),
@@ -59,7 +45,7 @@ export const grantRunner = async (token, accountId, zoneName) => {
   if (missing.length === 0) return;
 
   const zoneResource = async () => {
-    const zones = await must(
+    const zones = await api(
       "GET",
       `/zones?name=${encodeURIComponent(zoneName)}&account.id=${accountId}`,
     );
@@ -71,7 +57,7 @@ export const grantRunner = async (token, accountId, zoneName) => {
     zone: missing.some(({ scope }) => scope === "zone") ? await zoneResource() : undefined,
   };
 
-  await must("PUT", `${base}/${id}`, {
+  await api("PUT", `${base}/${id}`, {
     name: runner.name,
     status: runner.status,
     policies: [
@@ -91,7 +77,7 @@ export const grantRunner = async (token, accountId, zoneName) => {
     ...(runner.expires_on && { expires_on: runner.expires_on }),
   });
 
-  const after = heldBy(await must("GET", `${base}/${id}`));
+  const after = heldBy(await api("GET", `${base}/${id}`));
   if (!after.has(tokensWrite.id))
     fail(`${TOKENS_WRITE} is gone from ${runner.name} after the update`);
   const absent = missing.filter(({ group }) => !after.has(group.id)).map(({ name }) => name);

@@ -2,10 +2,14 @@ import { createHash } from "node:crypto";
 
 const API = "https://api.cloudflare.com/client/v4";
 
-export const cfApi = async (token, method, path) => {
+export const cfApi = async (token, method, path, body) => {
   const response = await fetch(`${API}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}` },
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = await response.json().catch(() => ({ success: false, errors: [] }));
   if (response.ok && json.success) return json.result;
