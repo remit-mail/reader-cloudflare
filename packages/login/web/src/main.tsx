@@ -1,11 +1,13 @@
 import { type ReactNode, StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { FAILURE_EVENT } from "./api";
+import "./styles/app.css";
 import { BackupCodes, Invite, WelcomePassword, WelcomeSecondStep } from "./pages/Invite";
 import { Reset } from "./pages/Reset";
 import { Security } from "./pages/Security";
 import { SecondStep, SignIn } from "./pages/SignIn";
 import { SignOut } from "./pages/SignOut";
+import { followColorScheme } from "./scheme";
 import { Failure } from "./ui";
 
 const PAGES: Readonly<Record<string, () => ReactNode>> = {
@@ -41,6 +43,8 @@ const App = () => {
     </>
   );
 };
+
+followColorScheme();
 
 const root = document.getElementById("root");
 if (root) {

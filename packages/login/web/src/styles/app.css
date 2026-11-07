@@ -1,0 +1,8 @@
+@import "@remit/ui/tokens.css";
+
+@source "../**/*.{ts,tsx}";
+@source not "../**/*.stories.tsx";
+
+body {
+  @apply bg-canvas font-sans text-fg antialiased;
+}

@@ -2,6 +2,7 @@ import {
   type PublicKeyCredentialRequestOptionsJSON,
   startAuthentication,
 } from "@simplewebauthn/browser";
+import { followColorScheme } from "./scheme";
 
 const FLASH_KEY = "login-admin-flash";
 
@@ -112,6 +113,8 @@ const runAction = async (form: HTMLFormElement): Promise<void> => {
   });
   window.location.reload();
 };
+
+followColorScheme();
 
 document.addEventListener("DOMContentLoaded", () => {
   recall();

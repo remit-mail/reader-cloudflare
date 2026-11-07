@@ -8,3 +8,4 @@ src/commit.ts
 e2e/.reader/
 wrangler.deploy.jsonc
 deploy.config.json
+storybook-static/
