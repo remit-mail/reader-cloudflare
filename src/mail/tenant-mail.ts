@@ -8,12 +8,7 @@ import {
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
-import {
-  composeSqliteRepositories,
-  type SqliteRepositories,
-  type SqliteStores,
-  syncStore,
-} from "@remit/drizzle-service";
+import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
 import {
@@ -38,6 +33,7 @@ import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
+import { MemoryMailboxLock, type TenantRepositories } from "./memory-mailbox-lock";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
 import { schedulerTick } from "./scheduler-tick";
@@ -160,7 +156,7 @@ const served = (serve: () => Promise<Response>): Promise<Response> =>
   });
 
 export class TenantMail extends DurableObject<Env> {
-  private readonly mail: SqliteRepositories;
+  private readonly mail: TenantRepositories;
   private readonly stores: SqliteStores;
   private readonly storage: StorageService;
   private readonly pool: ConnectionPool;
@@ -175,7 +171,10 @@ export class TenantMail extends DurableObject<Env> {
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
     this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
     this.storage = r2Storage(env.MAIL, env.PUBLIC_ORIGIN);
-    this.mail = composeSqliteRepositories(this.stores, { storage: this.storage });
+    this.mail = {
+      ...composeSqliteRepositories(this.stores, { storage: this.storage }),
+      mailboxLock: new MemoryMailboxLock(),
+    };
     this.pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap);
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }

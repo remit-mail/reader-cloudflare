@@ -1,6 +1,5 @@
 import type { RemitClient } from "@remit/backend/client";
 import type { RemitClientCore } from "@remit/backend/create-remit-client";
-import type { SqliteRepositories } from "@remit/drizzle-service";
 import {
   type AccountObjectStore,
   type ConnectionPool,
@@ -29,6 +28,7 @@ import type { Env } from "../env";
 import { log } from "../log";
 import { queueProducer } from "../queue/producer";
 import { attemptsOn } from "../queue/routing";
+import type { TenantRepositories } from "./memory-mailbox-lock";
 import { workersSmtpSocket } from "./smtp-connect";
 
 const mutationAttempts = attemptsOn("mutation");
@@ -93,7 +93,7 @@ export const processContext = (
   accountObjects: r2AccountObjects(env.MAIL),
 });
 
-const smtpPorts = (mail: SqliteRepositories): SmtpDataPorts => ({
+const smtpPorts = (mail: TenantRepositories): SmtpDataPorts => ({
   account: mail.account,
   outboxMessage: mail.outboxMessage,
   outboxSchedulingPart: mail.outboxSchedulingPart,
@@ -109,7 +109,7 @@ const recordSmtpFailure: SendMessageContext["recordSmtpFailure"] = (kind) =>
 export const sendContext = (
   env: Env,
   tenantId: string,
-  mail: SqliteRepositories,
+  mail: TenantRepositories,
   client: Pick<RemitClientCore, "secrets" | "storage">,
 ): SendMessageContext => ({
   ports: smtpPorts(mail),
