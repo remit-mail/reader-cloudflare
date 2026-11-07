@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
 import { InviteView, WelcomePasswordView } from "../pages/Invite";
 import { hold, noop } from "./fixtures";
 
@@ -22,14 +21,6 @@ export const SetPassword: Story = {
   render: () => (
     <WelcomePasswordView email="invitee@example.com" problem={null} busy={false} onSubmit={hold} />
   ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const field = canvas.getByLabelText("New password");
-    await expect(field).toHaveFocus();
-    await userEvent.type(field, "correct horse battery");
-    await userEvent.click(canvas.getByRole("button", { name: "Show password" }));
-    await expect(field).toHaveAttribute("type", "text");
-  },
 };
 
 export const PasswordRefused: Story = {

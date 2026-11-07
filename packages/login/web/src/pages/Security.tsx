@@ -1,4 +1,4 @@
-import { AuthCard, Button, ButtonLink, Card, Dialog } from "@remit/ui";
+import { Button, ButtonLink, Card, Dialog } from "@remit/ui";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 import { type Answer, get, post } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
@@ -305,109 +305,95 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
 export const SecurityView = (props: SecurityViewProps) => {
   const { account, passkeys, notice, failure, onOpen } = props;
   return (
-    <AuthCard className="justify-start">
-      <div className="flex flex-col gap-6">
-        <header className="flex flex-col gap-1">
-          <p className="text-lg font-semibold text-fg">remit</p>
-          <h1 className="text-xl font-semibold text-fg">Security</h1>
-          <Muted>Signed in as {account.email}</Muted>
-        </header>
-        {notice ? <Notice tone="success" title={notice} /> : null}
-        {failure ? (
-          <Notice
-            tone="danger"
-            title={failure.title}
-            report={`${failure.title}: ${failure.message}`}
-          >
-            {failure.message}
-          </Notice>
-        ) : null}
+    <Page title="Security" wide>
+      <Muted>Signed in as {account.email}</Muted>
+      {notice ? <Notice tone="success" title={notice} /> : null}
+      {failure ? (
+        <Notice tone="danger" title={failure.title} report={`${failure.title}: ${failure.message}`}>
+          {failure.message}
+        </Notice>
+      ) : null}
 
-        <Section title="Password">
+      <Section title="Password">
+        <Row
+          title="Password"
+          action={
+            <Action onClick={() => onOpen({ kind: "change-password" })}>Change password</Action>
+          }
+        />
+      </Section>
+
+      <Section title="Passkeys">
+        {account.passkeys.map((passkey) => (
           <Row
-            title="Password"
+            key={passkey.id}
+            title={passkey.name}
             action={
-              <Action onClick={() => onOpen({ kind: "change-password" })}>Change password</Action>
+              <Action onClick={() => onOpen({ kind: "remove-passkey", passkey })}>Remove</Action>
             }
           />
-        </Section>
+        ))}
+        {account.passkeys.length === 0 ? <Row title="No passkeys yet" action={null} /> : null}
+        {passkeys ? (
+          <div className="px-4 py-3">
+            <Button variant="secondary" onClick={props.onAddPasskey}>
+              Add a passkey
+            </Button>
+          </div>
+        ) : (
+          <div className="p-3">
+            <Notice title="This browser cannot add passkeys">
+              Your saved passkeys still show here and you can remove them. To add one, open this
+              page in another browser.
+            </Notice>
+          </div>
+        )}
+      </Section>
 
-        <Section title="Passkeys">
-          {account.passkeys.map((passkey) => (
+      <Section title="Authenticator app">
+        {account.app ? (
+          <>
             <Row
-              key={passkey.id}
-              title={passkey.name}
-              action={
-                <Action onClick={() => onOpen({ kind: "remove-passkey", passkey })}>Remove</Action>
-              }
+              title="On"
+              action={<Action onClick={() => onOpen({ kind: "turn-off" })}>Turn off</Action>}
             />
-          ))}
-          {account.passkeys.length === 0 ? <Row title="No passkeys yet" action={null} /> : null}
-          {passkeys ? (
-            <div className="px-4 py-3">
-              <Button variant="secondary" onClick={props.onAddPasskey}>
-                Add a passkey
-              </Button>
-            </div>
-          ) : (
-            <div className="p-3">
-              <Notice title="This browser cannot add passkeys">
-                Your saved passkeys still show here and you can remove them. To add one, open this
-                page in another browser.
-              </Notice>
-            </div>
-          )}
-        </Section>
-
-        <Section title="Authenticator app">
-          {account.app ? (
-            <>
-              <Row
-                title="On"
-                action={<Action onClick={() => onOpen({ kind: "turn-off" })}>Turn off</Action>}
-              />
-              <Row
-                title="Backup codes"
-                action={
-                  <Action onClick={() => onOpen({ kind: "new-codes" })}>Make new codes</Action>
-                }
-              />
-            </>
-          ) : (
             <Row
-              title="Off"
-              sub="Type a code from an app on your phone"
-              action={
-                <Action onClick={() => onOpen({ kind: "add-app" })}>
-                  Add an authenticator app
-                </Action>
-              }
+              title="Backup codes"
+              action={<Action onClick={() => onOpen({ kind: "new-codes" })}>Make new codes</Action>}
             />
-          )}
-        </Section>
+          </>
+        ) : (
+          <Row
+            title="Off"
+            sub="Type a code from an app on your phone"
+            action={
+              <Action onClick={() => onOpen({ kind: "add-app" })}>Add an authenticator app</Action>
+            }
+          />
+        )}
+      </Section>
 
-        <Section title="Sign out">
-          <Row
-            title="Signed in on this device"
-            action={
-              <ButtonLink variant="secondary" size="sm" href="/sign-out">
-                Sign out
-              </ButtonLink>
-            }
-          />
-          <Row
-            title="Every device and browser"
-            sub="Other devices sign out within 15 minutes"
-            action={
-              <Action danger onClick={() => onOpen({ kind: "sign-out-everywhere" })}>
-                Sign out everywhere
-              </Action>
-            }
-          />
-        </Section>
-      </div>
+      <Section title="Sign out">
+        <Row
+          title="Signed in on this device"
+          action={
+            <ButtonLink variant="secondary" size="sm" href="/sign-out">
+              Sign out
+            </ButtonLink>
+          }
+        />
+        <Row
+          title="Every device and browser"
+          sub="Other devices sign out within 15 minutes"
+          action={
+            <Action danger onClick={() => onOpen({ kind: "sign-out-everywhere" })}>
+              Sign out everywhere
+            </Action>
+          }
+        />
+      </Section>
       <DialogBody props={props} />
-    </AuthCard>
+    </Page>
   );
 };
 

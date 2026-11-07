@@ -1,6 +1,6 @@
 import { ButtonLink } from "@remit/ui";
-import { type FormEvent, useState } from "react";
-import { type Answer, post } from "../api";
+import { type FormEvent, useEffect, useState } from "react";
+import { type Failure, failureOf, lockedUntil, post, type Refused, untilRetry } from "../api";
 import {
   Field,
   Form,
@@ -17,18 +17,14 @@ import {
   TextLink,
 } from "../ui";
 
-type Refused = Extract<Answer, { ok: false }>;
-
 export type ResetProblem =
+  | Failure
   | { readonly kind: "code"; readonly message: string }
-  | { readonly kind: "password"; readonly message: string }
-  | { readonly kind: "locked"; readonly message: string }
-  | { readonly kind: "failed"; readonly message: string };
+  | { readonly kind: "password"; readonly message: string };
 
 const resetProblem = (answer: Refused): ResetProblem => {
-  if (answer.status === 429) return { kind: "locked", message: answer.message };
-  if (answer.status === 0 || answer.status >= 500)
-    return { kind: "failed", message: answer.message };
+  const failure = failureOf(answer);
+  if (failure.kind !== "refused") return failure;
   if (answer.code.includes("PASSWORD")) return { kind: "password", message: answer.message };
   if (answer.code.includes("OTP") || answer.status === 400 || answer.status === 401) {
     return {
@@ -37,7 +33,7 @@ const resetProblem = (answer: Refused): ResetProblem => {
         "That code is wrong or too old. A code works for 10 minutes. Send a new code if it has been longer.",
     };
   }
-  return { kind: "failed", message: answer.message };
+  return failure;
 };
 
 export type ResetState =
@@ -101,7 +97,7 @@ export const ResetView = ({ state, busy, onRequest, onReset, onResend }: ResetVi
           {problem.message}
         </Notice>
       ) : null}
-      {problem?.kind === "failed" ? (
+      {problem?.kind === "server" || problem?.kind === "refused" ? (
         <Notice tone="danger" title="The password was not changed" report={problem.message}>
           {problem.message} Try again in a minute.
         </Notice>
@@ -129,7 +125,7 @@ export const ResetView = ({ state, busy, onRequest, onReset, onResend }: ResetVi
           hint={NEW_PASSWORD_HINT}
           error={problem?.kind === "password" ? problem.message : null}
         />
-        <Submit disabled={busy || problem?.kind === "locked"}>Set new password</Submit>
+        <Submit disabled={busy || lockedUntil(problem) !== null}>Set new password</Submit>
       </Form>
       <LinkButton onClick={onResend}>Didn't get it? Send a new code</LinkButton>
       <p className="text-sm text-fg-muted">
@@ -142,6 +138,14 @@ export const ResetView = ({ state, busy, onRequest, onReset, onResend }: ResetVi
 export const Reset = () => {
   const [state, setState] = useState<ResetState>({ kind: "email", failure: null });
   const [busy, setBusy] = useState(false);
+  const problem = state.kind === "code" ? state.problem : null;
+  useEffect(
+    () =>
+      untilRetry(lockedUntil(problem), () =>
+        setState((current) => (current.kind === "code" ? { ...current, problem: null } : current)),
+      ),
+    [problem],
+  );
 
   const send = async (email: string): Promise<void> => {
     setBusy(true);

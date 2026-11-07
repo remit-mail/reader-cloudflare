@@ -17,12 +17,13 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, "web/index.html"),
         admin: resolve(import.meta.dirname, "web/src/admin.ts"),
+        login: resolve(import.meta.dirname, "web/src/styles/login.css"),
       },
       output: {
         entryFileNames: (chunk) =>
           chunk.name === "admin" ? "admin.js" : "assets/[name]-[hash].js",
         assetFileNames: (asset) =>
-          asset.names.includes("admin.css") ? "login.css" : "assets/[name]-[hash][extname]",
+          asset.names.includes("login.css") ? "login.css" : "assets/[name]-[hash][extname]",
       },
     },
   },

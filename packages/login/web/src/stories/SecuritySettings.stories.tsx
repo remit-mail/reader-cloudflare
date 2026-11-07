@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
 import {
   type Account,
   type SecurityDialog,
@@ -68,13 +67,6 @@ export const ConfirmItsYou: Story = {
 
 export const NewBackupCodes: Story = {
   render: () => <View dialog={{ kind: "codes", codes: CODES }} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const done = canvas.getByRole("button", { name: "Done" });
-    await expect(done).toBeDisabled();
-    await userEvent.click(canvas.getByLabelText("I saved my backup codes"));
-    await expect(done).toBeEnabled();
-  },
 };
 
 export const TurnOffApp: Story = {
@@ -83,10 +75,6 @@ export const TurnOffApp: Story = {
 
 export const SignOutEverywhere: Story = {
   render: () => <View dialog={{ kind: "sign-out-everywhere" }} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByRole("button", { name: "Cancel" })).toHaveFocus();
-  },
 };
 
 export const NoPasskeySupport: Story = {

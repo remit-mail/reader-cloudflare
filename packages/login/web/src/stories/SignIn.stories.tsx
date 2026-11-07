@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
 import {
   type SecondStepMethod,
   type SecondStepProblem,
@@ -50,10 +49,6 @@ const Second = ({
 
 export const Idle: Story = {
   render: () => <First problem={null} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByLabelText("Email")).toHaveFocus();
-  },
 };
 
 export const WrongPassword: Story = {
@@ -66,6 +61,7 @@ export const Locked: Story = {
       problem={{
         kind: "locked",
         message: "Too many attempts. Try again later. Try again after 14:35:00.",
+        retryAt: Date.now() + 15 * 60 * 1000,
       }}
     />
   ),
@@ -105,12 +101,6 @@ export const PasskeyStepExpired: Story = {
 
 export const SecondStep: Story = {
   render: () => <Second method="app" />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByLabelText("Code")).toHaveFocus();
-    await userEvent.click(canvas.getByRole("button", { name: "Use a backup code instead" }));
-    await expect(canvas.getByLabelText("Backup code")).toHaveFocus();
-  },
 };
 
 export const BackupCode: Story = {

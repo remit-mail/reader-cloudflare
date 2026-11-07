@@ -56,11 +56,14 @@ const USERS: readonly AdminUser[] = [
   },
 ];
 
-const load = (page: Html) => async () => ({
-  source: (await toResponse(page).text())
-    .replace('href="/login.css"', `href="${loginCss}"`)
-    .replace('<script type="module" src="/admin.js"></script>', ""),
-});
+const load = (page: Html) => async () => {
+  const parsed = new DOMParser().parseFromString(await toResponse(page).text(), "text/html");
+  for (const link of parsed.querySelectorAll<HTMLLinkElement>("link[rel=stylesheet]")) {
+    link.href = loginCss;
+  }
+  for (const script of parsed.querySelectorAll("script")) script.remove();
+  return { source: `<!doctype html>${parsed.documentElement.outerHTML}` };
+};
 
 export const People: Story = {
   loaders: [load(adminPage(OPERATOR, USERS, (email) => email === OPERATOR))],

@@ -1,6 +1,6 @@
 import { Button, ButtonLink } from "@remit/ui";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { type Answer, finish, navigate, post } from "../api";
+import { type Answer, failureOf, finish, navigate, post, type Refused } from "../api";
 import { addPasskey, passkeysSupported } from "../passkeys";
 import { QrCode } from "../qr";
 import {
@@ -16,10 +16,6 @@ import {
   Submit,
   Text,
 } from "../ui";
-
-type Refused = Extract<Answer, { ok: false }>;
-
-const isServerFault = (answer: Refused): boolean => answer.status === 0 || answer.status >= 500;
 
 const goToReader = () => finish({ ok: true, status: 200, body: {} });
 
@@ -109,8 +105,9 @@ const lookupState = (answer: Answer): InviteState => {
       ? { kind: "ready", email: answer.body.email, failure: null }
       : { kind: "expired" };
   }
-  if (answer.status === 429) return { kind: "locked", message: answer.message };
-  if (isServerFault(answer)) return { kind: "failed", message: answer.message };
+  const failure = failureOf(answer);
+  if (failure.kind === "locked") return { kind: "locked", message: failure.message };
+  if (failure.kind === "server") return { kind: "failed", message: failure.message };
   return { kind: "expired" };
 };
 
@@ -134,7 +131,7 @@ export const Invite = () => {
     setBusy(false);
     if (!answer.ok) {
       setState(
-        answer.status === 429
+        failureOf(answer).kind === "locked"
           ? { kind: "locked", message: answer.message }
           : { ...state, failure: answer.message },
       );
@@ -153,7 +150,9 @@ export type PasswordProblem =
   | { readonly kind: "refused"; readonly message: string };
 
 const passwordProblem = (answer: Refused): PasswordProblem => {
-  if (isServerFault(answer)) return { kind: "check-failed", message: answer.message };
+  if (failureOf(answer).kind === "server") {
+    return { kind: "check-failed", message: answer.message };
+  }
   if (answer.code.includes("PASSWORD")) return { kind: "field", message: answer.message };
   return { kind: "refused", message: answer.message };
 };

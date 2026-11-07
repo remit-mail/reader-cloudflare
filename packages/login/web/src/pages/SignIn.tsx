@@ -1,9 +1,20 @@
 import { Button, ButtonLink } from "@remit/ui";
-import { type FormEvent, useState } from "react";
-import { type Answer, finish, keepQuery, navigate, post, withOAuth } from "../api";
+import { type FormEvent, useEffect, useState } from "react";
+import {
+  type Answer,
+  type Failure,
+  failureOf,
+  finish,
+  keepQuery,
+  lockedUntil,
+  navigate,
+  post,
+  type Refused,
+  untilRetry,
+  withOAuth,
+} from "../api";
 import { passkeysSupported, signInWithPasskey } from "../passkeys";
 import {
-  Divider,
   Field,
   Form,
   focusOnMount,
@@ -17,25 +28,17 @@ import {
   TextLink,
 } from "../ui";
 
-type Refused = Extract<Answer, { ok: false }>;
-
 export type SignInProblem =
+  | Failure
   | { readonly kind: "wrong" }
-  | { readonly kind: "locked"; readonly message: string }
   | { readonly kind: "disabled" }
-  | { readonly kind: "server"; readonly message: string }
-  | { readonly kind: "refused"; readonly message: string }
   | { readonly kind: "passkey-cancelled" }
   | { readonly kind: "passkey-refused"; readonly message: string };
 
-const isServerFault = (answer: Refused): boolean => answer.status === 0 || answer.status >= 500;
-
 const passwordProblem = (answer: Refused): SignInProblem => {
   if (answer.status === 401) return { kind: "wrong" };
-  if (answer.status === 429) return { kind: "locked", message: answer.message };
   if (answer.code === "BANNED_USER") return { kind: "disabled" };
-  if (isServerFault(answer)) return { kind: "server", message: answer.message };
-  return { kind: "refused", message: answer.message };
+  return failureOf(answer);
 };
 
 const passkeyProblem = (answer: Refused): SignInProblem =>
@@ -136,14 +139,14 @@ export const SignInView = ({
           required
           ref={problem?.kind === "wrong" ? focusOnMount : undefined}
         />
-        <Submit disabled={busy || problem?.kind === "locked"}>
+        <Submit disabled={busy || lockedUntil(problem) !== null}>
           {problem?.kind === "server" ? "Try again" : "Sign in"}
         </Submit>
       </Form>
       <TextLink href="/reset">Forgot your password?</TextLink>
       {passkeys ? (
         <>
-          <Divider />
+          <hr className="border-line" />
           <Button variant="secondary" onClick={onPasskey} disabled={busy} className="w-full">
             Sign in with a passkey
           </Button>
@@ -175,6 +178,7 @@ const afterFirstStep = async (
 export const SignIn = () => {
   const [problem, setProblem] = useState<SignInProblem | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => untilRetry(lockedUntil(problem), () => setProblem(null)), [problem]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -216,22 +220,18 @@ export const SignIn = () => {
 export type SecondStepMethod = "app" | "backup" | "help" | "passkey";
 
 export type SecondStepProblem =
+  | Failure
   | { readonly kind: "wrong-code" }
-  | { readonly kind: "locked"; readonly message: string }
   | { readonly kind: "expired" }
   | { readonly kind: "passkey-cancelled" }
-  | { readonly kind: "passkey-other-account" }
-  | { readonly kind: "server"; readonly message: string }
-  | { readonly kind: "refused"; readonly message: string };
+  | { readonly kind: "passkey-other-account" };
 
 const secondStepProblem = (answer: Refused): SecondStepProblem => {
   if (answer.code === "PASSKEY_PROMPT") return { kind: "passkey-cancelled" };
   if (answer.code === "PASSKEY_OF_ANOTHER_ACCOUNT") return { kind: "passkey-other-account" };
   if (answer.code === "INVALID_TWO_FACTOR_COOKIE") return { kind: "expired" };
-  if (answer.status === 429) return { kind: "locked", message: answer.message };
   if (answer.status === 401) return { kind: "wrong-code" };
-  if (isServerFault(answer)) return { kind: "server", message: answer.message };
-  return { kind: "refused", message: answer.message };
+  return failureOf(answer);
 };
 
 export interface SecondStepViewProps {
@@ -354,7 +354,7 @@ export const SecondStepView = ({
               : null
           }
         />
-        <Submit disabled={busy || problem?.kind === "locked"}>Continue</Submit>
+        <Submit disabled={busy || lockedUntil(problem) !== null}>Continue</Submit>
       </Form>
       <LinkButton onClick={() => onMethod(backup ? "app" : "backup")}>
         {backup ? "Use the app code instead" : "Use a backup code instead"}
@@ -369,6 +369,7 @@ export const SecondStep = () => {
   const [method, setMethod] = useState<SecondStepMethod>(initial === "passkey" ? "passkey" : "app");
   const [problem, setProblem] = useState<SecondStepProblem | null>(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => untilRetry(lockedUntil(problem), () => setProblem(null)), [problem]);
 
   const done = async (answer: Answer) => {
     if (answer.ok) await finish(answer);

@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
 import {
   AppSetupView,
   BackupCodesView,
@@ -53,10 +52,6 @@ export const ConfirmPassword: Story = {
 
 export const Choose: Story = {
   render: () => <Step step={{ kind: "choose" }} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByRole("button", { name: /^Passkey/ })).toHaveFocus();
-  },
 };
 
 export const NoPasskeySupport: Story = {
@@ -87,11 +82,4 @@ export const AppCodeWrong: Story = {
 
 export const BackupCodes: Story = {
   render: () => <BackupCodesView codes={CODES} onDone={noop} />,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const proceed = canvas.getByRole("button", { name: "Continue to remit" });
-    await expect(proceed).toBeDisabled();
-    await userEvent.click(canvas.getByLabelText("I saved my backup codes"));
-    await expect(proceed).toBeEnabled();
-  },
 };

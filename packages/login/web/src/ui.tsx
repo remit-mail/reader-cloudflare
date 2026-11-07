@@ -17,15 +17,33 @@ export const focusOnMount = (element: HTMLElement | null): void => {
   element?.focus();
 };
 
-export const Page = ({ title, children }: { title: string; children: ReactNode }) => (
-  <AuthCard>
-    <p className="pb-4 text-center text-lg font-semibold text-fg">remit</p>
-    <Card raised className="flex flex-col gap-4 p-6">
-      <h1 className="text-xl font-semibold text-fg">{title}</h1>
-      {children}
-    </Card>
-  </AuthCard>
-);
+export const Page = ({
+  title,
+  wide = false,
+  children,
+}: {
+  title: string;
+  wide?: boolean;
+  children: ReactNode;
+}) => {
+  const heading = <h1 className="text-xl font-semibold text-fg">{title}</h1>;
+  return (
+    <AuthCard className={wide ? "justify-start" : undefined}>
+      <p className="pb-4 text-center text-lg font-semibold text-fg">remit</p>
+      {wide ? (
+        <div className="flex flex-col gap-6">
+          {heading}
+          {children}
+        </div>
+      ) : (
+        <Card raised className="flex flex-col gap-4 p-6">
+          {heading}
+          {children}
+        </Card>
+      )}
+    </AuthCard>
+  );
+};
 
 export const Muted = ({ children }: { children: ReactNode }) => (
   <p className="text-sm text-fg-muted">{children}</p>
@@ -163,8 +181,6 @@ export const Submit = ({
     {children}
   </Button>
 );
-
-export const Divider = () => <hr className="border-line" />;
 
 const download = (codes: readonly string[]): void => {
   const url = URL.createObjectURL(new Blob([`${codes.join("\n")}\n`], { type: "text/plain" }));

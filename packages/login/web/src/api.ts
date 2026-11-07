@@ -7,7 +7,39 @@ export type Answer =
       readonly status: number;
       readonly message: string;
       readonly code: string;
+      readonly retryAt: number | null;
     };
+
+export type Refused = Extract<Answer, { ok: false }>;
+
+export type Failure =
+  | { readonly kind: "locked"; readonly message: string; readonly retryAt: number | null }
+  | { readonly kind: "server"; readonly message: string }
+  | { readonly kind: "refused"; readonly message: string };
+
+export const failureOf = (answer: Refused): Failure => {
+  if (answer.status === 429) {
+    return { kind: "locked", message: answer.message, retryAt: answer.retryAt };
+  }
+  if (answer.status === 0 || answer.status >= 500) {
+    return { kind: "server", message: answer.message };
+  }
+  return { kind: "refused", message: answer.message };
+};
+
+export const lockedUntil = (problem: { readonly kind: string } | null): number | null =>
+  problem?.kind === "locked" && "retryAt" in problem && typeof problem.retryAt === "number"
+    ? problem.retryAt
+    : null;
+
+export const untilRetry = (
+  retryAt: number | null,
+  reopen: () => void,
+): (() => void) | undefined => {
+  if (retryAt === null) return undefined;
+  const timer = setTimeout(reopen, Math.max(0, retryAt - Date.now()));
+  return () => clearTimeout(timer);
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -28,6 +60,7 @@ const answerOf = async (response: Response): Promise<Answer> => {
     status: response.status,
     message: `${message}${response.status === 429 ? retryText(record.retryAt) : ""}`,
     code: typeof record.code === "string" ? record.code : "",
+    retryAt: typeof record.retryAt === "string" ? Date.parse(record.retryAt) || null : null,
   };
 };
 
@@ -36,6 +69,7 @@ const unreachable = (path: string, error: unknown): Answer => ({
   status: 0,
   message: `The login site did not answer ${path}: ${error instanceof Error ? error.message : String(error)}.`,
   code: "NETWORK",
+  retryAt: null,
 });
 
 export const post = (path: string, body: unknown = {}): Promise<Answer> =>
