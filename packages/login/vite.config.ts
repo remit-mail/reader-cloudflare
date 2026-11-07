@@ -13,7 +13,6 @@ export default defineConfig({
     assetsInlineLimit: 0,
     modulePreload: { polyfill: false },
     rollupOptions: {
-      treeshake: { moduleSideEffects: (id) => !id.includes("/node_modules/@remit/ui/dist/") },
       input: {
         main: resolve(import.meta.dirname, "web/index.html"),
         admin: resolve(import.meta.dirname, "web/src/admin.ts"),
