@@ -281,7 +281,7 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
       window: 60,
       max: 30,
       customRules: Object.fromEntries(
-        [SIGN_IN_PATH, RESET_PATH, "/change-password", ...TWO_FACTOR_PATHS].map((path) => [
+        [SIGN_IN_PATH, RESET_PATH, ...TWO_FACTOR_PATHS].map((path) => [
           path,
           { window: 60, max: 30 },
         ]),

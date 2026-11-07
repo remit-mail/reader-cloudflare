@@ -70,6 +70,11 @@ ON CONFLICT (attempt_key) DO UPDATE SET
   END
 RETURNING attempt_key, attempts, next_allowed_at, last_attempt_id`;
 
+const RESERVE_BEHIND_GATE = RESERVE.replace(
+  "VALUES (?1, 1, ?2, 0, ?7)",
+  "SELECT ?1, 1, ?2, 0, ?7 WHERE EXISTS (SELECT 1 FROM auth_attempt WHERE attempt_key = ?8 AND last_attempt_id = ?7)",
+);
+
 export type Reservation =
   | { readonly allowed: true; readonly firstDelay: boolean }
   | { readonly allowed: false; readonly retryAt: number };
@@ -80,18 +85,40 @@ export const reserveAttempt = async (
   now: number,
 ): Promise<Reservation> => {
   const attemptId = randomId();
+  const [gate, ...rest] = keys;
+  if (gate === undefined) return { allowed: true, firstDelay: false };
   const results = await db.batch<{
     attempt_key: string;
     attempts: number;
     next_allowed_at: number;
     last_attempt_id: string;
-  }>(
-    keys.map(({ key, curve }) =>
+  }>([
+    db
+      .prepare(RESERVE)
+      .bind(
+        gate.key,
+        now,
+        RESET_AFTER_MS,
+        FREE_ATTEMPTS,
+        gate.curve.baseMs,
+        gate.curve.capMs,
+        attemptId,
+      ),
+    ...rest.map(({ key, curve }) =>
       db
-        .prepare(RESERVE)
-        .bind(key, now, RESET_AFTER_MS, FREE_ATTEMPTS, curve.baseMs, curve.capMs, attemptId),
+        .prepare(RESERVE_BEHIND_GATE)
+        .bind(
+          key,
+          now,
+          RESET_AFTER_MS,
+          FREE_ATTEMPTS,
+          curve.baseMs,
+          curve.capMs,
+          attemptId,
+          gate.key,
+        ),
     ),
-  );
+  ]);
   const rows = results.flatMap((result) => result.results);
   const blocked = rows.filter((row) => row.last_attempt_id !== attemptId);
   if (blocked.length > 0) {
@@ -114,7 +141,8 @@ export const refundKey = async (db: D1Database, key: AttemptKey): Promise<void> 
 };
 
 const QUOTA_WINDOW_MS = 15 * 60_000;
-const QUOTA = 5;
+const ADDRESS_QUOTA = 5;
+const ACCOUNT_QUOTA = 4 * ADDRESS_QUOTA;
 
 const QUOTA_UPSERT = `INSERT INTO auth_attempt (attempt_key, attempts, last_attempt_at, next_allowed_at, last_attempt_id)
 VALUES (?1, 1, ?2, 0, ?1)
@@ -123,12 +151,17 @@ ON CONFLICT (attempt_key) DO UPDATE SET
   last_attempt_at = CASE WHEN last_attempt_at < ?2 - ?3 THEN ?2 ELSE last_attempt_at END
 RETURNING attempts`;
 
-const takeQuota = async (db: D1Database, key: string, now: number): Promise<boolean> => {
+const takeQuota = async (
+  db: D1Database,
+  key: string,
+  quota: number,
+  now: number,
+): Promise<boolean> => {
   const row = await db
     .prepare(QUOTA_UPSERT)
     .bind(key, now, QUOTA_WINDOW_MS)
     .first<{ attempts: number }>();
-  return row !== null && row.attempts <= QUOTA;
+  return row !== null && row.attempts <= quota;
 };
 
 export const takeResetQuota = async (
@@ -137,6 +170,8 @@ export const takeResetQuota = async (
   email: string,
   now: number,
 ): Promise<boolean> => {
-  if (!(await takeQuota(db, `reset:${addressKey(address).key}`, now))) return false;
-  return takeQuota(db, `reset:${(await accountKey(email)).key}`, now);
+  if (!(await takeQuota(db, `reset:${addressKey(address).key}`, ADDRESS_QUOTA, now))) {
+    return false;
+  }
+  return takeQuota(db, `reset:${(await accountKey(email)).key}`, ACCOUNT_QUOTA, now);
 };

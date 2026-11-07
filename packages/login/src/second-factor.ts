@@ -12,6 +12,7 @@ import {
   reserveAttempt,
 } from "./backoff";
 import { isRecord } from "./http";
+import { recordTotpStep, totpStepMatchingNow } from "./totp";
 import { passkeyCount } from "./webauthn";
 
 type MiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
@@ -77,16 +78,39 @@ export const settleSuccess = async (
   await refundKey(db, addressKey(address));
 };
 
-const twoFactorPendingEmail = async (ctx: MiddlewareContext): Promise<string | null> => {
+interface PendingUser {
+  readonly id: string;
+  readonly email: string;
+}
+
+const twoFactorPendingUser = async (ctx: MiddlewareContext): Promise<PendingUser | null> => {
   const session = await getSessionFromCtx(ctx);
-  if (session) return session.user.email;
+  if (session) return { id: session.user.id, email: session.user.email };
   const cookie = ctx.context.createAuthCookie(TWO_FACTOR_COOKIE);
   const identifier = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
   if (!identifier) return null;
   const verification = await ctx.context.internalAdapter.findVerificationValue(identifier);
   if (!verification) return null;
   const user = await ctx.context.internalAdapter.findUserById(verification.value);
-  return user?.email ?? null;
+  return user ? { id: user.id, email: user.email } : null;
+};
+
+const spendTotpStep = async (db: D1Database, ctx: MiddlewareContext, userId: string) => {
+  const code = stringField(ctx.body, "code");
+  if (code === undefined) return;
+  const twoFactor = await db
+    .prepare("SELECT secret FROM two_factor WHERE user_id = ?")
+    .bind(userId)
+    .first<{ secret: string }>();
+  if (twoFactor === null) return;
+  const now = Date.now();
+  const step = await totpStepMatchingNow(ctx.context.secretConfig, twoFactor.secret, code, now);
+  if (step === null) return;
+  if (await recordTotpStep(db, userId, step, "SignIn", now)) return;
+  throw new APIError("UNAUTHORIZED", {
+    message: "That code was already used. Wait for the next one.",
+    code: "TOTP_STEP_USED",
+  });
 };
 
 const pendingUserId = async (ctx: MiddlewareContext): Promise<string | null> => {
@@ -134,9 +158,13 @@ export const secondFactorBefore = (db: D1Database) =>
       if (isRecord(ctx.body) && ctx.body.trustDevice === true) {
         throw new APIError("BAD_REQUEST", { message: "Trusted devices are not offered." });
       }
-      const email = await twoFactorPendingEmail(ctx);
-      const keys = email ? [addressKey(address), await accountKey(email)] : [addressKey(address)];
-      await reserveOrThrow(db, keys, email ?? "", address);
+      const pending = await twoFactorPendingUser(ctx);
+      const keys = pending
+        ? [addressKey(address), await accountKey(pending.email)]
+        : [addressKey(address)];
+      await reserveOrThrow(db, keys, pending?.email ?? "", address);
+      if (pending && ctx.path === "/two-factor/verify-totp")
+        await spendTotpStep(db, ctx, pending.id);
     }
   });
 
@@ -206,7 +234,8 @@ export const secondFactorAfter = (db: D1Database) =>
     const address = addressOfContext(ctx);
     if (ctx.path === SIGN_IN_PATH) return afterSignIn(db, ctx, address);
     if (TWO_FACTOR_PATHS.has(ctx.path)) {
-      const email = (await twoFactorPendingEmail(ctx)) ?? ctx.context.newSession?.user.email ?? "";
+      const email =
+        (await twoFactorPendingUser(ctx))?.email ?? ctx.context.newSession?.user.email ?? "";
       if (failed(ctx)) {
         await audit(db, {
           actor: "anonymous",

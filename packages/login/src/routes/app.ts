@@ -7,6 +7,7 @@ import type { AuthDeps } from "../auth";
 import {
   addressKey,
   addressOf,
+  clearKey,
   refundKey,
   reserveAttempt,
   takeResetQuota,
@@ -16,7 +17,7 @@ import { type LoginConfig, normalizeEmail } from "../config";
 import { randomId, randomToken, sameHash, sha256Hex } from "../crypto";
 import { json } from "../http";
 import { log } from "../log";
-import { reserveOrAudit, settleSuccess } from "../second-factor";
+import { reserveOrAudit } from "../second-factor";
 import { recordTotpStep, totpStepMatchingNow } from "../totp";
 import { isAssertion, passkeyCount, verifyOwnPasskey } from "../webauthn";
 
@@ -302,13 +303,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             });
           }
           const personal = userKey(user.id);
-          const reservation = await reserveOrAudit(
-            db,
-            [addressKey(address), personal],
-            user.email,
-            user.email,
-            address,
-          );
+          const reservation = await reserveOrAudit(db, [personal], user.email, user.email, address);
           if (!reservation.allowed) {
             throw new APIError("TOO_MANY_REQUESTS", {
               message: "Too many attempts. Try again later.",
@@ -358,7 +353,7 @@ export const appEndpoints = (deps: AuthDeps) => {
               code: "NOT_CONFIRMED",
             });
           }
-          await settleSuccess(db, address, personal);
+          await clearKey(db, personal);
           await db
             .prepare("UPDATE session SET reauthenticated_at = ? WHERE id = ?")
             .bind(Date.now(), session.id)

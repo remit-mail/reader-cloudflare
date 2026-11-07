@@ -9,11 +9,11 @@ import {
 } from "../admin-page";
 import { type AuditEntry, auditRows, auditStatement } from "../audit";
 import type { Auth } from "../auth";
-import { addressKey, addressOf, userKey } from "../backoff";
+import { addressOf, clearKey, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
 import { json, notFound } from "../http";
 import { sendInvite } from "../mail";
-import { reserveOrAudit, settleSuccess } from "../second-factor";
+import { reserveOrAudit } from "../second-factor";
 import {
   type AdminAction,
   type Binding,
@@ -348,7 +348,7 @@ export const runAdminAction = async (
   const personal = userKey(operator.userId);
   const reservation = await reserveOrAudit(
     context.db,
-    [addressKey(address), personal],
+    [personal],
     operator.email,
     operator.email,
     address,
@@ -402,7 +402,7 @@ export const runAdminAction = async (
   if (!verified) {
     return json(403, { message: "The confirmation did not verify. Nothing was changed." });
   }
-  await settleSuccess(context.db, address, personal);
+  await clearKey(context.db, personal);
   const outcome = await runAction(context, operator, action, targetEmail, {
     actor: operator.email,
     email: targetEmail,

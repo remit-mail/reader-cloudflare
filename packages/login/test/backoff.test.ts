@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accountKey } from "../src/backoff";
+import { purgeStatements } from "../src/audit";
+import { accountKey, takeResetQuota } from "../src/backoff";
 import { call, createUser, PASSWORD, randomAddress, testEnv, uniqueEmail } from "./helpers";
 
 const signInAs = (email: string, password: string, address: string) =>
@@ -71,5 +72,53 @@ describe("backoff", () => {
     ).then((responses) => responses.map((response) => response.status));
     expect(statuses.filter((status) => status !== 429).length).toBeLessThanOrEqual(6);
     expect(statuses.filter((status) => status === 429).length).toBeGreaterThanOrEqual(14);
+  });
+
+  it("never raises an account key from an address that is already refused", async () => {
+    const victim = uniqueEmail("victim");
+    await createUser(victim, { password: PASSWORD });
+    const address = `${prefix()}::1`;
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      await signInAs(uniqueEmail("spray"), "wrong password!!", address);
+    }
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect((await signInAs(victim, "wrong password!!", address)).status).toBe(429);
+    }
+    const row = await testEnv.DB.prepare("SELECT attempts FROM auth_attempt WHERE attempt_key = ?")
+      .bind((await accountKey(victim)).key)
+      .first();
+    expect(row).toBeNull();
+    expect((await signInAs(victim, PASSWORD, randomAddress())).status).toBe(200);
+  });
+
+  it("keeps the reset quota of an account open to other addresses after one address burns its own", async () => {
+    const victim = uniqueEmail("reset-victim");
+    const attacker = randomAddress();
+    const now = Date.now();
+    const answers: boolean[] = [];
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      answers.push(await takeResetQuota(testEnv.DB, attacker, victim, now));
+    }
+    expect(answers.filter(Boolean).length).toBe(5);
+    expect(await takeResetQuota(testEnv.DB, randomAddress(), victim, now)).toBe(true);
+  });
+
+  it("runs the cron cleanup against the migrated schema", async () => {
+    const old = Date.now() - 100 * 24 * 60 * 60_000;
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        "INSERT INTO totp_use (user_id, totp_step, used_for, used_at) VALUES (?, 1, 'SignIn', ?)",
+      ).bind(crypto.randomUUID(), old),
+      testEnv.DB.prepare(
+        "INSERT INTO auth_attempt (attempt_key, attempts, last_attempt_at, next_allowed_at, last_attempt_id) VALUES (?, 1, ?, 0, 'x')",
+      ).bind(`address:${crypto.randomUUID()}`, old),
+    ]);
+    await testEnv.DB.batch(purgeStatements(testEnv.DB, Date.now()));
+    const left = await testEnv.DB.prepare(
+      "SELECT (SELECT COUNT(*) FROM totp_use WHERE used_at = ?1) + (SELECT COUNT(*) FROM auth_attempt WHERE last_attempt_at = ?1) AS count",
+    )
+      .bind(old)
+      .first<{ count: number }>();
+    expect(left?.count).toBe(0);
   });
 });
