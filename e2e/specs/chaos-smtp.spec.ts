@@ -46,12 +46,11 @@ const outcomeOf = async (identity: string, outboxMessageId: string): Promise<Out
 };
 
 const IN_FLIGHT = new Set(["queued", "sending", "sent"]);
-const SETTLED = ["failed", "unfiled", "filed"];
 
 test.describe("SMTP faults", () => {
   test.setTimeout(240_000);
 
-  test("a connection cut after the message is taken delivers at most one copy and settles the row", async () => {
+  test("a connection cut after the message is taken delivers one copy and settles the row unfiled", async () => {
     const identity = mintIdentity("chaos-smtp");
     const json = tenantJson(identity);
     const account = await connectSendingAccount(json, proxied);
@@ -87,9 +86,10 @@ test.describe("SMTP faults", () => {
         (final.lastError === undefined ? "" : ` (${final.lastError})`),
     );
 
-    expect(copies).toBeLessThanOrEqual(1);
-    expect(submissions).toBe(copies);
+    expect(copies).toBe(1);
+    expect(submissions).toBe(1);
     expect(final).toEqual(settled);
-    expect(SETTLED).toContain(final.status);
+    expect(final.status).toBe("unfiled");
+    expect(final.lastError).toContain("may already have been delivered");
   });
 });
