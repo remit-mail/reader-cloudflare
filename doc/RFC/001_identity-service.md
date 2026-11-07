@@ -1,10 +1,10 @@
 # RFC 001: Identity service for reader
 
-| Field   | Value |
-| ------- | ----- |
-| Status  | Draft |
-| Author  | Matthijs van Henten |
-| Date    | 2026-11-07 |
+| Field   | Value                                                                                                                                                                                                          |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Status  | Draft                                                                                                                                                                                                          |
+| Author  | Matthijs van Henten                                                                                                                                                                                            |
+| Date    | 2026-11-07                                                                                                                                                                                                     |
 | Related | [#53](https://github.com/remit-mail/reader-cloudflare/issues/53), [#54](https://github.com/remit-mail/reader-cloudflare/issues/54), [remit-mail/reader#1519](https://github.com/remit-mail/reader/issues/1519) |
 
 ---
@@ -131,22 +131,22 @@ Assets, in order of value:
 7. Invite tokens and email codes in transit.
 8. Audit records, which hold emails and network addresses.
 
-| Threat | Mitigation | Residual |
-| --- | --- | --- |
-| Someone creates an account without an invite | Open sign-up is off. The only path that creates a user sits behind a grant that only the invite POST issues | None known |
-| A mail scanner or link preview redeems an invite | The token sits in the URL fragment, which never reaches a server. Only the Continue POST redeems it | None |
-| Password guessing | Backoff per account and per IP after 5 failures, up to 2 minutes per account and 15 minutes per IP. Passkey sign-in is exempt, so a stranger cannot lock a passkey user out | One network can try slowly |
-| Account enumeration through reset | The reset request answers before any lookup, with one body and the same timing for every email | None known |
-| A reset by email code bypasses the second factor | A code sets a password only. The next sign-in still asks for the passkey or app | None |
-| A stolen Access cookie | It lives 15 minutes and cannot renew once the login session ends | Up to 15 minutes of access |
-| An authorization code redeemed after sign-out | The token endpoint refuses a code whose login session is gone or whose user is disabled | None known |
-| Cross-site POST | Exact `Origin` check, SameSite cookies, no framing | None known |
-| An open redirect at sign-in | One registered client with one exact redirect URI per stage. A mismatch shows an error and redirects nowhere | None |
-| An agent reaches identity data | No database or tail read, invocation logs off, Access headers refused on the login domain | The infrastructure state holds the OIDC client secret |
-| An operator's step-up is replayed | A challenge is single-use, bound to action, target and session, and lives 2 minutes | An authenticator-only operator is as strong as their phone |
-| Someone takes the first operator's invite | The bootstrap invite goes only to operator addresses, and stops once any operator has an account | The first person to read that inbox |
-| Session tokens read from the database | The cookie carries the token plus an HMAC with the auth secret, so a database read alone cannot present a session | Tokens sit in plain text in the login database |
-| Dev and prod share one Zero Trust organization | Every Access application lists its allowed identity providers. A check keeps each stage's login provider off the other stage. Each stage has its own database, cookie and passkey domain | The organization session is one setting for both |
+| Threat                                           | Mitigation                                                                                                                                                                               | Residual                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Someone creates an account without an invite     | Open sign-up is off. The only path that creates a user sits behind a grant that only the invite POST issues                                                                              | None known                                                 |
+| A mail scanner or link preview redeems an invite | The token sits in the URL fragment, which never reaches a server. Only the Continue POST redeems it                                                                                      | None                                                       |
+| Password guessing                                | Backoff per account and per IP after 5 failures, up to 2 minutes per account and 15 minutes per IP. Passkey sign-in is exempt, so a stranger cannot lock a passkey user out              | One network can try slowly                                 |
+| Account enumeration through reset                | The reset request answers before any lookup, with one body and the same timing for every email                                                                                           | None known                                                 |
+| A reset by email code bypasses the second factor | A code sets a password only. The next sign-in still asks for the passkey or app                                                                                                          | None                                                       |
+| A stolen Access cookie                           | It lives 15 minutes and cannot renew once the login session ends                                                                                                                         | Up to 15 minutes of access                                 |
+| An authorization code redeemed after sign-out    | The token endpoint refuses a code whose login session is gone or whose user is disabled                                                                                                  | None known                                                 |
+| Cross-site POST                                  | Exact `Origin` check, SameSite cookies, no framing                                                                                                                                       | None known                                                 |
+| An open redirect at sign-in                      | One registered client with one exact redirect URI per stage. A mismatch shows an error and redirects nowhere                                                                             | None                                                       |
+| An agent reaches identity data                   | No database or tail read, invocation logs off, Access headers refused on the login domain                                                                                                | The infrastructure state holds the OIDC client secret      |
+| An operator's step-up is replayed                | A challenge is single-use, bound to action, target and session, and lives 2 minutes                                                                                                      | An authenticator-only operator is as strong as their phone |
+| Someone takes the first operator's invite        | The bootstrap invite goes only to operator addresses, and stops once any operator has an account                                                                                         | The first person to read that inbox                        |
+| Session tokens read from the database            | The cookie carries the token plus an HMAC with the auth secret, so a database read alone cannot present a session                                                                        | Tokens sit in plain text in the login database             |
+| Dev and prod share one Zero Trust organization   | Every Access application lists its allowed identity providers. A check keeps each stage's login provider off the other stage. Each stage has its own database, cookie and passkey domain | The organization session is one setting for both           |
 
 ## Appendix: The OIDC flow
 
@@ -181,29 +181,29 @@ The signing keys rotate every 90 days and the old public key stays published for
 
 ## Appendix: Session mechanics
 
-| Session | Life |
-| --- | --- |
-| Login session | 90 days, rolling on each day of use |
-| Access application session | 15 minutes |
-| Access organization session | 15 minutes. Access reissues an app session from it without the identity provider |
-| Authorization code | 60 seconds |
-| ID and access token | 15 minutes, no refresh token |
-| Reauthentication window for factor changes | 5 minutes |
-| Operator challenge | 2 minutes, one action |
-| Invite | 7 days, single use |
-| Email code | 10 minutes, single use, 5 tries |
+| Session                                    | Life                                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| Login session                              | 90 days, rolling on each day of use                                              |
+| Access application session                 | 15 minutes                                                                       |
+| Access organization session                | 15 minutes. Access reissues an app session from it without the identity provider |
+| Authorization code                         | 60 seconds                                                                       |
+| ID and access token                        | 15 minutes, no refresh token                                                     |
+| Reauthentication window for factor changes | 5 minutes                                                                        |
+| Operator challenge                         | 2 minutes, one action                                                            |
+| Invite                                     | 7 days, single use                                                               |
+| Email code                                 | 10 minutes, single use, 5 tries                                                  |
 
 When the Access session lapses, Access redirects to the login app. A live login session issues a code without a page, and the person lands back where they were. Reader probes its own session every 5 minutes while the tab is visible and when the tab becomes visible again. On a lapsed session it reloads the page once at the top level, which runs the renewal.
 
-| Action | Ends |
-| --- | --- |
-| Sign out | This device at once, through the Access logout |
-| Sign out everywhere, by the user | This device at once, others within 15 minutes |
-| Password reset | Every other device within 15 minutes |
-| Password change | Every other device within 15 minutes |
-| Operator: sign out everywhere | Every device within 15 minutes |
-| Operator: reset factors | Removes the app, backup codes and passkeys, then every device within 15 minutes |
-| Operator: disable | Every device within 15 minutes, and sign-in says the account is disabled |
+| Action                           | Ends                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| Sign out                         | This device at once, through the Access logout                                  |
+| Sign out everywhere, by the user | This device at once, others within 15 minutes                                   |
+| Password reset                   | Every other device within 15 minutes                                            |
+| Password change                  | Every other device within 15 minutes                                            |
+| Operator: sign out everywhere    | Every device within 15 minutes                                                  |
+| Operator: reset factors          | Removes the app, backup codes and passkeys, then every device within 15 minutes |
+| Operator: disable                | Every device within 15 minutes, and sign-in says the account is disabled        |
 
 An operator action runs in one database batch: disable the user, delete the sessions, then delete the issued tokens.
 
@@ -242,14 +242,14 @@ Every action, kill switch change and refusal writes an audit record with time, a
 
 ## Appendix: Terms
 
-| Term | Meaning |
-| --- | --- |
-| Access | Cloudflare Access, the gate in front of reader on Cloudflare |
-| Identity provider | The service that signs a person in and tells Access who they are |
-| OIDC | OpenID Connect, the protocol Access uses to ask an identity provider |
-| Login app | The Worker on its own domain that is reader's identity provider |
-| Operator | A person named in the deployment config who runs the admin page |
-| Step-up | A fresh proof of identity for one sensitive action |
-| Second factor | A passkey, or an authenticator app with backup codes |
-| Kill switch | One control that stops every sign-in at once |
-| PKCE | A one-time secret that binds an authorization code to the browser that asked |
+| Term              | Meaning                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| Access            | Cloudflare Access, the gate in front of reader on Cloudflare                 |
+| Identity provider | The service that signs a person in and tells Access who they are             |
+| OIDC              | OpenID Connect, the protocol Access uses to ask an identity provider         |
+| Login app         | The Worker on its own domain that is reader's identity provider              |
+| Operator          | A person named in the deployment config who runs the admin page              |
+| Step-up           | A fresh proof of identity for one sensitive action                           |
+| Second factor     | A passkey, or an authenticator app with backup codes                         |
+| Kill switch       | One control that stops every sign-in at once                                 |
+| PKCE              | A one-time secret that binds an authorization code to the browser that asked |
