@@ -16,6 +16,11 @@ import {
 } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
+import {
+  type BodyReadMiss,
+  type BodyReadMissInput,
+  resolveBodyReadMiss,
+} from "@remit/mailbox-service";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
@@ -228,6 +233,10 @@ export class TenantMail extends DurableObject<Env> {
         ),
       ),
     );
+  }
+
+  async bodyReadMiss(tenantId: string, input: BodyReadMissInput): Promise<BodyReadMiss> {
+    return resolveBodyReadMiss(this.compose(tenantId).client, input);
   }
 
   async schedulerTick(

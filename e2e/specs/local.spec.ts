@@ -31,6 +31,7 @@ import {
   readAcceptedEnvelope,
   waitForAcceptedMessage,
 } from "../.reader/packages/e2e/src/smtp-sink.js";
+import { plainTextUrlOf } from "./tenant";
 
 const DEV_IDENTITY = "e2e@remit.test";
 const RECIPIENT = "sender@remit.test";
@@ -172,23 +173,6 @@ const fillServer = async (page: Page, legend: RegExp, server: Server): Promise<v
   await group.getByLabel("Host").fill(server.host);
   await group.getByLabel("Port").fill(String(server.port));
   await group.getByLabel("Security").selectOption("none");
-};
-
-const plainTextUrlOf = (description: unknown): string => {
-  if (!isRecord(description) || !Array.isArray(description.bodyParts)) {
-    throw new Error("GET /messages/{messageId} has no bodyParts");
-  }
-  const part: unknown = description.bodyParts.find(
-    (entry: unknown) =>
-      isRecord(entry) &&
-      typeof entry.mediaType === "string" &&
-      typeof entry.mediaSubtype === "string" &&
-      `${entry.mediaType}/${entry.mediaSubtype}`.toLowerCase() === "text/plain",
-  );
-  if (!isRecord(part) || typeof part.contentUrl !== "string") {
-    throw new Error("GET /messages/{messageId} has no text/plain part");
-  }
-  return part.contentUrl;
 };
 
 const connectionTestOf = (password: string): Record<string, unknown> => ({

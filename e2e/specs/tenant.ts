@@ -230,6 +230,23 @@ export const eventsBetween = (json: Json, from: string, to: string): Promise<Eve
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+export const plainTextUrlOf = (description: unknown): string => {
+  if (!isRecord(description) || !Array.isArray(description.bodyParts)) {
+    throw new Error("GET /messages/{messageId} has no bodyParts");
+  }
+  const part: unknown = description.bodyParts.find(
+    (entry: unknown) =>
+      isRecord(entry) &&
+      typeof entry.mediaType === "string" &&
+      typeof entry.mediaSubtype === "string" &&
+      `${entry.mediaType}/${entry.mediaSubtype}`.toLowerCase() === "text/plain",
+  );
+  if (!isRecord(part) || typeof part.contentUrl !== "string") {
+    throw new Error("GET /messages/{messageId} has no text/plain part");
+  }
+  return part.contentUrl;
+};
+
 const finalizedDeletesSince = (since: number): number => {
   const path = process.env.E2E_WRANGLER_LOG;
   if (path === undefined) throw new Error("E2E_WRANGLER_LOG is not set; run `npm run e2e`");
