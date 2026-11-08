@@ -59,7 +59,7 @@ const layout = (title: string, body: Html): Html => html`<!doctype html>
   </body>
 </html>`;
 
-export type UserState = "invited" | "active" | "disabled";
+export type UserState = "invited" | "expired" | "active" | "disabled";
 
 export interface AdminUser {
   readonly email: string;
@@ -79,22 +79,24 @@ const actionForm = (action: string, targetEmail: string, label: string, danger =
 
 const userRow = (user: AdminUser, operator: boolean): Html => html`<tr>
   <td>${user.email}</td>
-  <td>${user.state}</td>
+  <td>${user.state === "expired" ? "invite expired" : user.state}</td>
   <td>${user.passkeys}</td>
   <td>${user.app ? "on" : "off"}</td>
   <td>${user.sessions}</td>
   <td>${when(user.lastSignIn)}</td>
   <td class="actions">
     ${
-      operator || user.state === "invited"
-        ? html`<span class="muted">${operator ? "operator" : ""}</span>`
-        : [
-            user.state === "disabled"
-              ? actionForm("Enable", user.email, "Enable")
-              : actionForm("Disable", user.email, "Disable", true),
-            actionForm("ResetFactors", user.email, "Reset factors", true),
-            actionForm("SignOutEverywhere", user.email, "Sign out everywhere"),
-          ]
+      operator
+        ? html`<span class="muted">operator</span>`
+        : user.state === "invited" || user.state === "expired"
+          ? actionForm("RevokeInvite", user.email, "Revoke invite", true)
+          : [
+              user.state === "disabled"
+                ? actionForm("Enable", user.email, "Enable")
+                : actionForm("Disable", user.email, "Disable", true),
+              actionForm("ResetFactors", user.email, "Reset factors", true),
+              actionForm("SignOutEverywhere", user.email, "Sign out everywhere"),
+            ]
     }
   </td>
 </tr>`;

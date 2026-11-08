@@ -165,4 +165,13 @@ export class Authenticator {
     this.#lastStep = step;
     return hotp(this.#key, step);
   }
+
+  async currentStepCode(): Promise<string> {
+    const stepOf = (now: number): number => Math.floor(now / PERIOD_MS);
+    while (stepOf(Date.now()) <= this.#lastStep || Date.now() % PERIOD_MS > PERIOD_MS - 5_000) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    this.#lastStep = stepOf(Date.now());
+    return hotp(this.#key, this.#lastStep);
+  }
 }

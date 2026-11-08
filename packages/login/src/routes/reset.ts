@@ -153,20 +153,16 @@ interface InviteRow {
   readonly email: string;
   readonly state: "Open" | "Redeemed" | "Replaced" | "Revoked";
   readonly issued_by: string;
-  readonly first_issued_at: number;
 }
 
-export const INVITE_RENEWAL_LIMIT_MS = 30 * 24 * 60 * 60_000;
-
-const renewable = (config: LoginConfig, invite: InviteRow, now: number): boolean =>
-  now - invite.first_issued_at <= INVITE_RENEWAL_LIMIT_MS &&
-  (invite.issued_by !== BOOTSTRAP_ISSUER || isOperator(config, invite.email));
+const renewable = (config: LoginConfig, invite: InviteRow): boolean =>
+  invite.issued_by !== BOOTSTRAP_ISSUER || isOperator(config, invite.email);
 
 const renew = async (deps: MailDeps, tokenHash: string, address: string): Promise<void> => {
   const { db } = deps;
   const now = Date.now();
   const invite = await db
-    .prepare("SELECT email, state, issued_by, first_issued_at FROM invite WHERE token_hash = ?")
+    .prepare("SELECT email, state, issued_by FROM invite WHERE token_hash = ?")
     .bind(tokenHash)
     .first<InviteRow>();
   const link =
@@ -202,8 +198,8 @@ const renew = async (deps: MailDeps, tokenHash: string, address: string): Promis
     await mailResetLink(db, deps.email, deps.config, account, now);
     return;
   }
-  if (invite === null || !renewable(deps.config, invite, now)) return;
-  const { token } = await issueInvite(db, email, invite.issued_by, invite.first_issued_at);
+  if (invite === null || !renewable(deps.config, invite)) return;
+  const { token } = await issueInvite(db, email, invite.issued_by);
   await sendInvite(deps.email, deps.config, email, token).then(warnRefused("fresh invite"));
 };
 

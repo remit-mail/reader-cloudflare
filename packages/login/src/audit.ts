@@ -22,10 +22,11 @@ export const auditStatement = (
   db: D1Database,
   entry: AuditEntry,
   at: number,
+  onlyAfterChange = false,
 ): D1PreparedStatement =>
   db
     .prepare(
-      "INSERT INTO audit_event (audit_event_id, at, actor, email, address, event, outcome, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO audit_event (audit_event_id, at, actor, email, address, event, outcome, client_id) ${onlyAfterChange ? "SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() > 0" : "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"}`,
     )
     .bind(
       randomId(),
