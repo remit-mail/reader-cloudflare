@@ -129,7 +129,6 @@ export const issueInvite = async (
   db: D1Database,
   email: string,
   issuedBy: string,
-  firstIssuedAt?: number,
 ): Promise<{ readonly inviteId: string; readonly token: string }> => {
   const now = Date.now();
   const token = randomToken();
@@ -142,18 +141,9 @@ export const issueInvite = async (
       .bind(now, email),
     db
       .prepare(
-        "INSERT INTO invite (invite_id, email, token_hash, state, created_at, first_issued_at, expires_at, state_changed_at, issued_by) VALUES (?, ?, ?, 'Open', ?, ?, ?, ?, ?)",
+        "INSERT INTO invite (invite_id, email, token_hash, state, created_at, expires_at, state_changed_at, issued_by) VALUES (?, ?, ?, 'Open', ?, ?, ?, ?)",
       )
-      .bind(
-        inviteId,
-        email,
-        await sha256Hex(token),
-        now,
-        firstIssuedAt ?? now,
-        now + INVITE_LIFE_MS,
-        now,
-        issuedBy,
-      ),
+      .bind(inviteId, email, await sha256Hex(token), now, now + INVITE_LIFE_MS, now, issuedBy),
   ]);
   return { inviteId, token };
 };

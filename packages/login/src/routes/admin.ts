@@ -78,10 +78,9 @@ const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
     .all<UserListRow>();
   const invited = await db
     .prepare(
-      "SELECT DISTINCT email FROM invite WHERE state = 'Open' AND expires_at > ? AND email NOT IN (SELECT lower(email) FROM user) ORDER BY email",
+      "SELECT email, MAX(expires_at) AS expires_at FROM invite WHERE state = 'Open' AND email NOT IN (SELECT lower(email) FROM user) GROUP BY email ORDER BY email",
     )
-    .bind(now)
-    .all<{ email: string }>();
+    .all<{ email: string; expires_at: number }>();
   const stateOf = (row: UserListRow): UserState => (row.banned ? "disabled" : "active");
   return [
     ...users.results.map((row) => ({
@@ -94,7 +93,7 @@ const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
     })),
     ...invited.results.map((row) => ({
       email: row.email,
-      state: "invited" as const,
+      state: row.expires_at > now ? ("invited" as const) : ("expired" as const),
       passkeys: 0,
       app: false,
       sessions: 0,
@@ -170,6 +169,7 @@ const AUDIT_EVENT: Readonly<Record<AdminAction, AuditEntry["event"]>> = {
   SignOutEverywhere: "SignOutEverywhere",
   RotateKeys: "KeysRotated",
   RevokeKeys: "KeysRevoked",
+  RevokeInvite: "InviteRevoked",
 };
 
 const refuse = async (
@@ -264,6 +264,19 @@ const runAction = async (
     }
     await audited.run();
     return { ok: true, message: `Invited ${targetEmail}.` };
+  }
+  if (action === "RevokeInvite") {
+    const revoked = await db
+      .prepare(
+        "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open' RETURNING invite_id",
+      )
+      .bind(now, targetEmail)
+      .all();
+    if (revoked.results.length === 0) {
+      return { ok: false, status: 404, message: `${targetEmail} has no pending invite.` };
+    }
+    await audited.run();
+    return { ok: true, message: `Revoked the invite of ${targetEmail}.` };
   }
   if (action === "RotateKeys") {
     await db.batch([

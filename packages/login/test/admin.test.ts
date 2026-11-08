@@ -2,14 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapOperators } from "../src/bootstrap";
 import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
+import { issueInvite } from "../src/routes/app";
+import { requestFreshLink } from "../src/routes/reset";
 import {
   addPasskeyRow,
   call,
   createUser,
+  fromAddress,
+  mailDeps,
+  mailsTo,
   OPERATOR,
   OTHER_OPERATOR,
   PASSWORD,
   type SignedIn,
+  settle,
   signIn,
   testEnv,
   totpCode,
@@ -251,6 +257,36 @@ describe("admin step-up", () => {
         OTHER_OPERATOR,
       ),
     ).toBe(3);
+  });
+
+  it("revokes a pending invite so it neither redeems nor renews", async () => {
+    const invitee = uniqueEmail("revoked-invite");
+    const { token } = await issueInvite(testEnv.DB, invitee, OPERATOR);
+    const stale = uniqueEmail("expired-invite");
+    await issueInvite(testEnv.DB, stale, OPERATOR);
+    await testEnv.DB.prepare("UPDATE invite SET expires_at = ? WHERE email = ?")
+      .bind(Date.now() - 1000, stale)
+      .run();
+    const page = await (await call("/admin", { cookie: operator.cookie })).text();
+    expect(page).toContain(`data-action="RevokeInvite" data-target="${invitee}"`);
+    expect(page).toContain(`data-action="RevokeInvite" data-target="${stale}"`);
+
+    const id = await openTotpChallenge(operator, "RevokeInvite", invitee);
+    const revoked = await act(operator, id, "RevokeInvite", invitee, await totpCode(step));
+    expect(revoked.status).toBe(200);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND event = 'InviteRevoked' AND outcome = 'Succeeded'",
+        OPERATOR,
+        invitee,
+      ),
+    ).toBe(1);
+
+    expect((await call("/app/invite/redeem", { body: { token } })).status).toBe(410);
+    const fresh = await requestFreshLink(mailDeps(), fromAddress(), { token });
+    expect(fresh.status).toBe(202);
+    await settle();
+    expect(mailsTo(invitee)).toHaveLength(0);
   });
 
   it("keeps an old signing key on rotate and drops every key on revoke", async () => {

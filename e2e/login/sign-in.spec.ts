@@ -278,3 +278,46 @@ test("a reset link on an app account lands on the second step", async ({ page })
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await completeAuthorization(page, auth, OPERATOR);
 });
+
+const REVOKED = "revoked@remit.test";
+
+const confirmWithApp = (page: Page): void => {
+  page.once("dialog", async (dialog) => {
+    await dialog.accept(await authenticator.currentStepCode());
+  });
+};
+
+test("an operator revokes an invite and its fresh link sends nothing", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(300_000);
+  await page.context().clearCookies();
+  await signIn(page, OPERATOR, RESET_PASSWORD);
+  await expect(page.getByRole("heading", { name: "Enter your app code" })).toBeVisible();
+  await page.locator("#code").fill(await authenticator.code());
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.waitForURL((url) => !url.href.startsWith(BASE_URL));
+
+  await page.goto(`${BASE_URL}/admin`);
+  const seen = sentMails().length;
+  await page.locator("#invite-email").fill(REVOKED);
+  confirmWithApp(page);
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  await expect(page.locator("#banner")).toContainText(`Invited ${REVOKED}.`, {
+    timeout: 70_000,
+  });
+  const token = new URL(await waitForInvite(request, seen, REVOKED)).hash.slice(1);
+
+  confirmWithApp(page);
+  await page.locator(`form[data-action="RevokeInvite"][data-target="${REVOKED}"] button`).click();
+  await expect(page.locator("#banner")).toContainText(`Revoked the invite of ${REVOKED}.`, {
+    timeout: 70_000,
+  });
+
+  const before = sentMails().length;
+  expect((await post(request, "/app/link/fresh", { token })).status()).toBe(202);
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  expect(sentMails()).toHaveLength(before);
+  expect((await post(request, "/app/invite/lookup", { token })).status()).toBe(410);
+});

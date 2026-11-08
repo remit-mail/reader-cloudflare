@@ -18,6 +18,7 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
   "SignOutEverywhere",
   "RotateKeys",
   "RevokeKeys",
+  "RevokeInvite",
 ];
 
 export const KEY_ACTIONS: ReadonlySet<AdminAction> = new Set(["RotateKeys", "RevokeKeys"]);

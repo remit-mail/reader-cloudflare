@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BOOTSTRAP_ISSUER } from "../src/bootstrap";
 import { issueInvite, revokeInvite } from "../src/routes/app";
-import {
-  INVITE_RENEWAL_LIMIT_MS,
-  issueResetLink,
-  requestFreshLink,
-  requestReset,
-} from "../src/routes/reset";
+import { issueResetLink, requestFreshLink, requestReset } from "../src/routes/reset";
 import {
   call,
   createUser,
@@ -107,30 +102,17 @@ describe("fresh link", () => {
     expect(sentCount()).toBe(before);
   });
 
-  it("stops renewing an invite 30 days after it was first sent", async () => {
+  it("renews an invite first sent long ago", async () => {
     const email = uniqueEmail("old-invite");
-    const first = await issueInvite(testEnv.DB, email, "operator@remit.test");
-    const firstIssuedAt = Date.now() - INVITE_RENEWAL_LIMIT_MS + 60_000;
-    await testEnv.DB.prepare("UPDATE invite SET first_issued_at = ? WHERE email = ?")
-      .bind(firstIssuedAt, email)
+    const { token } = await issueInvite(testEnv.DB, email, "operator@remit.test");
+    const longAgo = Date.now() - 365 * 24 * 60 * 60_000;
+    await testEnv.DB.prepare("UPDATE invite SET created_at = ?, expires_at = ? WHERE email = ?")
+      .bind(longAgo, longAgo + 7 * 24 * 60 * 60_000, email)
       .run();
-    await expire("invite", email);
-    await freshLink(first.token);
+    await freshLink(token);
     const renewed = linkIn(mailsTo(email).at(-1), "/invite");
     expect(renewed).toBeDefined();
-    const row = await testEnv.DB.prepare(
-      "SELECT first_issued_at FROM invite WHERE email = ? AND state = 'Open'",
-    )
-      .bind(email)
-      .first<{ first_issued_at: number }>();
-    expect(row?.first_issued_at).toBe(firstIssuedAt);
-
-    await testEnv.DB.prepare("UPDATE invite SET first_issued_at = ? WHERE email = ?")
-      .bind(Date.now() - INVITE_RENEWAL_LIMIT_MS - 1000, email)
-      .run();
-    await expire("invite", email);
-    await freshLink(renewed ?? "");
-    expect(mailsTo(email)).toHaveLength(1);
+    expect((await inviteLookup(renewed ?? "")).status).toBe(200);
   });
 
   it("does not renew a bootstrap invite whose address is no longer an operator", async () => {
