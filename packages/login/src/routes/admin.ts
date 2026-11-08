@@ -266,16 +266,17 @@ const runAction = async (
     return { ok: true, message: `Invited ${targetEmail}.` };
   }
   if (action === "RevokeInvite") {
-    const revoked = await db
-      .prepare(
-        "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open' RETURNING invite_id",
-      )
-      .bind(now, targetEmail)
-      .all();
-    if (revoked.results.length === 0) {
+    const [revoked] = await db.batch([
+      db
+        .prepare(
+          "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open'",
+        )
+        .bind(now, targetEmail),
+      auditStatement(db, entry, now, true),
+    ]);
+    if (revoked === undefined || revoked.meta.changes === 0) {
       return { ok: false, status: 404, message: `${targetEmail} has no pending invite.` };
     }
-    await audited.run();
     return { ok: true, message: `Revoked the invite of ${targetEmail}.` };
   }
   if (action === "RotateKeys") {
