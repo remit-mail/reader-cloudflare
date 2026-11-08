@@ -1,0 +1,1 @@
+ALTER TABLE `invite` DROP COLUMN `first_issued_at`;

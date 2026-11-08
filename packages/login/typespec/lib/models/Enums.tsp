@@ -21,6 +21,7 @@ enum AdminAction {
   SignOutEverywhere: "SignOutEverywhere",
   RotateKeys: "RotateKeys",
   RevokeKeys: "RevokeKeys",
+  RevokeInvite: "RevokeInvite",
 }
 
 enum StepUpMethod {
@@ -57,6 +58,7 @@ enum AuditEventKind {
   Enabled: "Enabled",
   KeysRotated: "KeysRotated",
   KeysRevoked: "KeysRevoked",
+  InviteRevoked: "InviteRevoked",
 }
 
 enum AuditOutcome {

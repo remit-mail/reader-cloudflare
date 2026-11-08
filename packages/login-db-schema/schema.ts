@@ -16,7 +16,6 @@ export const invites = sqliteTable(
     tokenHash: text("token_hash").notNull(),
     state: text("state").$type<"Open" | "Redeemed" | "Replaced" | "Revoked">().notNull(),
     createdAt: integer("created_at", { mode: "number" }).notNull(),
-    firstIssuedAt: integer("first_issued_at", { mode: "number" }).notNull().default(0),
     expiresAt: integer("expires_at", { mode: "number" }).notNull(),
     stateChangedAt: integer("state_changed_at", { mode: "number" }).notNull(),
     issuedBy: text("issued_by").notNull(),

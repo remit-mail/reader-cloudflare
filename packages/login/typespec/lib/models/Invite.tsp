@@ -22,7 +22,6 @@ model Invite {
   tokenHash: string;
   state: InviteState;
   createdAt: int64;
-  firstIssuedAt: int64 = 0;
   expiresAt: int64;
   stateChangedAt: int64;
   issuedBy: string;
