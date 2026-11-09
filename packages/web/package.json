@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@remit/api-http-client": "0.0.82",
-    "@remit/ui": "0.0.231",
-    "@remit/web-client": "0.0.336",
+    "@remit/ui": "0.0.232",
+    "@remit/web-client": "0.0.337",
     "lucide-react": "0.468.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
