@@ -10,7 +10,7 @@ const SecuritySettings = () => (
 export const securitySlot: SettingsSlot = {
   id: "security",
   label: "Security",
-  icon: <ShieldCheck aria-hidden />,
+  icon: <ShieldCheck className="size-4" aria-hidden />,
   Component: SecuritySettings,
   help: (
     <>
