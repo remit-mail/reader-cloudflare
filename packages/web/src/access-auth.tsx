@@ -12,7 +12,7 @@ type Probe =
 const IDENTITY_URL = "/cdn-cgi/access/get-identity";
 const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
 const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
-const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
+export const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
 const PROBE_INTERVAL_MS = 5 * 60_000;
 const RENEWAL_KEY = "remit-access-renewal-at";
 const RENEWAL_GUARD_MS = 60_000;
@@ -164,7 +164,7 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
       );
   }, []);
 
-  return <>{children({ email, signOut, securityUrl: SECURITY_URL })}</>;
+  return <>{children({ email, signOut })}</>;
 };
 
 export const accessAuthProvider: AuthProvider = {
