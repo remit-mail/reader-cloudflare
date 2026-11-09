@@ -1,6 +1,6 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Answer, get, post } from "../api";
+import { type Answer, get, post, readerOriginOf } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
 import {
   BackupCodeList,
@@ -78,6 +78,7 @@ export interface SecurityViewProps {
   readonly onNewCodes: (event: FormEvent<HTMLFormElement>) => void;
   readonly onTurnOff: (event: FormEvent<HTMLFormElement>) => void;
   readonly addApp: ReactNode;
+  readonly mailSecurityUrl: string | null;
 }
 
 const Section = ({ title, children }: { title: string; children: ReactNode }) => (
@@ -303,9 +304,10 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
 };
 
 export const SecurityView = (props: SecurityViewProps) => {
-  const { account, passkeys, notice, failure, onOpen } = props;
+  const { account, passkeys, notice, failure, onOpen, mailSecurityUrl } = props;
   return (
     <Page title="Security" wide>
+      {mailSecurityUrl === null ? null : <a href={mailSecurityUrl}>Back to mail</a>}
       <Muted>Signed in as {account.email}</Muted>
       {notice ? <Notice tone="success" title={notice} /> : null}
       {failure ? (
@@ -403,12 +405,18 @@ export const Security = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [dialog, setDialog] = useState<SecurityDialog | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mailSecurityUrl, setMailSecurityUrl] = useState<string | null>(null);
   const pending = useRef<(() => Promise<unknown>) | null>(null);
 
   const reload = useCallback(() => {
     loadAccount().then(setAccount);
   }, []);
   useEffect(reload, [reload]);
+  useEffect(() => {
+    readerOriginOf()
+      .then((origin) => setMailSecurityUrl(new URL("/settings/security", origin).toString()))
+      .catch(() => setMailSecurityUrl(null));
+  }, []);
 
   const run = async (
     change: () => Promise<Answer>,
@@ -531,6 +539,7 @@ export const Security = () => {
   return (
     <SecurityView
       account={account}
+      mailSecurityUrl={mailSecurityUrl}
       passkeys={passkeysSupported()}
       notice={notice}
       failure={failure}

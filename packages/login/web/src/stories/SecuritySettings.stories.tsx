@@ -49,6 +49,7 @@ const View = ({
     onNewCodes={hold}
     onTurnOff={hold}
     addApp={null}
+    mailSecurityUrl="http://localhost:8790/settings/security"
   />
 );
 
