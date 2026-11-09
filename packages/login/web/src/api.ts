@@ -112,7 +112,7 @@ export const FAILURE_EVENT = "login-failure";
 
 let readerOrigin: string | null = null;
 
-const readerOriginOf = async (): Promise<string> => {
+export const readerOriginOf = async (): Promise<string> => {
   if (readerOrigin !== null) return readerOrigin;
   const config = await get("/app/config");
   if (!config.ok || typeof config.body.readerOrigin !== "string") {
