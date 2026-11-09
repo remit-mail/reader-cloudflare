@@ -164,7 +164,7 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
       );
   }, []);
 
-  return <>{children({ email, signOut, securityUrl: SECURITY_URL })}</>;
+  return <>{children({ email, signOut })}</>;
 };
 
 export const accessAuthProvider: AuthProvider = {
