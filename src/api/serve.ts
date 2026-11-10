@@ -22,10 +22,12 @@ const quotaRefusing = (registry: Handlers): Handlers =>
     ),
   );
 
-const served = serveApi<QueueName>({
-  handlers: quotaRefusing(handlers),
-  publicHandlers,
-});
+let served: ReturnType<typeof serveApi<QueueName>> | undefined;
+
+const servedApi = (): ReturnType<typeof serveApi<QueueName>> => {
+  served ??= serveApi<QueueName>({ handlers: quotaRefusing(handlers), publicHandlers });
+  return served;
+};
 
 export const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
@@ -37,7 +39,7 @@ export const serveRequest = (
 ): Promise<Response> => {
   const url = new URL(request.url);
   url.pathname = url.pathname.slice(API_ROOT.length);
-  return served.handleFetch(
+  return servedApi().handleFetch(
     new Request(url, request),
     { config: apiConfig, client: async () => client, identity: async () => identity },
     correlationId,
