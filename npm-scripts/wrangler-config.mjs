@@ -72,6 +72,7 @@ export const renderWrangler = (base, outputs, config, stage) => {
   const bucket = only(base.r2_buckets, "MAIL", "R2 bucket");
   const secret = only(base.secrets_store_secrets, "MASTER_KEY", "Secrets Store secret");
   const microsoft = outputs.microsoft_oauth;
+  const classification = outputs.classification_default;
   const consumed = (consumer) =>
     mailSync || !MAIL_SERVER_FAMILIES.includes(queueFamilyOf(consumer.queue));
   return {
@@ -86,6 +87,7 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
       ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
+      ...(classification && { CLASSIFICATION_DEFAULT_PRESET: classification.preset }),
       ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
     },
     ...(captureLoginMail && {
@@ -126,6 +128,15 @@ export const renderWrangler = (base, outputs, config, stage) => {
               binding: "MSOAUTH_CLIENT_SECRET",
               store_id: outputs.secrets_store_id,
               secret_name: microsoft.secret_name,
+            },
+          ]
+        : []),
+      ...(classification
+        ? [
+            {
+              binding: "CLASSIFICATION_DEFAULT_API_KEY",
+              store_id: outputs.secrets_store_id,
+              secret_name: classification.secret_name,
             },
           ]
         : []),

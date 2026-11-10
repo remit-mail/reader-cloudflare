@@ -318,6 +318,11 @@
           "binding": "MSOAUTH_CLIENT_SECRET",
           "store_id": "00000000000000000000000000000000",
           "secret_name": "MSOAUTH_CLIENT_SECRET"
+        },
+        {
+          "binding": "CLASSIFICATION_DEFAULT_API_KEY",
+          "store_id": "00000000000000000000000000000000",
+          "secret_name": "CLASSIFICATION_DEFAULT_API_KEY"
         }
       ]
     }
