@@ -2,6 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "reader-cloudflare",
   "main": "src/index.ts",
+  "alias": {
+    "ajv": "./src/build/unused/ajv.ts",
+    "openapi-schema-validator": "./src/build/unused/openapi-schema-validator.ts",
+    "socks": "./src/build/unused/socks.ts"
+  },
   "build": {
     "command": "npm run build"
   },
@@ -13,6 +18,8 @@
   },
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
+  "upload_source_maps": true,
   "workers_dev": false,
   "observability": {
     "enabled": true
