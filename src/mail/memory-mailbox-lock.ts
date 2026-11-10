@@ -1,5 +1,6 @@
 import type {
   IMailboxLockRepository,
+  MailboxLease,
   MailboxLockItem,
   WithMailboxLockResult,
 } from "@remit/data-ports";
@@ -8,6 +9,8 @@ import type { SqliteRepositories } from "@remit/drizzle-service";
 export type TenantRepositories = Omit<SqliteRepositories, "mailboxLock"> & {
   readonly mailboxLock: IMailboxLockRepository;
 };
+
+const heldUntilReleased: MailboxLease = { renew: async () => {} };
 
 const keyOf = (mailboxId: string, eventName: string): string => `${mailboxId}\u0000${eventName}`;
 
@@ -53,13 +56,13 @@ export class MemoryMailboxLock implements IMailboxLockRepository {
     mailboxId: string,
     eventName: string,
     accountId: string,
-    operation: () => Promise<T>,
+    operation: (lease: MailboxLease) => Promise<T>,
     options?: { lockId?: string },
   ): Promise<WithMailboxLockResult<T>> {
     const lockId = options?.lockId ?? crypto.randomUUID();
     const acquired = await this.tryAcquireLock(mailboxId, eventName, accountId, lockId, 0);
     if (!acquired) return { executed: false };
-    return operation()
+    return operation(heldUntilReleased)
       .then((result) => ({ executed: true as const, result }))
       .finally(() => this.releaseLock(accountId, mailboxId, eventName, lockId));
   }
