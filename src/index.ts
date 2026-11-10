@@ -49,8 +49,6 @@ export { TenantMail as TenantMailV3 } from "./mail/tenant-mail";
 
 installRemitLogger();
 
-const operations = api.init();
-
 const CORRELATION_HEADER = "x-correlation-id";
 const INBOUND_CORRELATION = /^[A-Za-z0-9._:-]{1,128}$/;
 
@@ -228,8 +226,7 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   return env.ASSETS.fetch(request);
 };
 
-const operationOf = async (method: string, url: URL): Promise<string> => {
-  await operations;
+const operationOf = (method: string, url: URL): string => {
   const operation = api.matchOperation({
     method,
     path: url.pathname.slice(API_ROOT.length),
@@ -240,7 +237,7 @@ const operationOf = async (method: string, url: URL): Promise<string> => {
 
 const routeOf = (method: string, url: URL): Promise<string> => {
   if (url.pathname === LOGIN_MAIL_PATH) return Promise.resolve("login-mail");
-  if (url.pathname.startsWith("/api/")) return operationOf(method, url);
+  if (url.pathname.startsWith("/api/")) return Promise.resolve(operationOf(method, url));
   if (isContentPath(url.pathname)) return Promise.resolve("content");
   if (isUploadPath(url.pathname)) return Promise.resolve("upload");
   return Promise.resolve("assets");
