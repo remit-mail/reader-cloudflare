@@ -1,6 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { CLASSIFICATION_PRESETS } from "@remit/data-ports/classification-presets";
-import { ClassificationPresetId } from "@remit/domain-enums";
 import { z } from "zod";
 import { r2ObjectText } from "./cf-api.mjs";
 import { PROJECT } from "./env.mjs";
@@ -92,12 +90,7 @@ export const deploySecretsSchema = z
       .optional(),
     classification: z
       .object({
-        preset: z
-          .enum(Object.values(ClassificationPresetId))
-          .refine(
-            (preset) => CLASSIFICATION_PRESETS[preset].defaultBaseUrl !== undefined,
-            "a preset with a default base URL",
-          ),
+        preset: z.string().min(1),
         api_key: z.string().min(1),
       })
       .strict()

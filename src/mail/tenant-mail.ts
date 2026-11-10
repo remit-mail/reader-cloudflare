@@ -5,6 +5,7 @@ import {
   processAccountFanoutEvent,
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
+import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
@@ -33,7 +34,6 @@ import { type ConsumeReport, log, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
-import { classificationDefaultOf } from "./classification-default";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { MemoryMailboxLock, type TenantRepositories } from "./memory-mailbox-lock";
 import { metered, meteredPool } from "./pool";
@@ -60,6 +60,18 @@ interface Composed {
   readonly send: SendMessageContext;
   readonly purge: AccountPurgeContext;
 }
+
+const classificationDefaultOf = async (
+  env: Pick<Env, "CLASSIFICATION_DEFAULT_PRESET" | "CLASSIFICATION_DEFAULT_API_KEY">,
+): Promise<ClassificationDeploymentDefault> => {
+  if (env.CLASSIFICATION_DEFAULT_PRESET === undefined) return { state: "None" };
+  if (env.CLASSIFICATION_DEFAULT_API_KEY === undefined) return { state: "None" };
+  return classificationDefaultFromEnv({
+    CLASSIFICATION_DEFAULT_PRESET: env.CLASSIFICATION_DEFAULT_PRESET,
+    CLASSIFICATION_DEFAULT_API_KEY: await env.CLASSIFICATION_DEFAULT_API_KEY.get(),
+    CLASSIFICATION_DEFAULT_ENABLED: "true",
+  });
+};
 
 const accountOf = (event: ReaderEvent): Record<string, string> =>
   "accountId" in event && typeof event.accountId === "string" ? { accountId: event.accountId } : {};
