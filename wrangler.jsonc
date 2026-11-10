@@ -13,6 +13,8 @@
   },
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
+  "minify": true,
+  "upload_source_maps": true,
   "workers_dev": false,
   "observability": {
     "enabled": true
