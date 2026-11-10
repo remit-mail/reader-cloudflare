@@ -1,5 +1,5 @@
 import { connect } from "cloudflare:sockets";
-import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
+import type { ConnectionScopeFactory, MailTransports } from "@remit/backend/create-remit-client";
 import {
   type ConnectImap,
   type ConnectionPool,
@@ -13,7 +13,7 @@ import { allowsPlaintext } from "./plaintext";
 
 type SocketsTransport = typeof createSocketsTransport;
 
-export type WorkersTransport = (host: string, secure: boolean) => ImapTransport;
+export type WorkersTransport = MailTransports["imap"];
 
 const workersSockets = (sockets: SocketsTransport): ImapTransport =>
   sockets((address, options) =>

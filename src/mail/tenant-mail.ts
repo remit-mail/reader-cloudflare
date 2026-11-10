@@ -182,6 +182,7 @@ export class TenantMail extends DurableObject<Env> {
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
   private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
+  private workersTransport: Promise<WorkersTransport> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -312,10 +313,20 @@ export class TenantMail extends DurableObject<Env> {
     return this.classificationDefault;
   }
 
+  private imapTransport(): Promise<WorkersTransport> {
+    if (this.workersTransport === null) {
+      this.workersTransport = loadWorkersTransport().catch((error: unknown) => {
+        this.workersTransport = null;
+        throw error;
+      });
+    }
+    return this.workersTransport;
+  }
+
   private async compose(tenantId: string): Promise<Composed> {
     const [classificationDefault, transport] = await Promise.all([
       this.deploymentClassification(),
-      loadWorkersTransport(),
+      this.imapTransport(),
     ]);
     if (this.composed !== null) {
       if (this.composed.tenantId !== tenantId) {
