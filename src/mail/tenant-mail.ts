@@ -302,6 +302,7 @@ export class TenantMail extends DurableObject<Env> {
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
       mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },
+      classificationDefault: { state: "None" },
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(
