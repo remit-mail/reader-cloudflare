@@ -64,6 +64,16 @@ variable "msoauth" {
   sensitive   = true
 }
 
+variable "classification" {
+  type = object({
+    preset  = string
+    api_key = string
+  })
+  description = "Deployment default of the mail classifier for accounts without their own key; its key goes to the Secrets Store as CLASSIFICATION_DEFAULT_API_KEY. classification in deploy.secrets.json; null leaves classification off by default."
+  default     = null
+  sensitive   = true
+}
+
 variable "login_hostname" {
   type        = string
   description = "Custom domain of the login Worker, the OIDC identity provider Access trusts; no Access application may cover it. login_hostname in deploy.config.json for prod, dev_login_hostname for dev."

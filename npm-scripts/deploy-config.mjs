@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { CLASSIFICATION_PRESETS } from "@remit/data-ports/classification-presets";
+import { ClassificationPresetId } from "@remit/domain-enums";
 import { z } from "zod";
 import { r2ObjectText } from "./cf-api.mjs";
 import { PROJECT } from "./env.mjs";
@@ -86,6 +88,18 @@ export const deploySecretsSchema = z
   .object({
     msoauth: z
       .object({ client_id: z.string().min(1), client_secret: z.string().min(1) })
+      .strict()
+      .optional(),
+    classification: z
+      .object({
+        preset: z
+          .enum(Object.values(ClassificationPresetId))
+          .refine(
+            (preset) => CLASSIFICATION_PRESETS[preset].defaultBaseUrl !== undefined,
+            "a preset with a default base URL",
+          ),
+        api_key: z.string().min(1),
+      })
       .strict()
       .optional(),
   })
@@ -177,11 +191,11 @@ export const readDeploySecrets = async (token, accountId) => {
 };
 
 export const stageConfig = (
-  { dev_app_hostname, dev_login_hostname, dev_email_sender, msoauth, ...shared },
+  { dev_app_hostname, dev_login_hostname, dev_email_sender, msoauth, classification, ...shared },
   stage,
 ) =>
   stage === PROD
-    ? { ...shared, ...(msoauth && { msoauth }) }
+    ? { ...shared, ...(msoauth && { msoauth }), ...(classification && { classification }) }
     : {
         ...shared,
         app_hostname: dev_app_hostname,
@@ -209,6 +223,7 @@ export const configLiterals = ({
   email_sender,
   dev_email_sender,
   msoauth,
+  classification,
   ...rest
 }) => {
   const emails = [alert_email, ...operator_emails, email_sender, dev_email_sender];
@@ -216,6 +231,7 @@ export const configLiterals = ({
     ...new Set([
       ...Object.values(rest),
       ...Object.values(msoauth ?? {}),
+      ...(classification ? [classification.api_key] : []),
       ...emails,
       ...emails.map((email) => email.split("@")[1]),
     ]),

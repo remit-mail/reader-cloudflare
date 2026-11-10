@@ -23,6 +23,8 @@ export interface Env {
   readonly MSOAUTH_CLIENT_ID?: string;
   readonly MSOAUTH_CLIENT_SECRET?: SecretsStoreSecret;
   readonly MSOAUTH_OVERRIDES?: string;
+  readonly CLASSIFICATION_DEFAULT_PRESET?: string;
+  readonly CLASSIFICATION_DEFAULT_API_KEY?: SecretsStoreSecret;
   readonly LOGIN_MAIL?: LoginMailReader;
   readonly LOGIN_MAIL_READER?: string;
 }

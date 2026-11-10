@@ -86,6 +86,14 @@ output "microsoft_oauth" {
   } : null
 }
 
+output "classification_default" {
+  description = "CLASSIFICATION_DEFAULT_PRESET and the CLASSIFICATION_DEFAULT_API_KEY binding in the rendered wrangler.deploy.jsonc; null when the deploy secrets set no classifier."
+  value = local.classification_default ? {
+    preset      = nonsensitive(var.classification.preset)
+    secret_name = cloudflare_secrets_store_secret.classification_default_api_key[0].name
+  } : null
+}
+
 output "login_worker_name" {
   description = "name in the rendered packages/login/wrangler.deploy.jsonc."
   value       = cloudflare_worker.login.name

@@ -8,6 +8,7 @@ import {
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
+import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
@@ -32,6 +33,7 @@ import { type ConsumeReport, log, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
+import { classificationDefaultOf } from "./classification-default";
 import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
 import { MemoryMailboxLock, type TenantRepositories } from "./memory-mailbox-lock";
 import { metered, meteredPool } from "./pool";
@@ -163,6 +165,7 @@ export class TenantMail extends DurableObject<Env> {
   private readonly db: DrizzleSqliteDODatabase;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
+  private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -183,7 +186,12 @@ export class TenantMail extends DurableObject<Env> {
     return withLogContext({ correlationId, tenantId: identity.sub }, () =>
       served(async () => {
         await this.bootstrap(identity.sub);
-        return serveRequest(request, identity, this.compose(identity.sub).client, correlationId);
+        return serveRequest(
+          request,
+          identity,
+          (await this.compose(identity.sub)).client,
+          correlationId,
+        );
       }),
     );
   }
@@ -202,7 +210,9 @@ export class TenantMail extends DurableObject<Env> {
 
   async publicApi(request: Request, tenantId: string, correlationId: string): Promise<Response> {
     return withLogContext({ correlationId, tenantId }, () =>
-      served(() => serveRequest(request, ANONYMOUS, this.compose(tenantId).client, correlationId)),
+      served(async () =>
+        serveRequest(request, ANONYMOUS, (await this.compose(tenantId)).client, correlationId),
+      ),
     );
   }
 
@@ -235,7 +245,7 @@ export class TenantMail extends DurableObject<Env> {
   }
 
   async bodyReadMiss(tenantId: string, input: BodyReadMissInput): Promise<BodyReadMiss> {
-    return resolveBodyReadMiss(this.compose(tenantId).client, input);
+    return resolveBodyReadMiss((await this.compose(tenantId)).client, input);
   }
 
   async schedulerTick(
@@ -243,8 +253,8 @@ export class TenantMail extends DurableObject<Env> {
     now: number,
     correlationId: string,
   ): Promise<SchedulerTickResult> {
-    return withLogContext({ correlationId, tenantId }, () => {
-      const composed = this.compose(tenantId);
+    return withLogContext({ correlationId, tenantId }, async () => {
+      const composed = await this.compose(tenantId);
       return schedulerTick(composed.client, composed.process, now);
     });
   }
@@ -255,7 +265,7 @@ export class TenantMail extends DurableObject<Env> {
     tenantId: string,
     attempts: number,
   ): Promise<void> {
-    const composed = this.compose(tenantId);
+    const composed = await this.compose(tenantId);
     switch (family) {
       case "fanout":
         return consumeFanout(event, composed);
@@ -277,14 +287,25 @@ export class TenantMail extends DurableObject<Env> {
     });
   }
 
-  private compose(tenantId: string): Composed {
+  private deploymentClassification(): Promise<ClassificationDeploymentDefault> {
+    if (this.classificationDefault === null) {
+      this.classificationDefault = classificationDefaultOf(this.env).catch((error: unknown) => {
+        this.classificationDefault = null;
+        throw error;
+      });
+    }
+    return this.classificationDefault;
+  }
+
+  private async compose(tenantId: string): Promise<Composed> {
+    const classificationDefault = await this.deploymentClassification();
     if (this.composed !== null) {
       if (this.composed.tenantId !== tenantId) {
         throw new Error(`mail object of ${this.composed.tenantId} refused tenant ${tenantId}`);
       }
       return this.composed;
     }
-    const client = this.clientOf(tenantId);
+    const client = this.clientOf(tenantId, classificationDefault);
     this.composed = {
       tenantId,
       client,
@@ -295,14 +316,17 @@ export class TenantMail extends DurableObject<Env> {
     return this.composed;
   }
 
-  private clientOf(tenantId: string): RemitClient {
+  private clientOf(
+    tenantId: string,
+    classificationDefault: ClassificationDeploymentDefault,
+  ): RemitClient {
     return createRemitClient({
       repositories: this.mail,
       storage: this.storage,
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(this.pool),
       mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },
-      classificationDefault: { state: "None" },
+      classificationDefault,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(
