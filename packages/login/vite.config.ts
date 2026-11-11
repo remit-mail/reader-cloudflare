@@ -13,6 +13,8 @@ export default defineConfig({
     assetsInlineLimit: 0,
     modulePreload: { polyfill: false },
     rollupOptions: {
+      // Rollup's default of 1000 open files exhausts the 1024 descriptor limit on Workers Builds.
+      maxParallelFileOps: 20,
       input: {
         main: resolve(import.meta.dirname, "web/index.html"),
         admin: resolve(import.meta.dirname, "web/src/admin.ts"),
