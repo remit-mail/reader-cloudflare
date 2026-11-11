@@ -28,17 +28,16 @@ const serviceTokenTenant = async (request: Request, env: Env): Promise<McpBearer
 export const verifyMcpBearer = async (
   request: Request,
   auth: McpAuth,
-  origin: string,
   env: Env,
 ): Promise<McpBearerResult> => {
   const bearer = bearerOf(request);
   if (bearer === undefined) return serviceTokenTenant(request, env);
-  const verification = await createBetterAuthTokenVerifier(auth, origin).verify(bearer);
+  const verification = await createBetterAuthTokenVerifier(auth, env.PUBLIC_ORIGIN).verify(bearer);
   if (!verification.ok) return verification;
   const subject = verification.principal.userId;
   return {
     ok: true,
-    tenant: { tenantId: subject, accountConfigId: deriveAccountConfigId(subject), email: subject },
+    tenant: { tenantId: subject, accountConfigId: deriveAccountConfigId(subject), email: "" },
     principal: verification.principal,
   };
 };
