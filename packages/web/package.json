@@ -10,7 +10,6 @@
     "@remit/api-http-client": "0.0.95",
     "@remit/ui": "0.0.237",
     "@remit/web-client": "0.0.346",
-    "lucide-react": "0.468.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
