@@ -86,6 +86,7 @@ const consumeFanout = (event: ReaderEvent, composed: Composed): Promise<void> =>
     case "OrganizeJob":
     case "SenderCategoryBackApply":
     case "JunkPlacementReevaluation":
+    case "SenderNeverSpamBackApply":
       return processAccountFanoutEvent(event, { client: composed.client });
     case "AccountExport":
       return processAccountExportEvent(event, { client: composed.client });
