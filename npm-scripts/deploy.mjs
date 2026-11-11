@@ -125,20 +125,15 @@ const deployStage = async (stage) => {
     ]),
   );
 
-  await ensureStoreSecret({
-    token: objects.CLOUDFLARE_TOFU_TOKEN,
-    accountId,
-    storeId: outputs.secrets_store_id,
-    name: loginAuthSecretName(stage),
-    comment: `better-auth secret of the ${PROJECT} login Worker; delete it and deploy to rotate`,
-  });
-  await ensureStoreSecret({
-    token: objects.CLOUDFLARE_TOFU_TOKEN,
-    accountId,
-    storeId: outputs.secrets_store_id,
-    name: mcpAuthSecretName(stage),
-    comment: `better-auth secret of the ${PROJECT} MCP server; delete it and deploy to rotate`,
-  });
+  for (const name of [loginAuthSecretName(stage), mcpAuthSecretName(stage)]) {
+    await ensureStoreSecret({
+      token: objects.CLOUDFLARE_TOFU_TOKEN,
+      accountId,
+      storeId: outputs.secrets_store_id,
+      name,
+      comment: `better-auth secret of ${PROJECT}; delete it and deploy to rotate`,
+    });
+  }
 
   const rendered = writeWranglerDeploy(outputs, config, stage);
   console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${outputs.app_hostname}`);

@@ -186,6 +186,11 @@
       "binding": "MASTER_KEY",
       "store_id": "00000000000000000000000000000000",
       "secret_name": "MASTER_KEY"
+    },
+    {
+      "binding": "MCP_AUTH_SECRET",
+      "store_id": "00000000000000000000000000000000",
+      "secret_name": "MCP_AUTH_SECRET"
     }
   ],
   "env": {

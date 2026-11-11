@@ -264,60 +264,28 @@ const main = async () => {
       ],
       { env },
     );
-    run(
-      bin("wrangler"),
-      [
-        "secrets-store",
-        "secret",
-        "create",
-        MASTER_KEY_STORE,
-        "--name",
-        "MASTER_KEY",
-        "--scopes",
-        "workers",
-        "--value",
-        randomBytes(32).toString("base64"),
-        "--persist-to",
-        stateDir,
-      ],
-      { env },
-    );
-    run(
-      bin("wrangler"),
-      [
-        "secrets-store",
-        "secret",
-        "create",
-        MASTER_KEY_STORE,
-        "--name",
-        "MSOAUTH_CLIENT_SECRET",
-        "--scopes",
-        "workers",
-        "--value",
-        readerEnv.MSOAUTH_CLIENT_SECRET,
-        "--persist-to",
-        stateDir,
-      ],
-      { env },
-    );
-    run(
-      bin("wrangler"),
-      [
-        "secrets-store",
-        "secret",
-        "create",
-        MASTER_KEY_STORE,
-        "--name",
-        "MCP_AUTH_SECRET",
-        "--scopes",
-        "workers",
-        "--value",
-        randomBytes(32).toString("base64"),
-        "--persist-to",
-        stateDir,
-      ],
-      { env },
-    );
+    const createLocalSecret = (name, value) =>
+      run(
+        bin("wrangler"),
+        [
+          "secrets-store",
+          "secret",
+          "create",
+          MASTER_KEY_STORE,
+          "--name",
+          name,
+          "--scopes",
+          "workers",
+          "--value",
+          value,
+          "--persist-to",
+          stateDir,
+        ],
+        { env },
+      );
+    createLocalSecret("MASTER_KEY", randomBytes(32).toString("base64"));
+    createLocalSecret("MSOAUTH_CLIENT_SECRET", readerEnv.MSOAUTH_CLIENT_SECRET);
+    createLocalSecret("MCP_AUTH_SECRET", randomBytes(32).toString("base64"));
     xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-shim.mjs")], {
       cwd: root,
       env,
