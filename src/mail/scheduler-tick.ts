@@ -29,7 +29,6 @@ export const schedulerTick = (
     tickIntervalMs: TICK_INTERVAL_MS,
     now,
     sweepAttachments: buildAttachmentSweep(client, context.log),
-    enqueueJunkReevaluation: async () => false,
     redriveStrandedPlacements: (account, tickNow) =>
       redriveStrandedPlacements({ client, emit, log: context.log }, account, tickNow),
   });

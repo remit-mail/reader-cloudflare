@@ -38,7 +38,6 @@ export const FAMILY_OF = {
   AccountExport: "fanout",
   OrganizeJob: "fanout",
   SenderCategoryBackApply: "fanout",
-  JunkPlacementReevaluation: "fanout",
   SenderNeverSpamBackApply: "fanout",
 } as const satisfies Record<ReaderEventType, QueueFamily>;
 
