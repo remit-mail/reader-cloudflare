@@ -1,4 +1,19 @@
 export {
+  mcp_account as mcpAccount,
+  mcp_device_code as mcpDeviceCode,
+  mcp_jwks as mcpJwks,
+  mcp_oauth_access_token as mcpOauthAccessToken,
+  mcp_oauth_client as mcpOauthClient,
+  mcp_oauth_client_assertion as mcpOauthClientAssertion,
+  mcp_oauth_client_resource as mcpOauthClientResource,
+  mcp_oauth_consent as mcpOauthConsent,
+  mcp_oauth_refresh_token as mcpOauthRefreshToken,
+  mcp_oauth_resource as mcpOauthResource,
+  mcp_session as mcpSession,
+  mcp_user as mcpUser,
+  mcp_verification as mcpVerification,
+} from "@remit/drizzle-service/schema-sets/mcp";
+export {
   accountConfigs,
   accountExportRequests,
   accountSettings,
