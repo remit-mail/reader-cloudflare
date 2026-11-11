@@ -1,5 +1,5 @@
 import { connect } from "cloudflare:sockets";
-import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
+import type { ConnectionScopeFactory, MailTransports } from "@remit/backend/create-remit-client";
 import {
   type ConnectImap,
   type ConnectionPool,
@@ -7,46 +7,57 @@ import {
 } from "@remit/imap-worker/process";
 import { logger } from "@remit/logger";
 import { connectionScope, type ImapTransport } from "@remit/mailbox-service";
-import { createSocketsTransport } from "imapflow";
+import type { createSocketsTransport } from "imapflow";
 import { microsoftTokens } from "../api/config";
 import { allowsPlaintext } from "./plaintext";
 
-const workersSockets = (): ImapTransport =>
-  createSocketsTransport((address, options) =>
+type SocketsTransport = typeof createSocketsTransport;
+
+export type WorkersTransport = MailTransports["imap"];
+
+const workersSockets = (sockets: SocketsTransport): ImapTransport =>
+  sockets((address, options) =>
     connect(address, {
       allowHalfOpen: options?.allowHalfOpen ?? false,
       secureTransport: options?.secureTransport ?? "off",
     }),
   );
 
-const socketsTransport = (): ImapTransport => {
-  const sockets = workersSockets();
-  const upgrade = sockets.upgrade;
+const socketsTransport = (sockets: SocketsTransport): ImapTransport => {
+  const transport = workersSockets(sockets);
+  const upgrade = transport.upgrade;
   if (upgrade === undefined) throw new Error("the cloudflare:sockets transport cannot start TLS");
   return {
-    ...sockets,
+    ...transport,
     upgrade: (socket, { tls: _verifiedByTheRuntime, ...options }, onSecure) =>
       upgrade(socket, options, onSecure),
   };
 };
 
-const cleartextTransport = (): ImapTransport => {
-  const { upgrade: _never, ...sockets } = workersSockets();
-  return sockets;
+const cleartextTransport = (sockets: SocketsTransport): ImapTransport => {
+  const { upgrade: _never, ...transport } = workersSockets(sockets);
+  return transport;
 };
 
-export const workersTransport = (host: string, secure: boolean): ImapTransport =>
-  allowsPlaintext(host, secure) ? cleartextTransport() : socketsTransport();
+export const loadWorkersTransport = async (): Promise<WorkersTransport> => {
+  const { createSocketsTransport } = await import("imapflow");
+  return (host, secure) =>
+    allowsPlaintext(host, secure)
+      ? cleartextTransport(createSocketsTransport)
+      : socketsTransport(createSocketsTransport);
+};
 
-export const connectImap: ConnectImap = (account, credentials) =>
-  connectionScope({
-    host: account.imapHost,
-    port: account.imapPort,
-    tls: account.imapTls,
-    user: account.username,
-    credentials,
-    transport: workersTransport(account.imapHost, account.imapTls),
-  });
+export const connectImap =
+  (transport: WorkersTransport): ConnectImap =>
+  (account, credentials) =>
+    connectionScope({
+      host: account.imapHost,
+      port: account.imapPort,
+      tls: account.imapTls,
+      user: account.username,
+      credentials,
+      transport: transport(account.imapHost, account.imapTls),
+    });
 
 export const pooledConnectionScope = (pool: ConnectionPool): ConnectionScopeFactory =>
   lifecycleConnectionScope(

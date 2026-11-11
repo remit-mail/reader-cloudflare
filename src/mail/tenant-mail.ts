@@ -34,7 +34,12 @@ import { type ConsumeReport, log, withLogContext } from "../log";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
-import { connectImap, pooledConnectionScope, workersTransport } from "./imap-connect";
+import {
+  connectImap,
+  loadWorkersTransport,
+  pooledConnectionScope,
+  type WorkersTransport,
+} from "./imap-connect";
 import { MemoryMailboxLock, type TenantRepositories } from "./memory-mailbox-lock";
 import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
@@ -173,11 +178,11 @@ export class TenantMail extends DurableObject<Env> {
   private readonly mail: TenantRepositories;
   private readonly stores: SqliteStores;
   private readonly storage: StorageService;
-  private readonly pool: ConnectionPool;
   private readonly db: DrizzleSqliteDODatabase;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
   private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
+  private workersTransport: Promise<WorkersTransport> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -190,7 +195,6 @@ export class TenantMail extends DurableObject<Env> {
       ...composeSqliteRepositories(this.stores, { storage: this.storage }),
       mailboxLock: new MemoryMailboxLock(),
     };
-    this.pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap);
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }
 
@@ -309,19 +313,33 @@ export class TenantMail extends DurableObject<Env> {
     return this.classificationDefault;
   }
 
+  private imapTransport(): Promise<WorkersTransport> {
+    if (this.workersTransport === null) {
+      this.workersTransport = loadWorkersTransport().catch((error: unknown) => {
+        this.workersTransport = null;
+        throw error;
+      });
+    }
+    return this.workersTransport;
+  }
+
   private async compose(tenantId: string): Promise<Composed> {
-    const classificationDefault = await this.deploymentClassification();
+    const [classificationDefault, transport] = await Promise.all([
+      this.deploymentClassification(),
+      this.imapTransport(),
+    ]);
     if (this.composed !== null) {
       if (this.composed.tenantId !== tenantId) {
         throw new Error(`mail object of ${this.composed.tenantId} refused tenant ${tenantId}`);
       }
       return this.composed;
     }
-    const client = this.clientOf(tenantId, classificationDefault);
+    const pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap(transport));
+    const client = this.clientOf(tenantId, classificationDefault, transport, pool);
     this.composed = {
       tenantId,
       client,
-      process: processContext(this.env, tenantId, client, this.pool),
+      process: processContext(this.env, tenantId, client, pool),
       send: sendContext(this.env, tenantId, this.mail, client),
       purge: purgeContext(this.env, tenantId, client, this.stores, () => this.wipe()),
     };
@@ -331,13 +349,15 @@ export class TenantMail extends DurableObject<Env> {
   private clientOf(
     tenantId: string,
     classificationDefault: ClassificationDeploymentDefault,
+    transport: WorkersTransport,
+    pool: ConnectionPool,
   ): RemitClient {
     return createRemitClient({
       repositories: this.mail,
       storage: this.storage,
       secrets: tenantSecrets(this.env, tenantId),
-      connectionScope: pooledConnectionScope(this.pool),
-      mailTransports: { imap: workersTransport, smtp: workersSmtpSocket },
+      connectionScope: pooledConnectionScope(pool),
+      mailTransports: { imap: transport, smtp: workersSmtpSocket },
       classificationDefault,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
