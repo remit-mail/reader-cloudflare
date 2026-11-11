@@ -2,6 +2,7 @@ import type { RemitClient } from "@remit/backend/client";
 import type { ProcessContext } from "@remit/imap-worker/process";
 import {
   buildAttachmentSweep,
+  buildJunkReevaluationEnqueue,
   createEmitEvent,
   DEFAULT_OFFLINE_INTERVAL_MS,
   redriveStrandedPlacements,
@@ -29,6 +30,7 @@ export const schedulerTick = (
     tickIntervalMs: TICK_INTERVAL_MS,
     now,
     sweepAttachments: buildAttachmentSweep(client, context.log),
+    enqueueJunkReevaluation: buildJunkReevaluationEnqueue(client),
     redriveStrandedPlacements: (account, tickNow) =>
       redriveStrandedPlacements({ client, emit, log: context.log }, account, tickNow),
   });
