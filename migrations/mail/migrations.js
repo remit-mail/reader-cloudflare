@@ -11,6 +11,7 @@ import m0009 from "./0009_drop_body_part_storage.sql";
 import m0010 from "./0010_thread_message_deleted_means_expunge.sql";
 import m0011 from "./0011_outbox_scheduling_part.sql";
 import m0012 from "./0012_thread_message_tenant_indexes.sql";
+import m0013 from "./0013_message_by_mailbox_internal_date.sql";
 import journal from "./meta/_journal.json";
 
 export default {
@@ -29,5 +30,6 @@ export default {
     m0010,
     m0011,
     m0012,
+    m0013,
   },
 };
