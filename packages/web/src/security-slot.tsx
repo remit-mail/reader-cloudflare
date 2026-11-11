@@ -1,6 +1,6 @@
 import { ButtonLink } from "@remit/ui";
+import { ShieldCheck } from "@remit/ui/icons";
 import type { SettingsSlot } from "@remit/web-client/shell";
-import { ShieldCheck } from "lucide-react";
 import { SECURITY_URL } from "./access-auth";
 
 const SecuritySettings = () => (
