@@ -1,4 +1,4 @@
-import { Button } from "@remit/ui";
+import { Button } from "@remit/ui/auth";
 import { Page, Text } from "../ui";
 
 export const SignOut = () => (

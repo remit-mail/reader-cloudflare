@@ -1,4 +1,4 @@
-import { Button, ButtonLink } from "@remit/ui";
+import { Button, ButtonLink } from "@remit/ui/auth";
 import { type FormEvent, useEffect, useState } from "react";
 import {
   type Answer,
