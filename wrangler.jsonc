@@ -323,6 +323,11 @@
           "binding": "CLASSIFICATION_DEFAULT_API_KEY",
           "store_id": "00000000000000000000000000000000",
           "secret_name": "CLASSIFICATION_DEFAULT_API_KEY"
+        },
+        {
+          "binding": "MCP_AUTH_SECRET",
+          "store_id": "00000000000000000000000000000000",
+          "secret_name": "MCP_AUTH_SECRET"
         }
       ]
     }

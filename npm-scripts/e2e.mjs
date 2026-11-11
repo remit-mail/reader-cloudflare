@@ -300,6 +300,24 @@ const main = async () => {
       ],
       { env },
     );
+    run(
+      bin("wrangler"),
+      [
+        "secrets-store",
+        "secret",
+        "create",
+        MASTER_KEY_STORE,
+        "--name",
+        "MCP_AUTH_SECRET",
+        "--scopes",
+        "workers",
+        "--value",
+        randomBytes(32).toString("base64"),
+        "--persist-to",
+        stateDir,
+      ],
+      { env },
+    );
     xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-shim.mjs")], {
       cwd: root,
       env,

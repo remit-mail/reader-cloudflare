@@ -11,14 +11,15 @@ import {
   tofuVars,
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
-import { ensureLoginSecret } from "./login-secret.mjs";
 import { oauthClientUpsertSql } from "./oauth-client.mjs";
 import { grantRunner } from "./runner-grant.mjs";
 import { DEV, PROD } from "./stages.mjs";
+import { ensureStoreSecret } from "./store-secret.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
 import {
   LOGIN_WRANGLER_DEPLOY_CONFIG,
   loginAuthSecretName,
+  mcpAuthSecretName,
   WRANGLER_DEPLOY_CONFIG,
   writeLoginWranglerDeploy,
   writeWranglerDeploy,
@@ -124,12 +125,19 @@ const deployStage = async (stage) => {
     ]),
   );
 
-  await ensureLoginSecret({
+  await ensureStoreSecret({
     token: objects.CLOUDFLARE_TOFU_TOKEN,
     accountId,
     storeId: outputs.secrets_store_id,
     name: loginAuthSecretName(stage),
-    project: PROJECT,
+    comment: `better-auth secret of the ${PROJECT} login Worker; delete it and deploy to rotate`,
+  });
+  await ensureStoreSecret({
+    token: objects.CLOUDFLARE_TOFU_TOKEN,
+    accountId,
+    storeId: outputs.secrets_store_id,
+    name: mcpAuthSecretName(stage),
+    comment: `better-auth secret of the ${PROJECT} MCP server; delete it and deploy to rotate`,
   });
 
   const rendered = writeWranglerDeploy(outputs, config, stage);

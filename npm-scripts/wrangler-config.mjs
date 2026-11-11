@@ -59,6 +59,9 @@ const capturesLoginMail = (stage) => {
   return captureLoginMail;
 };
 
+export const mcpAuthSecretName = (stage) =>
+  stage === PROD ? "MCP_AUTH_SECRET" : `${stage.toUpperCase()}_MCP_AUTH_SECRET`;
+
 export const renderWrangler = (base, outputs, config, stage) => {
   const { mailSync } = STAGES[stage];
   const captureLoginMail = capturesLoginMail(stage);
@@ -121,6 +124,11 @@ export const renderWrangler = (base, outputs, config, stage) => {
         ...secret,
         store_id: outputs.secrets_store_id,
         secret_name: outputs.master_key_secret_name,
+      },
+      {
+        binding: "MCP_AUTH_SECRET",
+        store_id: outputs.secrets_store_id,
+        secret_name: mcpAuthSecretName(stage),
       },
       ...(microsoft
         ? [
