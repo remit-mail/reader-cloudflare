@@ -66,6 +66,7 @@
     "@remit/api-http-client": "0.0.95",
     "@remit/api-openapi-spec": "0.0.96",
     "@remit/api-openapi-types": "0.0.100",
+    "@remit/auth-service": "0.2.0",
     "@remit/backend": "4.3.5",
     "@remit/calendar-service": "1.0.20",
     "@remit/config-format": "0.0.25",
