@@ -38,6 +38,7 @@ export const FAMILY_OF = {
   AccountExport: "fanout",
   OrganizeJob: "fanout",
   SenderCategoryBackApply: "fanout",
+  JunkPlacementReevaluation: "fanout",
 } as const satisfies Record<ReaderEventType, QueueFamily>;
 
 export const MAX_RETRIES = {
