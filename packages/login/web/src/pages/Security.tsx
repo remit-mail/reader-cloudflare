@@ -1,4 +1,4 @@
-import { Button, ButtonLink, Card, Dialog } from "@remit/ui";
+import { Button, ButtonLink, Card, Dialog } from "@remit/ui/auth";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type Answer, get, post, readerOriginOf } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";

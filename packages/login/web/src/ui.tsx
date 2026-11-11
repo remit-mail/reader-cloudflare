@@ -9,7 +9,7 @@ import {
   Input,
   type InputProps,
   PasswordInput,
-} from "@remit/ui";
+} from "@remit/ui/auth";
 import { type ReactNode, useState } from "react";
 import { reportUrl } from "./api";
 

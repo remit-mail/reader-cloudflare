@@ -1,4 +1,4 @@
-import { Button, ButtonLink } from "@remit/ui";
+import { Button, ButtonLink } from "@remit/ui/auth";
 import { useState } from "react";
 import { leave } from "./api";
 import { focusOnMount, Muted, Notice, Page, ReportLink, Text } from "./ui";
