@@ -2,11 +2,14 @@ import {
   AUTH_BASE_PATH,
   CONNECTED_APPS_PATH,
   CONSENT_PATH,
+  challenge,
+  createMcpPages,
   DEVICE_PATH,
   MCP_PATH,
   MCP_SCOPES,
   type McpPrincipal,
-  mcpResource,
+  type McpResourceConfig,
+  protectedResourceMetadata,
 } from "@remit/mcp-server/app";
 import { requireServiceTenant, type Tenant } from "../access";
 import { RATE_LIMIT_PERIOD_SECONDS } from "../api/host-limits";
@@ -38,21 +41,7 @@ export const isMcpMachinePath = (path: string): boolean =>
 const bearerOf = (request: Request): string | undefined =>
   /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
 
-const challenge = (env: Env, error?: string): Response =>
-  Response.json(
-    { error: error ?? "unauthorized", resource: mcpResource(env.PUBLIC_ORIGIN) },
-    {
-      status: 401,
-      headers: {
-        "www-authenticate": [
-          "Bearer",
-          ` resource_metadata="${env.PUBLIC_ORIGIN}${RESOURCE_METADATA_PATH}",`,
-          ` scope="${MCP_SCOPES.join(" ")}"`,
-          error ? `, error="${error}"` : "",
-        ].join(""),
-      },
-    },
-  );
+const resourceConfig = (env: Env): McpResourceConfig => ({ origin: env.PUBLIC_ORIGIN });
 
 const serveTools = async (
   request: Request,
@@ -82,11 +71,11 @@ export const serveMcpApi = async (request: Request, env: Env): Promise<Response>
 
 const serveBearer = async (request: Request, env: Env): Promise<Response> => {
   const bearer = bearerOf(request);
-  if (bearer === undefined) return challenge(env);
+  if (bearer === undefined) return challenge(resourceConfig(env), "unauthorized");
   const verified = await verifyMcpBearer(bearer, (await mcpAuth(env)).auth, env);
   if (!verified.ok) {
     log.warn("mcp refused", { reason: verified.reason });
-    return challenge(env, "invalid_token");
+    return challenge(resourceConfig(env), "invalid_token");
   }
   return serveTools(withConnectingIp(request), env, verified.tenant, verified.principal);
 };
@@ -99,15 +88,12 @@ export const serveMcpMachine = async (request: Request, env: Env): Promise<Respo
     return (await mcpAuth(env)).routes.serverMetadata(forwarded);
   }
   if (pathname === PROTECTED_RESOURCE_METADATA_PATH || pathname === RESOURCE_METADATA_PATH) {
-    return Response.json({
-      resource: mcpResource(env.PUBLIC_ORIGIN),
-      authorization_servers: [env.PUBLIC_ORIGIN],
-      scopes_supported: [...MCP_SCOPES],
-      bearer_methods_supported: ["header"],
-    });
+    return protectedResourceMetadata(resourceConfig(env));
   }
   return (await mcpAuth(env)).routes.handle(forwarded);
 };
 
-export const serveMcpPage = (request: Request, env: Env, tenantId: string): Promise<Response> =>
-  tenantMail(env, tenantId).mcpPage(withConnectingIp(request), tenantId, currentCorrelationId());
+export const serveMcpPage = async (request: Request, env: Env): Promise<Response> =>
+  createMcpPages({ origin: env.PUBLIC_ORIGIN, authRoutes: (await mcpAuth(env)).routes })(
+    withConnectingIp(request),
+  );

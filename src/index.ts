@@ -225,9 +225,7 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   if (url.pathname === MCP_API_PATH) return serveMcpApi(request, env);
   if (isMcpMachinePath(url.pathname)) return serveMcpMachine(request, env);
   if (isMcpPagePath(url.pathname)) {
-    return authenticated(request, env, url.pathname, (page, pageEnv, tenant) =>
-      serveMcpPage(page, pageEnv, tenant.tenantId),
-    );
+    return authenticated(request, env, url.pathname, serveMcpPage);
   }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
