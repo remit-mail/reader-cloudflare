@@ -58,6 +58,34 @@ check(
   `GET /api/config without a service token answered ${anonymous.status}`,
 );
 
+const authServer = await fetch(new URL("/.well-known/oauth-authorization-server", target.appUrl), {
+  headers: accessHeaders(target),
+  redirect: "manual",
+});
+const authServerType = authServer.headers.get("content-type") ?? "";
+const authServerIssuer =
+  authServer.ok && authServerType.includes("application/json")
+    ? ((await authServer.json()) as { issuer?: unknown }).issuer
+    : undefined;
+check(
+  "mcp authorization server metadata",
+  authServer.status === 200 && typeof authServerIssuer === "string",
+  `GET /.well-known/oauth-authorization-server answered ${authServer.status} ${authServerType} with issuer ${String(authServerIssuer)}`,
+);
+
+const mcpChallenge = await fetch(new URL("/mcp", target.appUrl), {
+  method: "POST",
+  headers: { ...accessHeaders(target), "content-type": "application/json" },
+  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+  redirect: "manual",
+});
+const challenge = mcpChallenge.headers.get("www-authenticate") ?? "";
+check(
+  "mcp refuses a call without a bearer",
+  mcpChallenge.status === 401 && challenge.includes("resource_metadata"),
+  `POST /mcp without a bearer answered ${mcpChallenge.status} with WWW-Authenticate ${JSON.stringify(challenge)}`,
+);
+
 const shell = await fetch(new URL("/calendar", target.appUrl), {
   headers: accessHeaders(target),
   redirect: "manual",
