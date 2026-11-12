@@ -13,11 +13,20 @@ import type { ClassificationDeploymentDefault } from "@remit/data-ports/classifi
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
+import { logger } from "@remit/logger";
 import {
   type BodyReadMiss,
   type BodyReadMissInput,
   resolveBodyReadMiss,
 } from "@remit/mailbox-service";
+import {
+  createBetterAuthTokenVerifier,
+  createMcpApp,
+  createMcpHandler,
+  type McpDeps,
+  type McpPrincipal,
+  mcpDepsOf,
+} from "@remit/mcp-server/app";
 import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/process";
 import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
@@ -31,6 +40,7 @@ import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, log, withLogContext } from "../log";
+import { mcpAuth } from "../mcp/auth";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
@@ -162,6 +172,19 @@ const consumeSmtp = (
   }
 };
 
+const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
+const FOLDER_POLL_INTERVAL_MS = 500;
+
+const mcpDeps = (client: RemitClient): McpDeps =>
+  mcpDepsOf(client, {
+    logger,
+    settle: {
+      settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
+      pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    },
+  });
+
 const served = (serve: () => Promise<Response>): Promise<Response> =>
   withD1Meter(async () => {
     const started = Date.now();
@@ -209,6 +232,36 @@ export class TenantMail extends DurableObject<Env> {
           (await this.compose(identity.sub)).client,
           correlationId,
         );
+      }),
+    );
+  }
+
+  async mcp(request: Request, principal: McpPrincipal, correlationId: string): Promise<Response> {
+    const tenantId = principal.userId;
+    return withLogContext({ correlationId, tenantId }, () =>
+      served(async () => {
+        await this.bootstrap(tenantId);
+        const { client } = await this.compose(tenantId);
+        return createMcpHandler(principal, mcpDeps(client))(request);
+      }),
+    );
+  }
+
+  async mcpPage(request: Request, tenantId: string, correlationId: string): Promise<Response> {
+    return withLogContext({ correlationId, tenantId }, () =>
+      served(async () => {
+        await this.bootstrap(tenantId);
+        const [{ client }, { auth, routes }] = await Promise.all([
+          this.compose(tenantId),
+          mcpAuth(this.env),
+        ]);
+        const origin = this.env.PUBLIC_ORIGIN;
+        return createMcpApp({
+          origin,
+          authRoutes: routes,
+          verifier: createBetterAuthTokenVerifier(auth, origin),
+          deps: mcpDeps(client),
+        })(request);
       }),
     );
   }
