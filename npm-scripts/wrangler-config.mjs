@@ -59,6 +59,9 @@ const capturesLoginMail = (stage) => {
   return captureLoginMail;
 };
 
+export const mcpAuthSecretName = (stage) =>
+  stage === PROD ? "MCP_AUTH_SECRET" : `${stage.toUpperCase()}_MCP_AUTH_SECRET`;
+
 export const renderWrangler = (base, outputs, config, stage) => {
   const { mailSync } = STAGES[stage];
   const captureLoginMail = capturesLoginMail(stage);
@@ -70,7 +73,10 @@ export const renderWrangler = (base, outputs, config, stage) => {
   };
   const database = only(base.d1_databases, "DB", "D1 database");
   const bucket = only(base.r2_buckets, "MAIL", "R2 bucket");
-  const secret = only(base.secrets_store_secrets, "MASTER_KEY", "Secrets Store secret");
+  const secret = base.secrets_store_secrets?.find(({ binding }) => binding === "MASTER_KEY");
+  if (secret === undefined) {
+    throw new Error("wrangler.jsonc must carry a Secrets Store secret bound as MASTER_KEY");
+  }
   const microsoft = outputs.microsoft_oauth;
   const classification = outputs.classification_default;
   const consumed = (consumer) =>
@@ -121,6 +127,11 @@ export const renderWrangler = (base, outputs, config, stage) => {
         ...secret,
         store_id: outputs.secrets_store_id,
         secret_name: outputs.master_key_secret_name,
+      },
+      {
+        binding: "MCP_AUTH_SECRET",
+        store_id: outputs.secrets_store_id,
+        secret_name: mcpAuthSecretName(stage),
       },
       ...(microsoft
         ? [

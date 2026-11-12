@@ -11,14 +11,15 @@ import {
   tofuVars,
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
-import { ensureLoginSecret } from "./login-secret.mjs";
 import { oauthClientUpsertSql } from "./oauth-client.mjs";
 import { grantRunner } from "./runner-grant.mjs";
 import { DEV, PROD } from "./stages.mjs";
+import { ensureStoreSecret } from "./store-secret.mjs";
 import { BUILDER_SECRETS_BUCKET, requireEnv, tofuEnv, tofuInit, tofuRunner } from "./tofu.mjs";
 import {
   LOGIN_WRANGLER_DEPLOY_CONFIG,
   loginAuthSecretName,
+  mcpAuthSecretName,
   WRANGLER_DEPLOY_CONFIG,
   writeLoginWranglerDeploy,
   writeWranglerDeploy,
@@ -124,13 +125,15 @@ const deployStage = async (stage) => {
     ]),
   );
 
-  await ensureLoginSecret({
-    token: objects.CLOUDFLARE_TOFU_TOKEN,
-    accountId,
-    storeId: outputs.secrets_store_id,
-    name: loginAuthSecretName(stage),
-    project: PROJECT,
-  });
+  for (const name of [loginAuthSecretName(stage), mcpAuthSecretName(stage)]) {
+    await ensureStoreSecret({
+      token: objects.CLOUDFLARE_TOFU_TOKEN,
+      accountId,
+      storeId: outputs.secrets_store_id,
+      name,
+      comment: `better-auth secret of ${PROJECT}; delete it and deploy to rotate`,
+    });
+  }
 
   const rendered = writeWranglerDeploy(outputs, config, stage);
   console.log(`rendered ${WRANGLER_DEPLOY_CONFIG} for ${rendered.name} on ${outputs.app_hostname}`);
