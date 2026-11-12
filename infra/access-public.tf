@@ -3,6 +3,15 @@ locals {
   public_paths = [
     "${var.app_hostname}/api/feeds/calendar/*",
     "${var.app_hostname}/api/accounts/oauth/microsoft/callback",
+    "${var.app_hostname}/.well-known/oauth-authorization-server",
+    "${var.app_hostname}/.well-known/oauth-protected-resource",
+    "${var.app_hostname}/.well-known/oauth-protected-resource/mcp",
+    "${var.app_hostname}/auth/oauth2/token",
+    "${var.app_hostname}/auth/oauth2/register",
+    "${var.app_hostname}/auth/oauth2/revoke",
+    "${var.app_hostname}/auth/device/code",
+    "${var.app_hostname}/auth/jwks",
+    "${var.app_hostname}/mcp",
   ]
 }
 
