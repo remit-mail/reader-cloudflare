@@ -144,7 +144,10 @@ const findKey = async (teamDomain: string, kid: string): Promise<CryptoKey | und
   return fresh.keys.get(kid);
 };
 
-const denied = (reason: string): TenantResult => ({ ok: false, reason });
+const denied = (reason: string): { readonly ok: false; readonly reason: string } => ({
+  ok: false,
+  reason,
+});
 
 const subjectOf = (claims: AccessClaims): string => claims.sub || (claims.common_name ?? "");
 
@@ -175,10 +178,11 @@ const devTenant = async (request: Request, email: string): Promise<TenantResult>
   return admitted(`dev-${toHex(digest).slice(0, 32)}`, email);
 };
 
-export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
-  if (env.ACCESS_DEV_IDENTITY !== undefined) {
-    return devTenant(request, request.headers.get(DEV_IDENTITY_HEADER) ?? env.ACCESS_DEV_IDENTITY);
-  }
+type ClaimsResult =
+  | { readonly ok: true; readonly claims: AccessClaims }
+  | { readonly ok: false; readonly reason: string };
+
+const verifiedClaims = async (request: Request, env: Env): Promise<ClaimsResult> => {
   const token = readToken(request);
   if (token === undefined) return denied("missing Access token");
   const parts = token.split(".");
@@ -214,7 +218,26 @@ export const requireTenant = async (request: Request, env: Env): Promise<TenantR
   if (claims.nbf !== undefined && claims.nbf - CLOCK_SKEW_S > now) {
     return denied("Access token not yet valid");
   }
-  const subject = subjectOf(claims);
+  return { ok: true, claims };
+};
+
+export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
+  if (env.ACCESS_DEV_IDENTITY !== undefined) {
+    return devTenant(request, request.headers.get(DEV_IDENTITY_HEADER) ?? env.ACCESS_DEV_IDENTITY);
+  }
+  const verified = await verifiedClaims(request, env);
+  if (!verified.ok) return verified;
+  const subject = subjectOf(verified.claims);
   if (subject === "") return denied("Access token names no subject");
-  return admitted(subject, claims.email || subject);
+  return admitted(subject, verified.claims.email || subject);
+};
+
+export const requireServiceTenant = async (request: Request, env: Env): Promise<TenantResult> => {
+  const verified = await verifiedClaims(request, env);
+  if (!verified.ok) return verified;
+  const { sub, common_name: commonName } = verified.claims;
+  if (sub !== "" || commonName === undefined || commonName === "") {
+    return denied("Access token is not a service token");
+  }
+  return admitted(commonName, commonName);
 };

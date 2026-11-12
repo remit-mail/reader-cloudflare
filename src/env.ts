@@ -12,6 +12,7 @@ export interface Env {
   readonly FANOUT_QUEUE: Queue<QueueEnvelope>;
   readonly BODY_QUEUE: Queue<QueueEnvelope>;
   readonly MASTER_KEY: SecretsStoreSecret;
+  readonly MCP_AUTH_SECRET: SecretsStoreSecret;
   readonly TENANT_MAIL: DurableObjectNamespace<TenantMail>;
   readonly TENANT_RATE_LIMIT: RateLimit;
   readonly CALENDAR_FEED_RATE_LIMIT: RateLimit;
