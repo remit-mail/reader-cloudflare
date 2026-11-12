@@ -1,5 +1,5 @@
-import { CLIENT_IP_HEADER } from "@remit/auth-service/constants";
 import {
+  CLIENT_IP_HEADER,
   createMcpAuth,
   type McpAuthServer,
   type McpIdentity,

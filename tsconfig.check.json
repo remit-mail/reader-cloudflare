@@ -3,8 +3,6 @@
   "compilerOptions": {
     "paths": {
       "@remit/account-worker/process": ["./.types/account-worker/src/process.d.ts"],
-      "@remit/auth-service": ["./.types/auth-service/src/index.d.ts"],
-      "@remit/auth-service/constants": ["./.types/auth-service/src/constants.d.ts"],
       "@remit/config-format": ["./.types/config-format/src/index.d.ts"],
       "@remit/config-transfer": ["./.types/config-transfer/src/index.d.ts"],
       "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"],

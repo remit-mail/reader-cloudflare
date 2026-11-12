@@ -16,7 +16,6 @@
   },
   "include": [
     "node_modules/@remit/account-worker/src",
-    "node_modules/@remit/auth-service/src",
     "node_modules/@remit/config-transfer/src",
     "node_modules/@remit/config-format/src",
     "node_modules/@remit/drizzle-service/src",
