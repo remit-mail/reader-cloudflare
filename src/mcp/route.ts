@@ -9,7 +9,6 @@ import {
   MCP_SCOPES,
   type McpPrincipal,
   type McpResourceConfig,
-  protectedResourceMetadata,
 } from "@remit/mcp-server/app";
 import { requireServiceTenant, type Tenant } from "../access";
 import { RATE_LIMIT_PERIOD_SECONDS } from "../api/host-limits";
@@ -80,20 +79,12 @@ const serveBearer = async (request: Request, env: Env): Promise<Response> => {
   return serveTools(withConnectingIp(request), env, verified.tenant, verified.principal);
 };
 
-export const serveMcpMachine = async (request: Request, env: Env): Promise<Response> => {
-  const { pathname } = new URL(request.url);
-  if (pathname === MCP_PATH) return serveBearer(request, env);
-  const forwarded = withConnectingIp(request);
-  if (pathname === AUTHORIZATION_SERVER_METADATA_PATH) {
-    return (await mcpAuth(env)).routes.serverMetadata(forwarded);
-  }
-  if (pathname === PROTECTED_RESOURCE_METADATA_PATH || pathname === RESOURCE_METADATA_PATH) {
-    return protectedResourceMetadata(resourceConfig(env));
-  }
-  return (await mcpAuth(env)).routes.handle(forwarded);
-};
-
-export const serveMcpPage = async (request: Request, env: Env): Promise<Response> =>
+const pages = async (request: Request, env: Env): Promise<Response> =>
   createMcpPages({ origin: env.PUBLIC_ORIGIN, authRoutes: (await mcpAuth(env)).routes })(
     withConnectingIp(request),
   );
+
+export const serveMcpMachine = (request: Request, env: Env): Promise<Response> =>
+  new URL(request.url).pathname === MCP_PATH ? serveBearer(request, env) : pages(request, env);
+
+export const serveMcpPage = pages;
