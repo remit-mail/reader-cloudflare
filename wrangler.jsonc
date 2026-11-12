@@ -19,7 +19,6 @@
       "/content/*",
       "/outbox-upload/*",
       "/mcp",
-      "/mcp/*",
       "/.well-known/*",
       "/auth/*",
       "/consent",

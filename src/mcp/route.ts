@@ -5,8 +5,10 @@ import {
   DEVICE_PATH,
   MCP_PATH,
   MCP_SCOPES,
+  type McpPrincipal,
   mcpResource,
 } from "@remit/mcp-server/app";
+import { requireServiceTenant, type Tenant } from "../access";
 import { RATE_LIMIT_PERIOD_SECONDS } from "../api/host-limits";
 import { API_ROOT } from "../api/paths";
 import type { Env } from "../env";
@@ -33,8 +35,8 @@ export const isMcpMachinePath = (path: string): boolean =>
   path === RESOURCE_METADATA_PATH ||
   path.startsWith(`${AUTH_BASE_PATH}/`);
 
-const hasBearer = (request: Request): boolean =>
-  /^Bearer\s/i.test(request.headers.get("authorization") ?? "");
+const bearerOf = (request: Request): string | undefined =>
+  /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
 
 const challenge = (env: Env, error?: string): Response =>
   Response.json(
@@ -55,32 +57,44 @@ const challenge = (env: Env, error?: string): Response =>
 const serveTools = async (
   request: Request,
   env: Env,
-  refused: (reason: string) => Response,
+  tenant: Tenant,
+  principal: McpPrincipal,
 ): Promise<Response> => {
-  const verified = await verifyMcpBearer(request, (await mcpAuth(env)).auth, env);
-  if (!verified.ok) {
-    log.warn("mcp refused", { reason: verified.reason });
-    return refused(verified.reason);
-  }
-  const { tenantId } = verified.tenant;
-  annotateLog({ tenantId });
-  const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenantId });
+  annotateLog({ tenantId: tenant.tenantId });
+  const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenant.tenantId });
   if (!success) return rateLimited(RATE_LIMIT_PERIOD_SECONDS);
-  return tenantMail(env, tenantId).mcp(request, verified.principal, currentCorrelationId());
+  return tenantMail(env, tenant.tenantId).mcp(request, principal, currentCorrelationId());
 };
 
-export const serveMcpApi = (request: Request, env: Env): Promise<Response> => {
-  if (hasBearer(request)) return Promise.resolve(unauthorized("use /mcp for an OAuth bearer"));
-  return serveTools(withConnectingIp(request), env, unauthorized);
+export const serveMcpApi = async (request: Request, env: Env): Promise<Response> => {
+  if (request.headers.has("authorization")) return unauthorized("use /mcp for an OAuth bearer");
+  const result = await requireServiceTenant(request, env);
+  if (!result.ok) {
+    log.warn("mcp refused", { reason: result.reason });
+    return unauthorized(result.reason);
+  }
+  const { tenant } = result;
+  return serveTools(withConnectingIp(request), env, tenant, {
+    userId: tenant.tenantId,
+    scopes: MCP_SCOPES,
+  });
+};
+
+const serveBearer = async (request: Request, env: Env): Promise<Response> => {
+  const bearer = bearerOf(request);
+  if (bearer === undefined) return challenge(env);
+  const verified = await verifyMcpBearer(bearer, (await mcpAuth(env)).auth, env);
+  if (!verified.ok) {
+    log.warn("mcp refused", { reason: verified.reason });
+    return challenge(env, "invalid_token");
+  }
+  return serveTools(withConnectingIp(request), env, verified.tenant, verified.principal);
 };
 
 export const serveMcpMachine = async (request: Request, env: Env): Promise<Response> => {
   const { pathname } = new URL(request.url);
+  if (pathname === MCP_PATH) return serveBearer(request, env);
   const forwarded = withConnectingIp(request);
-  if (pathname === MCP_PATH) {
-    if (!hasBearer(request)) return challenge(env);
-    return serveTools(forwarded, env, () => challenge(env, "invalid_token"));
-  }
   if (pathname === AUTHORIZATION_SERVER_METADATA_PATH) {
     return (await mcpAuth(env)).routes.serverMetadata(forwarded);
   }
