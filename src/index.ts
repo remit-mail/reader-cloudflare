@@ -32,6 +32,14 @@ import {
 } from "./log";
 import { serveLoginMail } from "./login-mail";
 import {
+  isMcpMachinePath,
+  isMcpPagePath,
+  MCP_API_PATH,
+  serveMcpApi,
+  serveMcpMachine,
+  serveMcpPage,
+} from "./mcp/route";
+import {
   calendarFeedTokenHash,
   feedNotFound,
   feedRateLimited,
@@ -214,6 +222,13 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     return servePublic(request, env, callback.tenantId);
   }
   if (url.pathname === LOGIN_MAIL_PATH) return serveLoginMail(request, env);
+  if (url.pathname === MCP_API_PATH) return serveMcpApi(request, env);
+  if (isMcpMachinePath(url.pathname)) return serveMcpMachine(request, env);
+  if (isMcpPagePath(url.pathname)) {
+    return authenticated(request, env, url.pathname, (page, pageEnv, tenant) =>
+      serveMcpPage(page, pageEnv, tenant.tenantId),
+    );
+  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
@@ -237,6 +252,9 @@ const operationOf = (method: string, url: URL): string => {
 
 const routeOf = (method: string, url: URL): Promise<string> => {
   if (url.pathname === LOGIN_MAIL_PATH) return Promise.resolve("login-mail");
+  if (url.pathname === MCP_API_PATH) return Promise.resolve("mcp-api");
+  if (isMcpMachinePath(url.pathname)) return Promise.resolve("mcp");
+  if (isMcpPagePath(url.pathname)) return Promise.resolve("mcp-page");
   if (url.pathname.startsWith("/api/")) return Promise.resolve(operationOf(method, url));
   if (isContentPath(url.pathname)) return Promise.resolve("content");
   if (isUploadPath(url.pathname)) return Promise.resolve("upload");
