@@ -55,6 +55,7 @@ import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
 import { schedulerTick } from "./scheduler-tick";
 import { workersSmtpSocket } from "./smtp-connect";
+import { spamDeploymentOf } from "./spam-deployment";
 
 class UnservedEventError extends Error {
   readonly family: QueueFamily;
@@ -87,9 +88,6 @@ const classificationDefaultOf = async (
     CLASSIFICATION_DEFAULT_ENABLED: "true",
   });
 };
-
-// Thresholds stay unset until calibration measures them; while unset the judge moves nothing.
-const SPAM_DEPLOYMENT: SpamDeployment = { name: "Inline", thresholds: { state: "Unset" } };
 
 const accountOf = (event: ReaderEvent): Record<string, string> =>
   "accountId" in event && typeof event.accountId === "string" ? { accountId: event.accountId } : {};
@@ -203,6 +201,7 @@ export class TenantMail extends DurableObject<Env> {
   private readonly stores: SqliteStores;
   private readonly storage: StorageService;
   private readonly db: DrizzleSqliteDODatabase;
+  private readonly spamDeployment: SpamDeployment;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
   private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
@@ -210,6 +209,7 @@ export class TenantMail extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.spamDeployment = spamDeploymentOf(env);
     const db = drizzle(ctx.storage);
     this.db = db;
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS, (work) =>
@@ -396,7 +396,7 @@ export class TenantMail extends DurableObject<Env> {
       connectionScope: pooledConnectionScope(pool),
       mailTransports: { imap: transport, smtp: workersSmtpSocket },
       classificationDefault,
-      spamDeployment: SPAM_DEPLOYMENT,
+      spamDeployment: this.spamDeployment,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(

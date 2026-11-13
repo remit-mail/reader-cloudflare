@@ -26,6 +26,10 @@ export interface Env {
   readonly MSOAUTH_OVERRIDES?: string;
   readonly CLASSIFICATION_DEFAULT_PRESET?: string;
   readonly CLASSIFICATION_DEFAULT_API_KEY?: SecretsStoreSecret;
+  readonly SPAM_BACKEND?: string;
+  readonly SPAM_CLEAN_BELOW?: string;
+  readonly SPAM_AT?: string;
+  readonly SPAM_RSPAMD_URL?: string;
   readonly LOGIN_MAIL?: LoginMailReader;
   readonly LOGIN_MAIL_READER?: string;
 }
