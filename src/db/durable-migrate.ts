@@ -16,9 +16,16 @@ const appliedMigrations = sqliteTable(MIGRATIONS_TABLE, {
   createdAt: integer("created_at"),
 });
 
-const lastAppliedAt = <TSchema extends Record<string, unknown>>(
-  db: DrizzleSqliteDODatabase<TSchema>,
-): number | null => {
+const FOLDER_TIME = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/;
+
+const folderMillis = (name: string): number => {
+  const match = FOLDER_TIME.exec(name);
+  if (match === null) throw new Error(`mail migration ${name} does not start with a timestamp`);
+  const [, year, month, day, hour, minute, second] = match.map(Number);
+  return Date.UTC(year ?? 0, (month ?? 1) - 1, day, hour, minute, second);
+};
+
+const lastAppliedAt = (db: DrizzleSqliteDODatabase): number | null => {
   const table = db
     .select({ name: sqliteMaster.name })
     .from(sqliteMaster)
@@ -34,12 +41,12 @@ const lastAppliedAt = <TSchema extends Record<string, unknown>>(
   return last?.createdAt ?? null;
 };
 
-export const migrateDurableObject = async <TSchema extends Record<string, unknown>>(
-  db: DrizzleSqliteDODatabase<TSchema>,
+export const migrateDurableObject = async (
+  db: DrizzleSqliteDODatabase,
   config: MigrationConfig,
 ): Promise<void> => {
-  const latest = config.journal.entries.at(-1)?.when;
+  const latest = Math.max(...Object.keys(config.migrations).map(folderMillis));
   const applied = lastAppliedAt(db);
-  if (latest !== undefined && applied !== null && Number(applied) >= latest) return;
-  await migrate(db, config);
+  if (applied !== null && Number(applied) >= latest) return;
+  migrate(db, config);
 };

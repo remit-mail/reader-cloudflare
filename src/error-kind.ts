@@ -1,4 +1,5 @@
 import { HostRefusedError } from "@remit/data-ports/errors";
+import { DrizzleQueryError } from "drizzle-orm";
 import { ZodError } from "zod";
 
 export type ErrorKind =
@@ -56,7 +57,11 @@ export const errorKindOfCode = (status: number, code: string): ErrorKind => {
   return status < 500 ? "client" : "unknown";
 };
 
-export const errorKindOf = (error: unknown): ErrorKind => {
+const driverErrorOf = (error: unknown): unknown =>
+  error instanceof DrizzleQueryError && error.cause !== undefined ? error.cause : error;
+
+export const errorKindOf = (thrown: unknown): ErrorKind => {
+  const error = driverErrorOf(thrown);
   if (error instanceof ZodError) return "validation";
   if (error instanceof HostRefusedError) return "quota";
   if (error instanceof NotComposedError) return "notImplemented";
@@ -64,8 +69,10 @@ export const errorKindOf = (error: unknown): ErrorKind => {
   return MESSAGE_KINDS.find(([pattern]) => pattern.test(text))?.[1] ?? "unknown";
 };
 
-export const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+export const messageOf = (thrown: unknown): string => {
+  const error = driverErrorOf(thrown);
+  return error instanceof Error ? error.message : String(error);
+};
 
 export const quotaRefusal = (reason: string): string =>
   `This account hit a Cloudflare storage or request limit; try again later. ${reason}`;

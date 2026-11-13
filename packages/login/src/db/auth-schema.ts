@@ -1,32 +1,36 @@
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-export const user = sqliteTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
-  image: text("image"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-  role: text("role"),
-  banned: integer("banned", { mode: "boolean" }).default(false),
-  banReason: text("ban_reason"),
-  banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
-  twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" }).default(false),
-});
+export const user = sqliteTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    emailVerified: integer("email_verified", { mode: "boolean" }).default(false).notNull(),
+    image: text("image"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    role: text("role"),
+    banned: integer("banned", { mode: "boolean" }).default(false),
+    banReason: text("ban_reason"),
+    banExpires: integer("ban_expires", { mode: "timestamp_ms" }),
+    twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" }).default(false),
+  },
+  (table) => [uniqueIndex("user_email_unique").on(table.email)],
+);
 
 export const session = sqliteTable(
   "session",
   {
     id: text("id").primaryKey(),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
-    token: text("token").notNull().unique(),
+    token: text("token").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -41,7 +45,10 @@ export const session = sqliteTable(
     impersonatedBy: text("impersonated_by"),
     reauthenticatedAt: integer("reauthenticated_at").default(0).notNull(),
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
+  (table) => [
+    uniqueIndex("session_token_unique").on(table.token),
+    index("session_userId_idx").on(table.userId),
+  ],
 );
 
 export const account = sqliteTable(
@@ -148,7 +155,7 @@ export const oauthClient = sqliteTable(
   "oauth_client",
   {
     id: text("id").primaryKey(),
-    clientId: text("client_id").notNull().unique(),
+    clientId: text("client_id").notNull(),
     clientSecret: text("client_secret"),
     clientDiscoveryId: text("client_discovery_id"),
     disabled: integer("disabled", { mode: "boolean" }).default(false),
@@ -190,28 +197,35 @@ export const oauthClient = sqliteTable(
     referenceId: text("reference_id"),
     metadata: text("metadata", { mode: "json" }),
   },
-  (table) => [index("oauthClient_userId_idx").on(table.userId)],
+  (table) => [
+    uniqueIndex("oauth_client_client_id_unique").on(table.clientId),
+    index("oauthClient_userId_idx").on(table.userId),
+  ],
 );
 
-export const oauthResource = sqliteTable("oauth_resource", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull().unique(),
-  name: text("name").notNull(),
-  accessTokenTtl: integer("access_token_ttl"),
-  refreshTokenTtl: integer("refresh_token_ttl"),
-  signingAlgorithm: text("signing_algorithm"),
-  signingKeyId: text("signing_key_id"),
-  allowedScopes: text("allowed_scopes", { mode: "json" }),
-  customClaims: text("custom_claims", { mode: "json" }),
-  dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", {
-    mode: "boolean",
-  }).default(false),
-  disabled: integer("disabled", { mode: "boolean" }).default(false),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
-  policyVersion: integer("policy_version").default(1),
-  metadata: text("metadata", { mode: "json" }),
-});
+export const oauthResource = sqliteTable(
+  "oauth_resource",
+  {
+    id: text("id").primaryKey(),
+    identifier: text("identifier").notNull(),
+    name: text("name").notNull(),
+    accessTokenTtl: integer("access_token_ttl"),
+    refreshTokenTtl: integer("refresh_token_ttl"),
+    signingAlgorithm: text("signing_algorithm"),
+    signingKeyId: text("signing_key_id"),
+    allowedScopes: text("allowed_scopes", { mode: "json" }),
+    customClaims: text("custom_claims", { mode: "json" }),
+    dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", {
+      mode: "boolean",
+    }).default(false),
+    disabled: integer("disabled", { mode: "boolean" }).default(false),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+    policyVersion: integer("policy_version").default(1),
+    metadata: text("metadata", { mode: "json" }),
+  },
+  (table) => [uniqueIndex("oauth_resource_identifier_unique").on(table.identifier)],
+);
 
 export const oauthClientResource = sqliteTable(
   "oauth_client_resource",
@@ -240,7 +254,7 @@ export const oauthRefreshToken = sqliteTable(
   "oauth_refresh_token",
   {
     id: text("id").primaryKey(),
-    token: text("token").notNull().unique(),
+    token: text("token").notNull(),
     clientId: text("client_id")
       .notNull()
       .references(() => oauthClient.clientId, { onDelete: "cascade" }),
@@ -269,6 +283,7 @@ export const oauthRefreshToken = sqliteTable(
     scopes: text("scopes", { mode: "json" }).notNull(),
   },
   (table) => [
+    uniqueIndex("oauth_refresh_token_token_unique").on(table.token),
     index("oauthRefreshToken_clientId_idx").on(table.clientId),
     index("oauthRefreshToken_sessionId_idx").on(table.sessionId),
     index("oauthRefreshToken_userId_idx").on(table.userId),
@@ -280,7 +295,7 @@ export const oauthAccessToken = sqliteTable(
   "oauth_access_token",
   {
     id: text("id").primaryKey(),
-    token: text("token").notNull().unique(),
+    token: text("token").notNull(),
     clientId: text("client_id")
       .notNull()
       .references(() => oauthClient.clientId, { onDelete: "cascade" }),
@@ -304,6 +319,7 @@ export const oauthAccessToken = sqliteTable(
     scopes: text("scopes", { mode: "json" }).notNull(),
   },
   (table) => [
+    uniqueIndex("oauth_access_token_token_unique").on(table.token),
     index("oauthAccessToken_clientId_idx").on(table.clientId),
     index("oauthAccessToken_sessionId_idx").on(table.sessionId),
     index("oauthAccessToken_userId_idx").on(table.userId),
@@ -340,122 +356,13 @@ export const oauthClientAssertion = sqliteTable("oauth_client_assertion", {
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-export const rateLimit = sqliteTable("rate_limit", {
-  id: text("id").primaryKey(),
-  key: text("key").notNull().unique(),
-  count: integer("count").notNull(),
-  lastRequest: integer("last_request").notNull(),
-});
-
-export const userRelations = relations(user, ({ many }) => ({
-  sessions: many(session),
-  accounts: many(account),
-  twoFactors: many(twoFactor),
-  passkeys: many(passkey),
-  oauthClients: many(oauthClient),
-  oauthRefreshTokens: many(oauthRefreshToken),
-  oauthAccessTokens: many(oauthAccessToken),
-  oauthConsents: many(oauthConsent),
-}));
-
-export const sessionRelations = relations(session, ({ one, many }) => ({
-  user: one(user, {
-    fields: [session.userId],
-    references: [user.id],
-  }),
-  oauthRefreshTokens: many(oauthRefreshToken),
-  oauthAccessTokens: many(oauthAccessToken),
-}));
-
-export const accountRelations = relations(account, ({ one }) => ({
-  user: one(user, {
-    fields: [account.userId],
-    references: [user.id],
-  }),
-}));
-
-export const twoFactorRelations = relations(twoFactor, ({ one }) => ({
-  user: one(user, {
-    fields: [twoFactor.userId],
-    references: [user.id],
-  }),
-}));
-
-export const passkeyRelations = relations(passkey, ({ one }) => ({
-  user: one(user, {
-    fields: [passkey.userId],
-    references: [user.id],
-  }),
-}));
-
-export const oauthClientRelations = relations(oauthClient, ({ one, many }) => ({
-  user: one(user, {
-    fields: [oauthClient.userId],
-    references: [user.id],
-  }),
-  oauthClientResources: many(oauthClientResource),
-  oauthRefreshTokens: many(oauthRefreshToken),
-  oauthAccessTokens: many(oauthAccessToken),
-  oauthConsents: many(oauthConsent),
-}));
-
-export const oauthResourceRelations = relations(oauthResource, ({ many }) => ({
-  oauthClientResources: many(oauthClientResource),
-}));
-
-export const oauthClientResourceRelations = relations(oauthClientResource, ({ one }) => ({
-  oauthClient: one(oauthClient, {
-    fields: [oauthClientResource.clientId],
-    references: [oauthClient.clientId],
-  }),
-  oauthResource: one(oauthResource, {
-    fields: [oauthClientResource.resourceId],
-    references: [oauthResource.identifier],
-  }),
-}));
-
-export const oauthRefreshTokenRelations = relations(oauthRefreshToken, ({ one, many }) => ({
-  oauthClient: one(oauthClient, {
-    fields: [oauthRefreshToken.clientId],
-    references: [oauthClient.clientId],
-  }),
-  session: one(session, {
-    fields: [oauthRefreshToken.sessionId],
-    references: [session.id],
-  }),
-  user: one(user, {
-    fields: [oauthRefreshToken.userId],
-    references: [user.id],
-  }),
-  oauthAccessTokens: many(oauthAccessToken),
-}));
-
-export const oauthAccessTokenRelations = relations(oauthAccessToken, ({ one }) => ({
-  oauthClient: one(oauthClient, {
-    fields: [oauthAccessToken.clientId],
-    references: [oauthClient.clientId],
-  }),
-  session: one(session, {
-    fields: [oauthAccessToken.sessionId],
-    references: [session.id],
-  }),
-  user: one(user, {
-    fields: [oauthAccessToken.userId],
-    references: [user.id],
-  }),
-  oauthRefreshToken: one(oauthRefreshToken, {
-    fields: [oauthAccessToken.refreshId],
-    references: [oauthRefreshToken.id],
-  }),
-}));
-
-export const oauthConsentRelations = relations(oauthConsent, ({ one }) => ({
-  oauthClient: one(oauthClient, {
-    fields: [oauthConsent.clientId],
-    references: [oauthClient.clientId],
-  }),
-  user: one(user, {
-    fields: [oauthConsent.userId],
-    references: [user.id],
-  }),
-}));
+export const rateLimit = sqliteTable(
+  "rate_limit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    count: integer("count").notNull(),
+    lastRequest: integer("last_request").notNull(),
+  },
+  (table) => [uniqueIndex("rate_limit_key_unique").on(table.key)],
+);

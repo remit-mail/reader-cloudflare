@@ -10,8 +10,8 @@ const root = join(import.meta.dirname, "..");
 const SKIPPED = [
   /^package-lock\.json$/,
   /^infra\/\.terraform\.lock\.hcl$/,
-  /^migrations\/(mail\/)?meta\//,
-  /^packages\/login\/migrations\/meta\//,
+  /^migrations\/(mail\/)?\d{14}_[^/]+\/snapshot\.json$/,
+  /^packages\/login\/migrations\/\d{14}_[^/]+\/snapshot\.json$/,
 ];
 
 const ALLOWED_EMAIL_DOMAINS = ["example.com", "example.org", "users.noreply.github.com"];
