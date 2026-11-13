@@ -208,7 +208,9 @@ export class TenantMail extends DurableObject<Env> {
     super(ctx, env);
     const db = drizzle(ctx.storage);
     this.db = db;
-    const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS);
+    const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS, (work) =>
+      ctx.storage.transactionSync(work),
+    );
     this.stores = { app: openAppStore(env.DB, CLOUDFLARE_SQLITE_LIMITS), mail, search: mail };
     this.storage = r2Storage(env.MAIL, env.PUBLIC_ORIGIN);
     this.mail = {
