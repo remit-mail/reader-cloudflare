@@ -12,6 +12,7 @@ import {
 } from "./deploy-config.mjs";
 import { PROJECT } from "./env.mjs";
 import { oauthClientUpsertSql } from "./oauth-client.mjs";
+import { repairFilterFromDomain } from "./repair-filter-from-domain.mjs";
 import { grantRunner } from "./runner-grant.mjs";
 import { DEV, PROD } from "./stages.mjs";
 import { ensureStoreSecret } from "./store-secret.mjs";
@@ -144,6 +145,7 @@ const deployStage = async (stage) => {
 
   exitOnFailure(migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
   exitOnFailure(backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
+  exitOnFailure(repairFilterFromDomain(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
   exitOnFailure(migrate(LOGIN_WRANGLER_DEPLOY_CONFIG, outputs.login_d1_database_name));
   exitOnFailure(upsertOAuthClient(outputs));
   exitOnFailure(wrangler(["deploy", "--config", LOGIN_WRANGLER_DEPLOY_CONFIG]));
