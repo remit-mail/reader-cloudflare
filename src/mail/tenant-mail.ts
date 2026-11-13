@@ -9,6 +9,7 @@ import { classificationDefaultFromEnv } from "@remit/backend/classification-defa
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
+import type { SpamDeployment } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
@@ -86,6 +87,9 @@ const classificationDefaultOf = async (
     CLASSIFICATION_DEFAULT_ENABLED: "true",
   });
 };
+
+// Thresholds stay unset until calibration measures them; while unset the judge moves nothing.
+const SPAM_DEPLOYMENT: SpamDeployment = { name: "Inline", thresholds: { state: "Unset" } };
 
 const accountOf = (event: ReaderEvent): Record<string, string> =>
   "accountId" in event && typeof event.accountId === "string" ? { accountId: event.accountId } : {};
@@ -392,6 +396,7 @@ export class TenantMail extends DurableObject<Env> {
       connectionScope: pooledConnectionScope(pool),
       mailTransports: { imap: transport, smtp: workersSmtpSocket },
       classificationDefault,
+      spamDeployment: SPAM_DEPLOYMENT,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(

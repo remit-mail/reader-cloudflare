@@ -16,6 +16,9 @@ import m0014 from "./20261113121752_classifier_scores_organize_rule/migration.sq
 import m0015 from "./20261113132356_label_mailbox/migration.sql";
 import m0016 from "./20261113182918_organize_job_source_mailbox/migration.sql";
 import m0017 from "./20261113202322_organize_job_sent_range/migration.sql";
+import m0018 from "./20261113204957_spam_verdict_domain_registration/migration.sql";
+import m0019 from "./20261113233000_spam_verdict_model_outcome/migration.sql";
+import m0020 from "./20261113233100_drop_authenticity_verdict/migration.sql";
 
 export default {
   migrations: {
@@ -37,5 +40,8 @@ export default {
     "20261113132356_label_mailbox": m0015,
     "20261113182918_organize_job_source_mailbox": m0016,
     "20261113202322_organize_job_sent_range": m0017,
+    "20261113204957_spam_verdict_domain_registration": m0018,
+    "20261113233000_spam_verdict_model_outcome": m0019,
+    "20261113233100_drop_authenticity_verdict": m0020,
   },
 };
