@@ -15,6 +15,7 @@ import m0013 from "./20261111043214_message_by_mailbox_internal_date/migration.s
 import m0014 from "./20261113121752_classifier_scores_organize_rule/migration.sql";
 import m0015 from "./20261113132356_label_mailbox/migration.sql";
 import m0016 from "./20261113182918_organize_job_source_mailbox/migration.sql";
+import m0017 from "./20261113202322_organize_job_sent_range/migration.sql";
 
 export default {
   migrations: {
@@ -35,5 +36,6 @@ export default {
     "20261113121752_classifier_scores_organize_rule": m0014,
     "20261113132356_label_mailbox": m0015,
     "20261113182918_organize_job_source_mailbox": m0016,
+    "20261113202322_organize_job_sent_range": m0017,
   },
 };
