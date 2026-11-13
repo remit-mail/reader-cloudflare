@@ -27,41 +27,41 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 
 ## Scripts
 
-| Script                             | Does                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------- |
-| `npm run dev`                      | `wrangler dev` on port 8790, bound to `0.0.0.0`                                         |
-| `npm run build`                    | Vite builds the web client into `packages/web/dist`                                     |
-| `npm run dashboards`               | Create or update the Observability saved queries in `npm-scripts/dashboards.mjs`        |
-| `npm run tail`                     | `wrangler tail --format pretty`; needs Workers Tail Read, which no agent token holds    |
-| `npm run logs -- <minutes> [text]` | Workers Observability events from the last minutes, one JSON line each                  |
-| `npm run builds`                   | The last 10 Workers Builds of the Worker: id, status, branch, short sha, created        |
-| `npm run builds:log -- [build-id]` | Log lines of a build, token-like strings redacted; default the latest failed on `main`  |
-| `npm run builds:retry`             | Start a Workers Build of `main` with the debug token; prints build id, sha, status      |
-| `npm run commit`                   | Write `src/commit.ts` with the commit sha baked into the Worker                         |
-| `npm run fix`                      | Biome rewrites files                                                                    |
-| `npm run check`                    | Biome format and lint check                                                             |
-| `npm run typecheck`                | `tsc` over `src` and every package, against declarations `build:vendor-types` emits     |
-| `npm run smoke:config-import`      | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1) |
-| `npm run ci`                       | `check`, `check:no-config`, `check:retries`, `typecheck`, then `test`; run before push  |
-| `npm run test`                     | vitest on `@cloudflare/vitest-plugin` for the login Worker in `packages/login`          |
-| `npm run check:no-config`          | Fails on an account id, Access value, e-mail or deploy config value in git              |
-| `npm run e2e`                      | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it |
-| `npm run e2e:login`                | The login Worker on `wrangler dev`: invite, sign-in, TOTP, reset and the OIDC code flow |
-| `npm run infra:plan [dev]`         | `tofu init` and `plan` of a stage with the runner token and state keys from the env     |
-| `npm run db:generate`              | drizzle-kit writes SQL migrations into `migrations/`                                    |
-| `npm run db:generate:mail`         | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`    |
-| `npm run db:generate:login`        | drizzle-kit writes the login D1 migrations into `packages/login/migrations/`            |
-| `npm run db:migrate`               | `wrangler d1 migrations apply` on the D1 in `wrangler.deploy.jsonc`; runs in `deploy`   |
-| `npm run wrangler -- <args>`       | `wrangler` with the Cloudflare token from the environment, else `cf-env`                |
-| `npm run deploy`                   | Builds on `main` only: `tofu apply`, render, `db:migrate`, `wrangler deploy`            |
-| `npm run cf-env:write`             | Write the tofu-minted debug token from the remote state into `cf-env`                   |
-| `npm run access-env:write [dev]`   | Write a stage's app URL and agent service token from tofu state into `access-env[-dev]` |
-| `npm run api -- <METHOD> <path>`   | Call the deployed API as the agent service token, JSON body third; prints status, body  |
-| `npm run mcp:login [dev]`          | Device login to a stage's MCP server; prints the `claude mcp add` command               |
-| `npm run login:mail [dev]`         | Login mail the dev stage captured in the last hour: time, recipient, subject, links     |
-| `npm run smoke:sync`               | Connect, sync and read the test account on the deployed API; prints counts and timings  |
-| `npm run seed:dev`                 | Fill dev with the fixtures in `npm-scripts/dev-fixtures.ts`; does nothing when present  |
-| `npm run smoke:dev`                | Access refusal, web shell, mail list, calendar week, create and delete an event on dev  |
+| Script                             | Does                                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `npm run dev`                      | `wrangler dev` on port 8790, bound to `0.0.0.0`                                                    |
+| `npm run build`                    | Vite builds the web client into `packages/web/dist`                                                |
+| `npm run dashboards`               | Create or update the Observability saved queries in `npm-scripts/dashboards.mjs`                   |
+| `npm run tail`                     | `wrangler tail --format pretty`; needs Workers Tail Read, which no agent token holds               |
+| `npm run logs -- <minutes> [text]` | Workers Observability events from the last minutes, one JSON line each                             |
+| `npm run builds`                   | The last 10 Workers Builds of the Worker: id, status, branch, short sha, created                   |
+| `npm run builds:log -- [build-id]` | Log lines of a build, token-like strings redacted; default the latest failed on `main`             |
+| `npm run builds:retry`             | Open and auto-merge a PR with an empty commit so Workers Builds rebuilds `main`; prints the PR URL |
+| `npm run commit`                   | Write `src/commit.ts` with the commit sha baked into the Worker                                    |
+| `npm run fix`                      | Biome rewrites files                                                                               |
+| `npm run check`                    | Biome format and lint check                                                                        |
+| `npm run typecheck`                | `tsc` over `src` and every package, against declarations `build:vendor-types` emits                |
+| `npm run smoke:config-import`      | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1)            |
+| `npm run ci`                       | `check`, `check:no-config`, `check:retries`, `typecheck`, then `test`; run before push             |
+| `npm run test`                     | vitest on `@cloudflare/vitest-plugin` for the login Worker in `packages/login`                     |
+| `npm run check:no-config`          | Fails on an account id, Access value, e-mail or deploy config value in git                         |
+| `npm run e2e`                      | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it            |
+| `npm run e2e:login`                | The login Worker on `wrangler dev`: invite, sign-in, TOTP, reset and the OIDC code flow            |
+| `npm run infra:plan [dev]`         | `tofu init` and `plan` of a stage with the runner token and state keys from the env                |
+| `npm run db:generate`              | drizzle-kit writes SQL migrations into `migrations/`                                               |
+| `npm run db:generate:mail`         | drizzle-kit writes the tenant mail Durable Object migrations into `migrations/mail/`               |
+| `npm run db:generate:login`        | drizzle-kit writes the login D1 migrations into `packages/login/migrations/`                       |
+| `npm run db:migrate`               | `wrangler d1 migrations apply` on the D1 in `wrangler.deploy.jsonc`; runs in `deploy`              |
+| `npm run wrangler -- <args>`       | `wrangler` with the Cloudflare token from the environment, else `cf-env`                           |
+| `npm run deploy`                   | Builds on `main` only: `tofu apply`, render, `db:migrate`, `wrangler deploy`                       |
+| `npm run cf-env:write`             | Write the tofu-minted debug token from the remote state into `cf-env`                              |
+| `npm run access-env:write [dev]`   | Write a stage's app URL and agent service token from tofu state into `access-env[-dev]`            |
+| `npm run api -- <METHOD> <path>`   | Call the deployed API as the agent service token, JSON body third; prints status, body             |
+| `npm run mcp:login [dev]`          | Device login to a stage's MCP server; prints the `claude mcp add` command                          |
+| `npm run login:mail [dev]`         | Login mail the dev stage captured in the last hour: time, recipient, subject, links                |
+| `npm run smoke:sync`               | Connect, sync and read the test account on the deployed API; prints counts and timings             |
+| `npm run seed:dev`                 | Fill dev with the fixtures in `npm-scripts/dev-fixtures.ts`; does nothing when present             |
+| `npm run smoke:dev`                | Access refusal, web shell, mail list, calendar week, create and delete an event on dev             |
 
 ## Infra
 
@@ -73,6 +73,6 @@ A new deployment needs a Cloudflare account on Workers Paid, the zone of `app_ho
 
 Tofu runs once per stage, as `var.stage`. Dev suffixes every name with `-dev`, takes `dev_app_hostname` and no Microsoft app, keeps its state in `<project>-dev.tfstate`, and stores its master key as `DEV_MASTER_KEY`. An account holds one Secrets Store, so `tofu-bootstrap` makes it and both stages look it up by name; the debug token and the usage alerts exist on prod only. Per stage, Tofu owns the D1 database, R2 bucket, queues, Secrets Store secret `MASTER_KEY` and, when configured, `MSOAUTH_CLIENT_SECRET`, the Worker shell and the Access application on `app_hostname`: the login Worker's identity provider for people, plus a Service Auth policy for the `<project>-agent` service token that agents call the API with. A second Access application, `<project>-public`, bypasses Access on the calendar feed path, the Microsoft OAuth callback and the MCP OAuth machine endpoints in `local.public_paths` only. Every Access application lists `allowed_idps` explicitly, and preconditions fail the plan when one allows the other stage's login IdP or names `login_hostname`. The custom domain attaches on the first deploy. Workers Builds runs `wrangler deploy` with the token it injects into the deploy step, and `tofu apply` with the runner token from the builder bucket.
 
-Tofu mints the `debug` token in `infra/tokens.tf` from permission groups looked up by name: read-biased (Workers scripts, CI, queues and account settings read, with no D1 read and no tail, because both span the account and a tail carries cookies; observability write for saved queries; Workers Builds write so `builds:retry` can start a build of `main`; on every zone, analytics read plus firewall services, zone WAF and zone settings write; read on the state bucket), it lives in `cf-env`, which `wrangler`, `logs` and `dashboards` read, and they restore a missing `cf-env` with `dotfiles-key decrypt <project>-debug-token`. It is the one credential that cannot fetch itself, so dotfiles keeps it; with it agents do read-only work, and `cf-env:write` and `access-env:write` read the remote state with S3 keys derived from it (key id = token id, secret = sha256 of the value), then re-encrypt and push to dotfiles. Rotate a tofu-minted credential with a pull request that renames its resource, so the next apply mints the new one before it revokes the old, then run its `:write` script, with `TFSTATE_ACCESS_KEY_ID` and `TFSTATE_SECRET_ACCESS_KEY` in the shell when the old debug token is gone; rotate the runner token and state keys by running `tofu-bootstrap` again.
+Tofu mints the `debug` token in `infra/tokens.tf` from permission groups looked up by name: read-biased (Workers scripts, CI, queues and account settings read, with no D1 read and no tail, because both span the account and a tail carries cookies; observability write for saved queries; on every zone, analytics read plus firewall services, zone WAF and zone settings write; read on the state bucket), it lives in `cf-env`, which `wrangler`, `logs` and `dashboards` read, and they restore a missing `cf-env` with `dotfiles-key decrypt <project>-debug-token`. It is the one credential that cannot fetch itself, so dotfiles keeps it; with it agents do read-only work, and `cf-env:write` and `access-env:write` read the remote state with S3 keys derived from it (key id = token id, secret = sha256 of the value), then re-encrypt and push to dotfiles. Rotate a tofu-minted credential with a pull request that renames its resource, so the next apply mints the new one before it revokes the old, then run its `:write` script, with `TFSTATE_ACCESS_KEY_ID` and `TFSTATE_SECRET_ACCESS_KEY` in the shell when the old debug token is gone; rotate the runner token and state keys by running `tofu-bootstrap` again.
 
-A user-owned read-only token for the Workers Builds API lives in `~/.config/<project>/cf-user-env` as `CLOUDFLARE_USER_TOKEN`; restore a missing one with `dotfiles-key decrypt cloudflare-user-readonly -o ~/.config/<project>/cf-user-env`.
+A user-owned read-only token for the Workers Builds API lives in `~/.config/<project>/cf-user-env` as `CLOUDFLARE_USER_TOKEN`; restore a missing one with `dotfiles-key decrypt cloudflare-user-readonly -o ~/.config/<project>/cf-user-env`. The Builds API accepts only user-owned tokens, so no tofu-minted token can start a build; `builds:retry` pushes an empty commit instead.

@@ -1,54 +1,37 @@
-import { CF_ENV, PROJECT, readEnvFile } from "./env.mjs";
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-const API = "https://api.cloudflare.com/client/v4";
-const BRANCH = "main";
+const run = (command, args, cwd) =>
+  execFileSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  }).trim();
 
-const { CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: token } = readEnvFile(CF_ENV);
-if (!account || !token) {
-  console.error(`${CF_ENV} must set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN`);
-  process.exit(1);
-}
+const stamp = Math.floor(Date.now() / 1000);
+const branch = `retry/${stamp}`;
+const worktree = join(homedir(), "development", "reader-cloudflare-worktrees", `retry-${stamp}`);
 
-const call = async (method, path, body) => {
-  const response = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await response.text();
-  if (response.ok) return JSON.parse(text).result;
-  console.error(`${method} ${path} returned ${response.status}: ${text}`);
-  process.exit(1);
-};
+run("git", ["fetch", "origin"]);
+const sha = run("git", ["rev-parse", "--short", "origin/main"]);
+const subject = `chore(deploy): retry the workers build of ${sha}`;
+const body = [
+  "What: an empty commit so Workers Builds rebuilds `main`.",
+  `Why: the previous build of ${sha} failed on a transient Cloudflare error.`,
+  "How: squash auto-merge once `ci` is green.",
+  "Issue: none.",
+].join("\n");
 
-const script = (await call("GET", `/accounts/${account}/workers/scripts`)).find(
-  (entry) => entry.id === PROJECT,
+run("git", ["worktree", "add", worktree, "-b", branch, "origin/main"]);
+run("git", ["commit", "--allow-empty", "-m", subject], worktree);
+run("git", ["push", "-u", "origin", branch], worktree);
+const url = run(
+  "gh",
+  ["pr", "create", "--base", "main", "--head", branch, "--title", subject, "--body", body],
+  worktree,
 );
-if (!script) {
-  console.error(`no Worker named ${PROJECT} in the account`);
-  process.exit(1);
-}
-
-const trigger = (
-  await call("GET", `/accounts/${account}/builds/workers/${script.tag}/triggers`)
-).find((entry) => (entry.branch_includes ?? []).includes(BRANCH));
-if (!trigger) {
-  console.error(`no Workers Builds trigger on ${BRANCH} for ${PROJECT}`);
-  process.exit(1);
-}
-
-const build = await call(
-  "POST",
-  `/accounts/${account}/builds/triggers/${trigger.trigger_uuid}/builds`,
-  { branch: BRANCH },
-);
-console.log(
-  JSON.stringify({
-    id: build.build_uuid,
-    sha: build.build_trigger_metadata?.commit_hash,
-    status: build.status,
-  }),
-);
+run("gh", ["pr", "merge", url, "--squash", "--auto"], worktree);
+run("git", ["worktree", "remove", worktree]);
+run("git", ["branch", "-D", branch]);
+console.log(url);
