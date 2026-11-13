@@ -38,6 +38,7 @@
     "logs": "node npm-scripts/logs.mjs",
     "builds": "node npm-scripts/builds.mjs list",
     "builds:log": "node npm-scripts/builds.mjs log",
+    "builds:retry": "node npm-scripts/builds-retry.mjs",
     "e2e": "node npm-scripts/e2e.mjs",
     "e2e:login": "node npm-scripts/e2e-login.mjs",
     "dashboards": "node npm-scripts/dashboards.mjs",
