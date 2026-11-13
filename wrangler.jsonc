@@ -49,7 +49,9 @@
     {
       "binding": "DB",
       "database_name": "reader-cloudflare",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+      "migrations_pattern": "migrations/{*.sql,*/migration.sql}"
     }
   ],
   "r2_buckets": [
@@ -226,7 +228,9 @@
         {
           "binding": "DB",
           "database_name": "reader-cloudflare",
-          "database_id": "00000000-0000-0000-0000-000000000000"
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+          "migrations_pattern": "migrations/{*.sql,*/migration.sql}"
         }
       ],
       "r2_buckets": [

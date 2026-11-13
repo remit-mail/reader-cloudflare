@@ -18,6 +18,7 @@
     "node_modules/@remit/account-worker/src",
     "node_modules/@remit/config-transfer/src",
     "node_modules/@remit/config-format/src",
+    "node_modules/@remit/drizzle-sqlite-schema/*.ts",
     "node_modules/@remit/drizzle-service/src",
     "node_modules/@remit/mail-oauth-service/src",
     "node_modules/@remit/secrets-service/src",
