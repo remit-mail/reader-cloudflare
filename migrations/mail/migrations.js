@@ -12,6 +12,7 @@ import m0010 from "./20261029091723_thread_message_deleted_means_expunge/migrati
 import m0011 from "./20261103182519_outbox_scheduling_part/migration.sql";
 import m0012 from "./20261110212813_thread_message_tenant_indexes/migration.sql";
 import m0013 from "./20261111043214_message_by_mailbox_internal_date/migration.sql";
+import m0014 from "./20261113121752_classifier_scores_organize_rule/migration.sql";
 
 export default {
   migrations: {
@@ -29,5 +30,6 @@ export default {
     "20261103182519_outbox_scheduling_part": m0011,
     "20261110212813_thread_message_tenant_indexes": m0012,
     "20261111043214_message_by_mailbox_internal_date": m0013,
+    "20261113121752_classifier_scores_organize_rule": m0014,
   },
 };
