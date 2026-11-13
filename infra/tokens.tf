@@ -42,7 +42,6 @@ locals {
     "Workers Scripts Read",
     "Workers Observability Write",
     "Workers CI Read",
-    "Workers CI Write",
     "Queues Read",
   ]
 }
