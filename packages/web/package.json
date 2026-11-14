@@ -7,7 +7,7 @@
     "build": "REMIT_SPELLCHECK_LANGUAGES= vite build"
   },
   "dependencies": {
-    "@remit/api-http-client": "0.0.107",
+    "@remit/api-http-client": "0.0.108",
     "@remit/ui": "0.0.239",
     "@remit/web-client": "0.0.348",
     "react": "19.3.1",

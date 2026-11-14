@@ -9,7 +9,7 @@ import { classificationDefaultFromEnv } from "@remit/backend/classification-defa
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
-import type { SpamDeployment } from "@remit/data-ports";
+import { type SpamPipeline, spamPipelineFromEnv } from "@remit/data-ports";
 import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
@@ -55,7 +55,6 @@ import { metered, meteredPool } from "./pool";
 import { processContext, sendContext } from "./process-context";
 import { schedulerTick } from "./scheduler-tick";
 import { workersSmtpSocket } from "./smtp-connect";
-import { spamDeploymentOf } from "./spam-deployment";
 
 class UnservedEventError extends Error {
   readonly family: QueueFamily;
@@ -201,7 +200,7 @@ export class TenantMail extends DurableObject<Env> {
   private readonly stores: SqliteStores;
   private readonly storage: StorageService;
   private readonly db: DrizzleSqliteDODatabase;
-  private readonly spamDeployment: SpamDeployment;
+  private readonly spamPipeline: SpamPipeline;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
   private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
@@ -209,7 +208,7 @@ export class TenantMail extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.spamDeployment = spamDeploymentOf(env);
+    this.spamPipeline = spamPipelineFromEnv(env);
     const db = drizzle(ctx.storage);
     this.db = db;
     const mail = syncStore(db, CLOUDFLARE_SQLITE_LIMITS, (work) =>
@@ -396,7 +395,7 @@ export class TenantMail extends DurableObject<Env> {
       connectionScope: pooledConnectionScope(pool),
       mailTransports: { imap: transport, smtp: workersSmtpSocket },
       classificationDefault,
-      spamDeployment: this.spamDeployment,
+      spamPipeline: this.spamPipeline,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
         accountFanout: queueProducer<"Standard", EventOn<"accountFanout">>(
