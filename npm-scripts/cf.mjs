@@ -35,6 +35,9 @@ export const wranglerOutput = (args) => {
     encoding: "utf8",
   });
   if (run.error) throw run.error;
-  if (run.status !== 0) throw new Error(`wrangler ${args.join(" ")} exited with ${run.status}`);
+  if (run.status !== 0) {
+    process.stderr.write(run.stdout);
+    throw new Error(`wrangler ${args.join(" ")} exited with ${run.status}`);
+  }
   return run.stdout;
 };
