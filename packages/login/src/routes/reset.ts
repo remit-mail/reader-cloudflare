@@ -7,12 +7,13 @@ import { audit } from "../audit";
 import type { AuthDeps } from "../auth";
 import {
   accountKey,
-  addressKey,
   addressOf,
   clearKey,
-  refundKey,
+  deadLinkKey,
   reserveAttempt,
+  resetLinkKey,
   takeResetQuota,
+  waitingUntil,
 } from "../backoff";
 import { BOOTSTRAP_ISSUER } from "../bootstrap";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
@@ -243,13 +244,17 @@ export const lookupResetLink = async (
 ): Promise<Response> => {
   const address = addressOf(request);
   const now = Date.now();
-  const reservation = await reserveAttempt(db, [addressKey(address)], now);
-  if (!reservation.allowed) return backoffResponse(reservation.retryAt);
   const token = tokenOf(body);
-  if (token === null) return deadLink();
-  const link = await openLink(db, await sha256Hex(token), now);
-  if (link === null) return deadLink();
-  await refundKey(db, addressKey(address));
+  const tokenHash = token === null ? null : await sha256Hex(token);
+  const keys =
+    tokenHash === null ? [deadLinkKey(address)] : [deadLinkKey(address), resetLinkKey(tokenHash)];
+  const until = await waitingUntil(db, keys, now);
+  if (until !== null) return backoffResponse(until);
+  const link = tokenHash === null ? null : await openLink(db, tokenHash, now);
+  if (link === null) {
+    await reserveAttempt(db, [deadLinkKey(address)], now);
+    return deadLink();
+  }
   return json(200, { email: link.email });
 };
 
@@ -268,7 +273,12 @@ export const resetEndpoints = (deps: AuthDeps) => {
         async (ctx) => {
           const address = addressOf({ headers: ctx.headers ?? new Headers() });
           const now = Date.now();
-          const reservation = await reserveAttempt(db, [addressKey(address)], now);
+          const tokenHash = await sha256Hex(ctx.body.token);
+          const scanning = await waitingUntil(db, [deadLinkKey(address)], now);
+          const reservation =
+            scanning === null
+              ? await reserveAttempt(db, [resetLinkKey(tokenHash)], now)
+              : { allowed: false as const, retryAt: scanning };
           if (!reservation.allowed) {
             throw new APIError("TOO_MANY_REQUESTS", {
               message: "Too many attempts. Try again later.",
@@ -277,8 +287,10 @@ export const resetEndpoints = (deps: AuthDeps) => {
             });
           }
           const dead = new APIError("GONE", { message: DEAD_LINK, code: "LINK_DEAD" });
-          const tokenHash = await sha256Hex(ctx.body.token);
-          if ((await openLink(db, tokenHash, now)) === null) throw dead;
+          if ((await openLink(db, tokenHash, now)) === null) {
+            await reserveAttempt(db, [deadLinkKey(address)], now);
+            throw dead;
+          }
           const { password } = ctx.body;
           if (password.length < 12 || password.length > 128) {
             throw new APIError("BAD_REQUEST", {
@@ -317,7 +329,6 @@ export const resetEndpoints = (deps: AuthDeps) => {
             db.prepare("DELETE FROM session WHERE user_id = ?").bind(user.id),
             db.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(user.id),
           ]);
-          await refundKey(db, addressKey(address));
           await clearKey(db, await accountKey(user.email));
           await audit(db, {
             actor: "self",

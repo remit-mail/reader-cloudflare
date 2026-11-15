@@ -52,6 +52,16 @@ export const accountKey = async (email: string): Promise<AttemptKey> => ({
   curve: ACCOUNT_CURVE,
 });
 
+export const resetLinkKey = (tokenHash: string): AttemptKey => ({
+  key: `reset-link:${tokenHash}`,
+  curve: ADDRESS_CURVE,
+});
+
+export const deadLinkKey = (address: string): AttemptKey => ({
+  key: `dead-link:address:${addressPrefix(address)}`,
+  curve: ADDRESS_CURVE,
+});
+
 export const userKey = (userId: string): AttemptKey => ({
   key: `user:${userId}`,
   curve: ADDRESS_CURVE,
@@ -130,6 +140,20 @@ export const reserveAttempt = async (
     return { allowed: false, retryAt: Math.max(...blocked.map((row) => row.next_allowed_at)) };
   }
   return { allowed: true, firstDelay: rows.some((row) => row.attempts === FREE_ATTEMPTS + 1) };
+};
+
+export const waitingUntil = async (
+  db: D1Database,
+  keys: readonly AttemptKey[],
+  now: number,
+): Promise<number | null> => {
+  const row = await db
+    .prepare(
+      `SELECT MAX(next_allowed_at) AS until FROM auth_attempt WHERE next_allowed_at > ?1 AND attempt_key IN (${keys.map((_, index) => `?${index + 2}`).join(", ")})`,
+    )
+    .bind(now, ...keys.map(({ key }) => key))
+    .first<{ until: number | null }>();
+  return row?.until ?? null;
 };
 
 export const clearKey = async (db: D1Database, key: AttemptKey): Promise<void> => {
