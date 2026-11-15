@@ -4,10 +4,12 @@ import {
   dropLinkToken,
   failureOf,
   keepQuery,
+  lockedUntil,
   navigate,
   post,
   type Refused,
   takeLinkToken,
+  untilRetry,
 } from "../api";
 import {
   FreshLinkSentView,
@@ -110,12 +112,13 @@ export const Reset = () => {
 
 export type NewPasswordProblem =
   | { readonly kind: "field"; readonly message: string }
-  | { readonly kind: "locked"; readonly message: string }
+  | { readonly kind: "locked"; readonly message: string; readonly retryAt: number | null }
   | { readonly kind: "server"; readonly message: string };
 
 export type ResetPasswordState =
   | { readonly kind: "loading" }
   | { readonly kind: "ready"; readonly email: string; readonly problem: NewPasswordProblem | null }
+  | { readonly kind: "locked"; readonly message: string; readonly retryAt: number | null }
   | { readonly kind: "expired"; readonly failure: string | null }
   | { readonly kind: "fresh-sent" }
   | { readonly kind: "missing" }
@@ -144,6 +147,14 @@ export const ResetPasswordView = ({
       return (
         <Page title="Choose a new password">
           <Muted>Opening your link…</Muted>
+        </Page>
+      );
+    case "locked":
+      return (
+        <Page title="Choose a new password">
+          <Notice tone="warning" title="Resetting is paused">
+            {state.message} The link still works.
+          </Notice>
         </Page>
       );
     case "expired":
@@ -192,7 +203,7 @@ export const ResetPasswordView = ({
               error={problem?.kind === "field" ? problem.message : null}
             />
             <Text>Every other device signs out.</Text>
-            <Submit disabled={busy || problem?.kind === "locked"}>Set new password</Submit>
+            <Submit disabled={busy || lockedUntil(problem) !== null}>Set new password</Submit>
           </Form>
         </Page>
       );
@@ -206,16 +217,19 @@ const lookupState = (answer: Answer): ResetPasswordState => {
   }
   if (answer.ok) return { kind: "expired", failure: null };
   const failure = failureOf(answer);
-  if (failure.kind === "server" || failure.kind === "locked") {
-    return { kind: "failed", message: failure.message };
+  if (failure.kind === "locked") {
+    return { kind: "locked", message: failure.message, retryAt: failure.retryAt };
   }
+  if (failure.kind === "server") return { kind: "failed", message: failure.message };
   return { kind: "expired", failure: null };
 };
 
 const passwordProblem = (answer: Refused): NewPasswordProblem | "expired" => {
   if (answer.status === 410) return "expired";
   const failure = failureOf(answer);
-  if (failure.kind === "locked") return { kind: "locked", message: failure.message };
+  if (failure.kind === "locked") {
+    return { kind: "locked", message: failure.message, retryAt: failure.retryAt };
+  }
   if (failure.kind === "server") return { kind: "server", message: failure.message };
   if (answer.code.includes("PASSWORD")) return { kind: "field", message: answer.message };
   return { kind: "server", message: answer.message };
@@ -236,6 +250,16 @@ export const ResetPassword = () => {
     setToken(found);
     post("/app/reset/lookup", { token: found }).then((answer) => setState(lookupState(answer)));
   }, []);
+
+  useEffect(() => {
+    if (state.kind === "locked") {
+      return untilRetry(state.retryAt, () =>
+        post("/app/reset/lookup", { token }).then((answer) => setState(lookupState(answer))),
+      );
+    }
+    if (state.kind !== "ready") return undefined;
+    return untilRetry(lockedUntil(state.problem), () => setState({ ...state, problem: null }));
+  }, [state, token]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
