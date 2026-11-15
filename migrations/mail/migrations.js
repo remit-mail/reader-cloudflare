@@ -21,6 +21,7 @@ import m0019 from "./20261113233000_spam_verdict_model_outcome/migration.sql";
 import m0020 from "./20261113233100_drop_authenticity_verdict/migration.sql";
 import m0021 from "./20261113233200_spam_cleared/migration.sql";
 import m0022 from "./20261114123911_spam_verdict_decided_by/migration.sql";
+import m0023 from "./20261115150000_rebuild_cursor_of_underindexed_folders/migration.sql";
 
 export default {
   migrations: {
@@ -47,5 +48,6 @@ export default {
     "20261113233100_drop_authenticity_verdict": m0020,
     "20261113233200_spam_cleared": m0021,
     "20261114123911_spam_verdict_decided_by": m0022,
+    "20261115150000_rebuild_cursor_of_underindexed_folders": m0023,
   },
 };
