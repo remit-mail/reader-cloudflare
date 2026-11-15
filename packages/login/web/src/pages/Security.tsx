@@ -1,6 +1,6 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui/auth";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Answer, get, post, readerOriginOf, signOutVia } from "../api";
+import { type Answer, get, post, readerOriginOf } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
 import {
   BackupCodeList,
@@ -17,6 +17,7 @@ import {
   Text,
 } from "../ui";
 import { AppSetup } from "./Invite";
+import { useSignOut } from "./SignOut";
 
 export interface Passkey {
   readonly id: string;
@@ -138,6 +139,18 @@ const Cancel = ({ onClose, focus }: { onClose: () => void; focus?: boolean }) =>
 );
 
 const noop = () => undefined;
+
+const SignOutEverywhereForm = ({ onClose }: { onClose: () => void }) => {
+  const { busy, onSubmit } = useSignOut("/app/sign-out-everywhere");
+  return (
+    <form onSubmit={onSubmit} className="flex gap-2">
+      <Button type="submit" variant="danger" disabled={busy}>
+        Sign out everywhere
+      </Button>
+      <Cancel onClose={onClose} focus />
+    </form>
+  );
+};
 
 const DialogBody = ({ props }: { props: SecurityViewProps }) => {
   const { dialog, account, busy, onClose } = props;
@@ -292,12 +305,7 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
             This device signs out now. Every other device and browser signs out within 15 minutes.
             Your password and passkeys stay as they are.
           </Text>
-          <form onSubmit={signOutVia("/app/sign-out-everywhere")} className="flex gap-2">
-            <Button type="submit" variant="danger">
-              Sign out everywhere
-            </Button>
-            <Cancel onClose={onClose} focus />
-          </form>
+          <SignOutEverywhereForm onClose={onClose} />
         </SecurityDialogFrame>
       );
   }

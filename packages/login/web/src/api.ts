@@ -160,20 +160,6 @@ export const finish = async (answer: Answer): Promise<void> => {
   window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
 };
 
-export const signOutVia =
-  (path: string) =>
-  (event: { preventDefault(): void }): void => {
-    event.preventDefault();
-    void post(path).then((answer) => {
-      if (answer.ok && typeof answer.body.redirect === "string") {
-        window.location.assign(answer.body.redirect);
-        return;
-      }
-      const detail = answer.ok ? `${path} answered with no redirect.` : answer.message;
-      window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail }));
-    });
-  };
-
 let linkToken: string | null = null;
 
 export const takeLinkToken = (): string | null => {

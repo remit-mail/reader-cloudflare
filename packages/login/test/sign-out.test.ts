@@ -38,7 +38,10 @@ describe.each(["/app/sign-out", "/app/sign-out-everywhere"])("%s", (path) => {
     const cookie = await welcome(email, PASSWORD);
     const answer = await call(path, { cookie, body: {} });
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ redirect: LOGOUT });
+    expect(await answer.json()).toEqual({ url: LOGOUT });
+    expect(answer.headers.getSetCookie()).toContainEqual(
+      expect.stringMatching(/^better-auth\.session_token=;.*Max-Age=0/),
+    );
     expect(await sessionsOf(email)).toBe(0);
   });
 
