@@ -66,3 +66,15 @@ export const FreshLinkSent: Story = {
 export const LinkMissing: Story = {
   render: () => <SetPassword state={{ kind: "missing" }} />,
 };
+
+export const ResettingPaused: Story = {
+  render: () => (
+    <SetPassword
+      state={{
+        kind: "locked",
+        message: "Too many attempts. Try again later. Try again after 14:05:00.",
+        retryAt: Date.now() + 15 * 60 * 1000,
+      }}
+    />
+  ),
+};
