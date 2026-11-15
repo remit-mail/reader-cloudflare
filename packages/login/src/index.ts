@@ -91,15 +91,6 @@ const authorizeTargetIsSeeded = async (
   return Array.isArray(registered) && registered.includes(redirectUri);
 };
 
-const toSeeOther = async (response: Response): Promise<Response> => {
-  if (!response.ok) return response;
-  const body = (await response.json()) as { redirect?: unknown };
-  if (typeof body.redirect !== "string") return response;
-  const headers = new Headers({ location: body.redirect, "cache-control": "no-store" });
-  for (const cookie of response.headers.getSetCookie()) headers.append("set-cookie", cookie);
-  return new Response(null, { status: 303, headers });
-};
-
 const serveAuth = async (
   auth: Auth,
   env: Env,
@@ -178,11 +169,9 @@ const serveApp = async (
         }),
       );
     case "/app/sign-out":
-      return toSeeOther(await auth.api.appSignOut({ headers, asResponse: true }));
+      return answered(auth.api.appSignOut({ headers, asResponse: true }));
     case "/app/sign-out-everywhere":
-      return toSeeOther(
-        await answered(auth.api.appSignOutEverywhere({ headers, asResponse: true })),
-      );
+      return answered(auth.api.appSignOutEverywhere({ headers, asResponse: true }));
     case "/app/admin/challenge":
       return openAdminChallenge(admin, request, await readJson(request));
     case "/app/admin/action":

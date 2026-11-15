@@ -394,7 +394,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             event: "SignOut",
             outcome: "Succeeded",
           });
-          return ctx.json({ redirect: `${config.readerOrigin}/cdn-cgi/access/logout` });
+          return ctx.json({ url: `${config.readerOrigin}/cdn-cgi/access/logout` });
         },
       ),
       appSignOutEverywhere: createAuthEndpoint(
@@ -414,7 +414,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             event: "SignOutEverywhere",
             outcome: "Succeeded",
           });
-          return ctx.json({ redirect: `${config.readerOrigin}/cdn-cgi/access/logout` });
+          return ctx.json({ url: `${config.readerOrigin}/cdn-cgi/access/logout` });
         },
       ),
     },
