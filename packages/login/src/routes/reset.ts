@@ -13,6 +13,7 @@ import {
   reserveAttempt,
   resetLinkKey,
   takeResetQuota,
+  undoAttempt,
   waitingUntil,
 } from "../backoff";
 import { BOOTSTRAP_ISSUER } from "../bootstrap";
@@ -244,17 +245,16 @@ export const lookupResetLink = async (
 ): Promise<Response> => {
   const address = addressOf(request);
   const now = Date.now();
+  const scan = await reserveAttempt(db, [deadLinkKey(address)], now);
+  if (!scan.allowed) return backoffResponse(scan.retryAt);
   const token = tokenOf(body);
-  const tokenHash = token === null ? null : await sha256Hex(token);
-  const keys =
-    tokenHash === null ? [deadLinkKey(address)] : [deadLinkKey(address), resetLinkKey(tokenHash)];
-  const until = await waitingUntil(db, keys, now);
+  if (token === null) return deadLink();
+  const tokenHash = await sha256Hex(token);
+  const link = await openLink(db, tokenHash, now);
+  if (link === null) return deadLink();
+  await undoAttempt(db, deadLinkKey(address), scan.attemptId);
+  const until = await waitingUntil(db, [resetLinkKey(tokenHash)], now);
   if (until !== null) return backoffResponse(until);
-  const link = tokenHash === null ? null : await openLink(db, tokenHash, now);
-  if (link === null) {
-    await reserveAttempt(db, [deadLinkKey(address)], now);
-    return deadLink();
-  }
   return json(200, { email: link.email });
 };
 
@@ -273,24 +273,20 @@ export const resetEndpoints = (deps: AuthDeps) => {
         async (ctx) => {
           const address = addressOf({ headers: ctx.headers ?? new Headers() });
           const now = Date.now();
-          const tokenHash = await sha256Hex(ctx.body.token);
-          const scanning = await waitingUntil(db, [deadLinkKey(address)], now);
-          const reservation =
-            scanning === null
-              ? await reserveAttempt(db, [resetLinkKey(tokenHash)], now)
-              : { allowed: false as const, retryAt: scanning };
-          if (!reservation.allowed) {
-            throw new APIError("TOO_MANY_REQUESTS", {
+          const tooMany = (retryAt: number) =>
+            new APIError("TOO_MANY_REQUESTS", {
               message: "Too many attempts. Try again later.",
               code: "BACKOFF",
-              retryAt: new Date(reservation.retryAt).toISOString(),
+              retryAt: new Date(retryAt).toISOString(),
             });
-          }
+          const scan = await reserveAttempt(db, [deadLinkKey(address)], now);
+          if (!scan.allowed) throw tooMany(scan.retryAt);
           const dead = new APIError("GONE", { message: DEAD_LINK, code: "LINK_DEAD" });
-          if ((await openLink(db, tokenHash, now)) === null) {
-            await reserveAttempt(db, [deadLinkKey(address)], now);
-            throw dead;
-          }
+          const tokenHash = await sha256Hex(ctx.body.token);
+          if ((await openLink(db, tokenHash, now)) === null) throw dead;
+          await undoAttempt(db, deadLinkKey(address), scan.attemptId);
+          const reservation = await reserveAttempt(db, [resetLinkKey(tokenHash)], now);
+          if (!reservation.allowed) throw tooMany(reservation.retryAt);
           const { password } = ctx.body;
           if (password.length < 12 || password.length > 128) {
             throw new APIError("BAD_REQUEST", {

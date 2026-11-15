@@ -73,6 +73,15 @@ describe("reset backoff", () => {
     expect((await redeem(token)).status).toBe(200);
   });
 
+  it("lets at most six of many parallel dead-link lookups from one address through", async () => {
+    const address = randomAddress();
+    const statuses = await Promise.all(
+      Array.from({ length: 20 }, () => lookup(crypto.randomUUID(), address)),
+    ).then((responses) => responses.map((response) => response.status));
+    expect(statuses.filter((status) => status !== 429).length).toBeLessThanOrEqual(6);
+    expect(statuses.filter((status) => status === 429).length).toBeGreaterThanOrEqual(14);
+  });
+
   it("refuses the lookup up front once the link itself is paused", async () => {
     mockPwnedPasswords([]);
     const { token } = await linkFor("paused");
