@@ -40,13 +40,12 @@ const ACCESS_HEADERS = [
   "cf-access-jwt-assertion",
 ];
 
-const SECURITY_HEADERS: Readonly<Record<string, string>> = {
-  "content-security-policy":
-    "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+const securityHeaders = (config: LoginConfig): Readonly<Record<string, string>> => ({
+  "content-security-policy": `default-src 'self'; base-uri 'none'; form-action 'self' ${config.readerOrigin}; frame-ancestors 'none'`,
   "strict-transport-security": "max-age=63072000",
-  "referrer-policy": "no-referrer",
+  "referrer-policy": "same-origin",
   "x-content-type-options": "nosniff",
-};
+});
 
 const carriesAccessCredentials = (request: Request): boolean =>
   ACCESS_HEADERS.some((name) => request.headers.has(name)) ||
@@ -56,9 +55,11 @@ const carriesAccessCredentials = (request: Request): boolean =>
 
 const isSafeMethod = (method: string): boolean => method === "GET" || method === "HEAD";
 
-const withSecurityHeaders = (response: Response): Response => {
+const withSecurityHeaders = (response: Response, config: LoginConfig): Response => {
   const secured = new Response(response.body, response);
-  for (const [name, value] of Object.entries(SECURITY_HEADERS)) secured.headers.set(name, value);
+  for (const [name, value] of Object.entries(securityHeaders(config))) {
+    secured.headers.set(name, value);
+  }
   return secured;
 };
 
@@ -236,7 +237,7 @@ export default {
     if (response.status >= 500) {
       log.error("request failed", { status: response.status, durationMs: Date.now() - started });
     }
-    return withSecurityHeaders(response);
+    return withSecurityHeaders(response, configOf(env));
   },
   async scheduled(_controller, env): Promise<void> {
     const now = Date.now();
