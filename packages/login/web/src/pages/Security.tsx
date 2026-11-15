@@ -1,6 +1,6 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui/auth";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Answer, get, post, readerOriginOf } from "../api";
+import { type Answer, get, post, readerOriginOf, signOutVia } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
 import {
   BackupCodeList,
@@ -292,7 +292,7 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
             This device signs out now. Every other device and browser signs out within 15 minutes.
             Your password and passkeys stay as they are.
           </Text>
-          <form method="post" action="/app/sign-out-everywhere" className="flex gap-2">
+          <form onSubmit={signOutVia("/app/sign-out-everywhere")} className="flex gap-2">
             <Button type="submit" variant="danger">
               Sign out everywhere
             </Button>
