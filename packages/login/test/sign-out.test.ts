@@ -10,7 +10,7 @@ import {
   welcome,
 } from "./helpers";
 
-const LOGOUT = `${testEnv.READER_ORIGIN}/cdn-cgi/access/logout`;
+const LOGOUT = `${testEnv.READER_ORIGIN}/cdn-cgi/access/logout?${new URLSearchParams({ returnTo: `${testEnv.READER_ORIGIN}/` })}`;
 
 const count = async (where: string, value: string): Promise<number> =>
   (
@@ -51,5 +51,13 @@ describe.each(["/app/sign-out", "/app/sign-out-everywhere"])("%s", (path) => {
     const answer = await call(path, { cookie, body: {}, headers: { origin } });
     expect(answer.status).toBe(403);
     expect(await count("id", sessionId)).toBe(1);
+  });
+});
+
+describe("/app/sign-out without a login session", () => {
+  it("still names the Access logout", async () => {
+    const answer = await call("/app/sign-out", { body: {} });
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ url: LOGOUT });
   });
 });

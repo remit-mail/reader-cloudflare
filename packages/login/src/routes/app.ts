@@ -1,6 +1,11 @@
 import { createOTP } from "@better-auth/utils/otp";
 import type { BetterAuthPlugin } from "better-auth";
-import { APIError, createAuthEndpoint, sessionMiddleware } from "better-auth/api";
+import {
+  APIError,
+  createAuthEndpoint,
+  getSessionFromCtx,
+  sessionMiddleware,
+} from "better-auth/api";
 import { deleteSessionCookie, setSessionCookie } from "better-auth/cookies";
 import { generateRandomString, symmetricEncrypt } from "better-auth/crypto";
 import { z } from "zod";
@@ -36,6 +41,9 @@ const grantCookie = (config: LoginConfig, value: string, maxAge: number): string
     "SameSite=Strict",
     ...(config.loginOrigin.startsWith("https://") ? ["Secure"] : []),
   ].join("; ");
+
+const accessLogoutUrl = (config: LoginConfig): string =>
+  `${config.readerOrigin}/cdn-cgi/access/logout?${new URLSearchParams({ returnTo: `${config.readerOrigin}/` })}`;
 
 const tokenOf = (body: unknown): string | null => {
   const parsed = z.object({ token: z.string().min(1).max(200) }).safeParse(body);
@@ -379,14 +387,16 @@ export const appEndpoints = (deps: AuthDeps) => {
       ),
       appSignOut: createAuthEndpoint(
         "/app/sign-out",
-        { method: "POST", use: [sessionMiddleware], metadata: { SERVER_ONLY: true } },
+        { method: "POST", metadata: { SERVER_ONLY: true } },
         async (ctx) => {
-          const { session, user } = ctx.context.session;
+          const current = await getSessionFromCtx(ctx);
+          deleteSessionCookie(ctx);
+          if (!current) return ctx.json({ url: accessLogoutUrl(config) });
+          const { session, user } = current;
           await db.batch([
             db.prepare("DELETE FROM oauth_access_token WHERE session_id = ?").bind(session.id),
             db.prepare("DELETE FROM session WHERE id = ?").bind(session.id),
           ]);
-          deleteSessionCookie(ctx);
           await audit(db, {
             actor: "self",
             email: user.email,
@@ -394,7 +404,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             event: "SignOut",
             outcome: "Succeeded",
           });
-          return ctx.json({ url: `${config.readerOrigin}/cdn-cgi/access/logout` });
+          return ctx.json({ url: accessLogoutUrl(config) });
         },
       ),
       appSignOutEverywhere: createAuthEndpoint(
@@ -414,7 +424,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             event: "SignOutEverywhere",
             outcome: "Succeeded",
           });
-          return ctx.json({ url: `${config.readerOrigin}/cdn-cgi/access/logout` });
+          return ctx.json({ url: accessLogoutUrl(config) });
         },
       ),
     },
