@@ -410,8 +410,6 @@ describe("admin step-up", () => {
         {
           userId: target.id,
           input: settings,
-          operatorUserId: operator.userId,
-          operatorEmail: OPERATOR,
         },
       ]);
       expect(

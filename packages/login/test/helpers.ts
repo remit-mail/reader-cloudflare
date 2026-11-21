@@ -39,8 +39,6 @@ export const classificationClears: string[] = [];
 export const tenantClassificationWrites: Array<{
   readonly userId: string;
   readonly input: ClassificationInput;
-  readonly operatorUserId: string;
-  readonly operatorEmail: string;
 }> = [];
 export const tenantClassificationClears: string[] = [];
 export const tenantClassifications: TenantClassification[] = [];
@@ -62,8 +60,8 @@ const operatorSettings: OperatorSettingsService = {
     if (tenant === undefined) throw new Error(`tenant ${userId} was not found`);
     return tenant;
   },
-  writeTenantClassification: async (userId, input, operatorUserId, operatorEmail) => {
-    tenantClassificationWrites.push({ userId, input, operatorUserId, operatorEmail });
+  writeTenantClassification: async (userId, input) => {
+    tenantClassificationWrites.push({ userId, input });
     return { ok: true };
   },
   clearTenantClassification: async (userId) => {

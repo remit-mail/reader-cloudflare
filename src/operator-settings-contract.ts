@@ -40,22 +40,12 @@ export interface OperatorSettingsService {
   ): Promise<ClassificationWrite>;
   clearClassification(): Promise<void>;
   listTenantIds(): Promise<readonly string[]>;
-  readTenantClassification(
-    userId: string,
-    operatorUserId: string,
-    operatorEmail: string,
-  ): Promise<TenantClassification>;
+  readTenantClassification(userId: string): Promise<TenantClassification>;
   writeTenantClassification(
     userId: string,
     input: ClassificationInput,
-    operatorUserId: string,
-    operatorEmail: string,
   ): Promise<ClassificationWrite>;
-  clearTenantClassification(
-    userId: string,
-    operatorUserId: string,
-    operatorEmail: string,
-  ): Promise<void>;
+  clearTenantClassification(userId: string): Promise<void>;
 }
 
 import type { ClassificationPresetId, UserSettingsResponse } from "@remit/api-openapi-types";

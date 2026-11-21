@@ -155,11 +155,7 @@ export const renderTenantClassification = async (
     .bind(userId)
     .first<{ email: string }>();
   if (user === null || isOperator(context.config, user.email)) return notFound();
-  const tenant = await context.settings.readTenantClassification(
-    userId,
-    session.operator.userId,
-    session.operator.email,
-  );
+  const tenant = await context.settings.readTenantClassification(userId);
   return toResponse(tenantClassificationForm({ ok: true, email: user.email, ...tenant }));
 };
 
@@ -320,7 +316,7 @@ const runAction = async (
     const target = await userIdOf(db, targetEmail);
     if (target === null)
       return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-    await context.settings.clearTenantClassification(target.id, operator.userId, operator.email);
+    await context.settings.clearTenantClassification(target.id);
     await audited.run();
     return { ok: true, message: `Cleared the classifier settings of ${targetEmail}.` };
   }
@@ -332,12 +328,7 @@ const runAction = async (
     const target = await userIdOf(db, targetEmail);
     if (target === null)
       return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-    const written = await context.settings.writeTenantClassification(
-      target.id,
-      classification,
-      operator.userId,
-      operator.email,
-    );
+    const written = await context.settings.writeTenantClassification(target.id, classification);
     if (!written.ok) {
       await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
       return { ok: false, status: 400, message: written.message };

@@ -6,9 +6,17 @@ import {
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
 import { createClient } from "@remit/api-http-client/client/index.js";
+import type { UpdateUserSettingsInput, UserSettingsResponse } from "@remit/api-openapi-types";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
+import {
+  clearClassificationProviderFor,
+  readUserSettings,
+  type UserSettingsOutcome,
+  updateUserSettingsFor,
+  userSettingsDepsOf,
+} from "@remit/backend/user-settings-operations";
 import { type SpamPipeline, spamPipelineFromEnv } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
@@ -257,6 +265,34 @@ export class TenantMail extends DurableObject<Env> {
           hostedPeopleDirectory(this.env),
         );
       }),
+    );
+  }
+
+  async readUserSettings(tenantId: string): Promise<UserSettingsResponse> {
+    await this.bootstrap(tenantId);
+    const { client } = await this.compose(tenantId);
+    return readUserSettings(userSettingsDepsOf(client), deriveAccountConfigId(tenantId));
+  }
+
+  async updateUserSettings(
+    tenantId: string,
+    input: UpdateUserSettingsInput,
+  ): Promise<UserSettingsOutcome> {
+    await this.bootstrap(tenantId);
+    const { client } = await this.compose(tenantId);
+    return updateUserSettingsFor(
+      userSettingsDepsOf(client),
+      deriveAccountConfigId(tenantId),
+      input,
+    );
+  }
+
+  async clearClassificationProvider(tenantId: string): Promise<UserSettingsResponse> {
+    await this.bootstrap(tenantId);
+    const { client } = await this.compose(tenantId);
+    return clearClassificationProviderFor(
+      userSettingsDepsOf(client),
+      deriveAccountConfigId(tenantId),
     );
   }
 
