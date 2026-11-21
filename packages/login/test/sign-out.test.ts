@@ -27,16 +27,41 @@ const sessionsOf = async (email: string): Promise<number> => {
   return count("user_id", user.id);
 };
 
-describe.each(["/app/sign-out", "/app/sign-out-everywhere"])("%s", (path) => {
+describe("GET /sign-out", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("ends the session and redirects to the Access logout", async () => {
+    mockPwnedPasswords([]);
+    const email = uniqueEmail("sign-out");
+    const cookie = await welcome(email, PASSWORD);
+    const answer = await call("/sign-out", { cookie });
+    expect(answer.status).toBe(302);
+    expect(answer.headers.get("location")).toBe(LOGOUT);
+    expect(answer.headers.getSetCookie()).toContainEqual(
+      expect.stringMatching(/^better-auth\.session_token=;.*Max-Age=0/),
+    );
+    expect(await sessionsOf(email)).toBe(0);
+  });
+
+  it("redirects to the Access logout without a login session", async () => {
+    const answer = await call("/sign-out");
+    expect(answer.status).toBe(302);
+    expect(answer.headers.get("location")).toBe(LOGOUT);
+  });
+});
+
+describe("/app/sign-out-everywhere", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("ends the session and names the Access logout", async () => {
     mockPwnedPasswords([]);
-    const email = uniqueEmail("sign-out");
+    const email = uniqueEmail("sign-out-everywhere");
     const cookie = await welcome(email, PASSWORD);
-    const answer = await call(path, { cookie, body: {} });
+    const answer = await call("/app/sign-out-everywhere", { cookie, body: {} });
     expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({ url: LOGOUT });
     expect(answer.headers.getSetCookie()).toContainEqual(
@@ -48,16 +73,12 @@ describe.each(["/app/sign-out", "/app/sign-out-everywhere"])("%s", (path) => {
   it.each(["null", "https://attacker.test"])("refuses a post from origin %s", async (origin) => {
     const user = await createUser(uniqueEmail("sign-out-refused"));
     const { cookie, sessionId } = await signIn(user.id);
-    const answer = await call(path, { cookie, body: {}, headers: { origin } });
+    const answer = await call("/app/sign-out-everywhere", {
+      cookie,
+      body: {},
+      headers: { origin },
+    });
     expect(answer.status).toBe(403);
     expect(await count("id", sessionId)).toBe(1);
-  });
-});
-
-describe("/app/sign-out without a login session", () => {
-  it("still names the Access logout", async () => {
-    const answer = await call("/app/sign-out", { body: {} });
-    expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ url: LOGOUT });
   });
 });
