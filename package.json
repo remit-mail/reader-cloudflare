@@ -49,7 +49,8 @@
     "smoke:sync": "node npm-scripts/smoke-sync.mjs",
     "seed:dev": "tsx npm-scripts/seed-dev.ts",
     "smoke:dev": "tsx npm-scripts/smoke-dev.ts",
-    "test": "npm run build:schema && npm run test --workspace login",
+    "test": "npm run build:schema && npm run test:app && npm run test --workspace login",
+    "test:app": "node --import tsx --test --test-timeout=60000 test/*.test.ts",
     "db:generate:login": "npm run build:schema && npm run db:generate --workspace login"
   },
   "devDependencies": {

@@ -15,6 +15,7 @@ const MASTER_KEY_BYTES = 32;
 const DATA_KEY_BYTES = 32;
 const IV_BYTES = 12;
 const AES_GCM = "AES-GCM";
+const GCM_TAG_BYTES = 16;
 
 type TenantKeyRow = typeof tenantKeys.$inferSelect;
 
@@ -26,7 +27,9 @@ const decodeBase64 = (value: string): Uint8Array =>
 const wrapContext = (tenantId: string, keyVersion: number): Uint8Array =>
   encoder.encode(`tenant_key:${tenantId}:${keyVersion}`);
 
-const importMasterKey = async (env: Env): Promise<CryptoKey> => {
+type MasterKeyEnv = Pick<Env, "MASTER_KEY">;
+
+const importMasterKey = async (env: MasterKeyEnv): Promise<CryptoKey> => {
   const raw = decodeBase64(await env.MASTER_KEY.get());
   if (raw.byteLength !== MASTER_KEY_BYTES) {
     throw new Error(`MASTER_KEY must decode to ${MASTER_KEY_BYTES} bytes`);
@@ -119,3 +122,43 @@ const tenantDataKeys = (env: Env, tenantId: string): DataKeyProvider => ({
 
 export const tenantSecrets = (env: Env, tenantId: string): SecretsService =>
   createSecretsService(createCachedDataKeyProvider(tenantDataKeys(env, tenantId)));
+
+export interface SealedSecret {
+  readonly sealed: Uint8Array;
+  readonly iv: Uint8Array;
+  readonly keyVersion: number;
+}
+
+const classificationContext = (keyVersion: number): Uint8Array =>
+  encoder.encode(`classification_default:${keyVersion}`);
+
+export const sealClassificationKey = async (
+  env: MasterKeyEnv,
+  apiKey: string,
+): Promise<SealedSecret> => {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const sealed = await crypto.subtle.encrypt(
+    { name: AES_GCM, iv, additionalData: classificationContext(MASTER_KEY_VERSION) },
+    await importMasterKey(env),
+    encoder.encode(apiKey),
+  );
+  return { sealed: new Uint8Array(sealed), iv, keyVersion: MASTER_KEY_VERSION };
+};
+
+export const openClassificationKey = async (
+  env: MasterKeyEnv,
+  secret: SealedSecret,
+): Promise<string> => {
+  if (secret.keyVersion !== MASTER_KEY_VERSION) {
+    throw new Error(`no master key for key_version ${secret.keyVersion}`);
+  }
+  const plaintext = await crypto.subtle.decrypt(
+    { name: AES_GCM, iv: secret.iv, additionalData: classificationContext(secret.keyVersion) },
+    await importMasterKey(env),
+    secret.sealed,
+  );
+  return new TextDecoder().decode(plaintext);
+};
+
+export const sealsEmptyKey = (secret: SealedSecret): boolean =>
+  secret.sealed.byteLength <= GCM_TAG_BYTES;

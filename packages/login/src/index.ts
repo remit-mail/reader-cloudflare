@@ -130,7 +130,13 @@ const serveApp = async (
   request: Request,
   path: string,
 ): Promise<Response> => {
-  const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
+  const admin: AdminContext = {
+    auth,
+    config,
+    db: env.DB,
+    email: mailerOf(env),
+    settings: env.OPERATOR_SETTINGS,
+  };
   if (request.method === "GET" && path === "/app/config") {
     return Response.json({ readerOrigin: config.readerOrigin, passkeys: true });
   }
@@ -208,7 +214,13 @@ const route = async (request: Request, env: Env): Promise<Response> => {
   }
   const auth = await createAuth(env, waitUntil);
   if (path.startsWith(`${API_BASE_PATH}/`)) return serveAuth(auth, env, config, request, url);
-  const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
+  const admin: AdminContext = {
+    auth,
+    config,
+    db: env.DB,
+    email: mailerOf(env),
+    settings: env.OPERATOR_SETTINGS,
+  };
   if (request.method === "GET" && path === "/sign-out") return signOut(auth, config, request);
   if (request.method === "GET" && path === "/admin") return renderAdmin(admin, request);
   if (request.method === "GET" && path === "/admin/audit") return renderAudit(admin, request);

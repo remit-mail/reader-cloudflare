@@ -54,6 +54,7 @@ import { tenantMail } from "./stubs";
 import { tenantOfFeedToken } from "./tenant-directory";
 
 export { TenantMail as TenantMailV3 } from "./mail/tenant-mail";
+export { OperatorSettings } from "./operator-settings";
 
 installRemitLogger();
 
