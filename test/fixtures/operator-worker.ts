@@ -3,6 +3,7 @@ import type { RemitClient } from "@remit/backend/client";
 import type { UserIdentity } from "@remit/backend/serve";
 import { operatorAuditVia, serveRequest } from "../../src/api/serve";
 import type { Env } from "../../src/env";
+import { isMcpMachinePath, serveMcpMachine } from "../../src/mcp/route";
 import type { OperatorAuditRecord } from "../../src/operator-audit-contract";
 import { classificationDefaultStore } from "../../src/operator-settings";
 
@@ -17,6 +18,20 @@ const workerEnv = (env: TestEnv): Env =>
     DB: env.DB,
     MASTER_KEY: { get: async () => env.MASTER_KEY },
   }) as Env;
+
+const mcpEnvs = new WeakMap<TestEnv, Env>();
+
+const mcpEnv = (env: TestEnv): Env => {
+  const known = mcpEnvs.get(env);
+  if (known !== undefined) return known;
+  const created = {
+    DB: env.DB,
+    PUBLIC_ORIGIN: "http://example.test",
+    MCP_AUTH_SECRET: { get: async () => "mcp-metadata-test-secret-of-at-least-32-chars" },
+  } as unknown as Env;
+  mcpEnvs.set(env, created);
+  return created;
+};
 
 const LOGIN_PEOPLE = new Set(["operator@remit.test"]);
 
@@ -47,6 +62,9 @@ export class DefaultTenant extends DurableObject<TestEnv> {
 
 export default {
   fetch(request: Request, env: TestEnv): Promise<Response> {
+    if (isMcpMachinePath(new URL(request.url).pathname)) {
+      return serveMcpMachine(request, mcpEnv(env));
+    }
     const tenant = request.headers.get("x-tenant") ?? "one";
     return env.TENANTS.get(env.TENANTS.idFromName(tenant)).fetch(request);
   },
