@@ -1,9 +1,6 @@
 export interface ClassificationPresetOption {
   readonly presetId: string;
   readonly label: string;
-  readonly needsKey: boolean;
-  readonly defaultBaseUrl: string | null;
-  readonly defaultModel: string;
 }
 
 export type ClassificationView =
@@ -32,7 +29,7 @@ export interface ClassificationInput {
 }
 
 export type ClassificationWrite =
-  | { readonly ok: true; readonly view: ClassificationView }
+  | { readonly ok: true }
   | { readonly ok: false; readonly message: string };
 
 export interface OperatorSettingsService {

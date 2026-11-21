@@ -63,9 +63,6 @@ const CLASSIFIER: ClassificationView = {
     {
       presetId: "Mistral",
       label: "Mistral",
-      needsKey: true,
-      defaultBaseUrl: "https://api.eu.mistral.ai/v1",
-      defaultModel: "ministral-8b-latest",
     },
   ],
   presetId: "Mistral",
@@ -89,7 +86,9 @@ const load = (page: Html) => async () => {
 };
 
 export const People: Story = {
-  loaders: [load(adminPage(OPERATOR, USERS, CLASSIFIER, (email) => email === OPERATOR))],
+  loaders: [
+    load(adminPage(OPERATOR, USERS, { ok: true, view: CLASSIFIER }, (email) => email === OPERATOR)),
+  ],
 };
 
 export const Enroll: Story = {

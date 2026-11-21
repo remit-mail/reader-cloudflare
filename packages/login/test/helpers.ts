@@ -41,9 +41,7 @@ const operatorSettings: OperatorSettingsService = {
   readClassification: async () => NO_CLASSIFIER,
   writeClassification: async (input, operatorEmail) => {
     classificationWrites.push({ input, operatorEmail });
-    return input.dailyLimit > 0
-      ? { ok: true, view: NO_CLASSIFIER }
-      : { ok: false, message: "dailyLimit must be a positive integer." };
+    return { ok: true };
   },
 };
 

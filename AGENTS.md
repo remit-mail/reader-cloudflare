@@ -45,7 +45,7 @@ remit reader on Cloudflare Workers. A TypeScript Worker in `src/`, configured by
 | `npm run typecheck`                | `tsc` over `src` and every package, against declarations `build:vendor-types` emits                |
 | `npm run smoke:config-import`      | Runs the bundled Worker in Miniflare and imports a config file (default: the golden v1)            |
 | `npm run ci`                       | `check`, `check:no-config`, `check:retries`, `typecheck`, then `test`; run before push             |
-| `npm run test`                     | vitest on `@cloudflare/vitest-plugin` for the login Worker in `packages/login`                     |
+| `npm run test`                     | `node --test` on `test/`, then vitest on `@cloudflare/vitest-plugin` for `packages/login`          |
 | `npm run check:no-config`          | Fails on an account id, Access value, e-mail or deploy config value in git                         |
 | `npm run e2e`                      | reader's Dovecot and Mailpit, `wrangler dev --env e2e`, Playwright; `E2E_SLOT` names it            |
 | `npm run e2e:login`                | The login Worker on `wrangler dev`: invite, sign-in, TOTP, reset and the OIDC code flow            |

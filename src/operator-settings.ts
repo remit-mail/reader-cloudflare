@@ -5,7 +5,13 @@ import {
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
 import { eq, sql } from "drizzle-orm";
-import { openClassificationKey, type SealedSecret, sealClassificationKey } from "./crypto/envelope";
+import { isHttpsUrl, keyChoiceOf } from "./classification-key";
+import {
+  openClassificationKey,
+  type SealedSecret,
+  sealClassificationKey,
+  sealsEmptyKey,
+} from "./crypto/envelope";
 import { openAppDb } from "./db/client";
 import { classificationDefaults } from "./db/schema";
 import type { Env } from "./env";
@@ -22,13 +28,7 @@ const DEPLOYMENT = "Deployment";
 type ClassificationRow = typeof classificationDefaults.$inferSelect;
 
 const PRESETS: readonly ClassificationPresetOption[] = Object.values(CLASSIFICATION_PRESETS).map(
-  (preset) => ({
-    presetId: preset.presetId,
-    label: preset.label,
-    needsKey: preset.needsKey,
-    defaultBaseUrl: preset.defaultBaseUrl ?? null,
-    defaultModel: preset.defaultModel,
-  }),
+  ({ presetId, label }) => ({ presetId, label }),
 );
 
 const rowOf = async (env: Env): Promise<ClassificationRow | undefined> => {
@@ -62,10 +62,7 @@ export const classificationDefaultOf = async (
   return parsed.value;
 };
 
-const viewOf = async (
-  env: Env,
-  row: ClassificationRow | undefined,
-): Promise<ClassificationView> => {
+const viewOf = (row: ClassificationRow | undefined): ClassificationView => {
   if (row === undefined) return { state: "None", presets: PRESETS };
   return {
     state: "Configured",
@@ -75,15 +72,12 @@ const viewOf = async (
     baseUrl: row.baseUrl,
     dailyLimit: row.dailyLimit,
     enabled: row.enabled,
-    hasKey: (await openClassificationKey(env, secretOf(row))) !== "",
+    hasKey: !sealsEmptyKey(secretOf(row)),
     version: row.version,
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
   };
 };
-
-const isHttpUrl = (value: string): boolean =>
-  URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol);
 
 const refused = (message: string): ClassificationWrite => ({ ok: false, message });
 
@@ -92,19 +86,15 @@ export const writeClassification = async (
   input: ClassificationInput,
   operatorEmail: string,
 ): Promise<ClassificationWrite> => {
-  if (input.baseUrl !== "" && !isHttpUrl(input.baseUrl)) {
-    return refused(`baseUrl=${input.baseUrl} must be an http or https URL.`);
-  }
-  const existing = await rowOf(env);
-  const kept = input.apiKey === "" && existing !== undefined ? secretOf(existing) : null;
+  const choice = keyChoiceOf(await rowOf(env), input);
+  if (choice.kind === "Refused") return refused(choice.message);
+  const kept = choice.kind === "Keep" ? secretOf(choice.stored) : null;
   const apiKey = kept === null ? input.apiKey : await openClassificationKey(env, kept);
   const parsed = parseClassificationDefault({ ...input, apiKey });
   if (!parsed.ok) return refused(parsed.message);
   if (parsed.value.state !== "Configured") return refused("The classifier default is not set.");
   const value = parsed.value;
-  if (!isHttpUrl(value.baseUrl)) {
-    return refused(`baseUrl=${value.baseUrl} must be an http or https URL.`);
-  }
+  if (!isHttpsUrl(value.baseUrl)) return refused(`baseUrl=${value.baseUrl} must be an https URL.`);
   const secret = kept ?? (await sealClassificationKey(env, apiKey));
   const settings = {
     presetId: value.presetId,
@@ -118,21 +108,19 @@ export const writeClassification = async (
     updatedAt: Date.now(),
     updatedBy: operatorEmail,
   };
-  const [stored] = await openAppDb(env.DB)
+  await openAppDb(env.DB)
     .insert(classificationDefaults)
     .values({ classificationDefaultId: DEPLOYMENT, version: 1, ...settings })
     .onConflictDoUpdate({
       target: classificationDefaults.classificationDefaultId,
       set: { ...settings, version: sql`${classificationDefaults.version} + 1` },
-    })
-    .returning();
-  if (stored === undefined) throw new Error("classification_default row missing after upsert");
-  return { ok: true, view: await viewOf(env, stored) };
+    });
+  return { ok: true };
 };
 
 export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorSettingsService {
   async readClassification(): Promise<ClassificationView> {
-    return viewOf(this.env, await rowOf(this.env));
+    return viewOf(await rowOf(this.env));
   }
 
   writeClassification(

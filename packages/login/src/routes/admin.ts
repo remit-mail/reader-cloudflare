@@ -7,6 +7,7 @@ import {
   type AdminUser,
   adminPage,
   auditPage,
+  type ClassificationRead,
   enrollPage,
   toResponse,
   type UserState,
@@ -113,7 +114,13 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
   if (stepUpMethodOf(session.operator) === null) return toResponse(enrollPage());
   const [users, classification] = await Promise.all([
     listUsers(context.db, Date.now()),
-    context.settings.readClassification(),
+    context.settings.readClassification().then(
+      (view): ClassificationRead => ({ ok: true, view }),
+      (error: unknown): ClassificationRead => ({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    ),
   ]);
   return toResponse(
     adminPage(session.operator.email, users, classification, (email) =>

@@ -103,7 +103,22 @@ const userRow = (user: AdminUser, operator: boolean): Html => html`<tr>
   </td>
 </tr>`;
 
+export type ClassificationRead =
+  | { readonly ok: true; readonly view: ClassificationView }
+  | { readonly ok: false; readonly message: string };
+
 const DEFAULT_DAILY_LIMIT = 500;
+
+const classificationFailure = (message: string): Html => {
+  const report = `${ISSUES_URL}?${new URLSearchParams({ title: "remit admin classifier default did not load", body: message }).toString()}`;
+  return html`<section class="card">
+    <h2>Classifier default</h2>
+    <div class="banner danger" role="alert">
+      <p>The classifier default did not load: ${message}</p>
+      <a href="${report}" target="_blank" rel="noreferrer">Report an issue</a>
+    </div>
+  </section>`;
+};
 
 const classificationSection = (operatorEmail: string, view: ClassificationView): Html => {
   const configured = view.state === "Configured" ? view : null;
@@ -138,7 +153,7 @@ const classificationSection = (operatorEmail: string, view: ClassificationView):
 export const adminPage = (
   operatorEmail: string,
   users: readonly AdminUser[],
-  classification: ClassificationView,
+  classification: ClassificationRead,
   isOperator: (email: string) => boolean,
 ): Html =>
   layout(
@@ -168,7 +183,11 @@ export const adminPage = (
       </div>
       <p><a href="/admin/audit?days=7">Audit log</a></p>
     </section>
-    ${classificationSection(operatorEmail, classification)}`,
+    ${
+      classification.ok
+        ? classificationSection(operatorEmail, classification.view)
+        : classificationFailure(classification.message)
+    }`,
   );
 
 export const enrollPage = (): Html =>

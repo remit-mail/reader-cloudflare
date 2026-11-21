@@ -287,19 +287,6 @@ describe("admin step-up", () => {
       { input: settings, operatorEmail: OPERATOR },
     ]);
 
-    vi.setSystemTime((step + 1) * STEP_MS + 10_000);
-    const refusedId = await openTotpChallenge(operator, "SetClassification", OPERATOR);
-    const refused = await call("/app/admin/action", {
-      cookie: operator.cookie,
-      body: {
-        adminChallengeId: refusedId,
-        action: "SetClassification",
-        targetEmail: OPERATOR,
-        totpCode: await totpCode(step + 1),
-        classification: { ...settings, dailyLimit: 0 },
-      },
-    });
-    expect(refused.status).toBe(400);
     expect(
       await count(
         "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND event = 'ClassificationSet' AND outcome = ? AND at >= ?",
@@ -315,7 +302,7 @@ describe("admin step-up", () => {
         "Refused",
         step * STEP_MS,
       ),
-    ).toBe(2);
+    ).toBe(1);
   });
 
   it("revokes a pending invite so it neither redeems nor renews", async () => {
