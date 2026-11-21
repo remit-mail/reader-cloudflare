@@ -58,6 +58,46 @@ check(
   `GET /api/config without a service token answered ${anonymous.status}`,
 );
 
+const installationAssets = [
+  ["/manifest.webmanifest", "application/manifest+json"],
+  ["/sw.js", "application/javascript"],
+  ["/apple-touch-icon.png", "image/png"],
+  ["/favicon.ico", "image/x-icon"],
+  ["/icons/icon-192.png", "image/png"],
+  ["/icons/icon-512.png", "image/png"],
+  ["/icons/icon-maskable-512.png", "image/png"],
+] as const;
+for (const [path, mime] of installationAssets) {
+  const response = await fetch(new URL(path, target.appUrl), { redirect: "manual" });
+  check(
+    `anonymous installation asset ${path}`,
+    response.status === 200 &&
+      response.headers.get("content-type")?.split(";")[0] === mime &&
+      response.headers.get("cache-control") === "no-cache" &&
+      response.headers.get("x-content-type-options") === "nosniff" &&
+      (path !== "/sw.js" || response.headers.get("service-worker-allowed") === "/"),
+    `GET ${path} answered ${response.status}: type=${response.headers.get("content-type")}, cache=${response.headers.get("cache-control")}, nosniff=${response.headers.get("x-content-type-options")}, scope=${response.headers.get("service-worker-allowed")}`,
+  );
+}
+
+for (const path of ["/assets/pages.css", "/icons/missing.png", "/content/missing"]) {
+  const response = await fetch(new URL(path, target.appUrl), { redirect: "manual" });
+  check(
+    `Access still protects ${path}`,
+    response.status === 302 || response.status === 401 || response.status === 403,
+    `GET ${path} without a service token answered ${response.status}`,
+  );
+}
+const missingIcon = await fetch(new URL("/icons/missing.png", target.appUrl), {
+  headers: { ...accessHeaders(target), "Sec-Fetch-Mode": "navigate" },
+  redirect: "manual",
+});
+check(
+  "a missing icon is 404 instead of the web shell",
+  missingIcon.status === 404 && !missingIcon.headers.get("content-type")?.startsWith("text/html"),
+  `GET /icons/missing.png answered ${missingIcon.status} ${missingIcon.headers.get("content-type")}`,
+);
+
 const authServer = await fetch(new URL("/.well-known/oauth-authorization-server", target.appUrl), {
   headers: accessHeaders(target),
   redirect: "manual",

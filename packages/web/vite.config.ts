@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { webClientPreset } from "@remit/web-client/vite-preset";
 import { defineConfig } from "vite";
+import { copyMcpPageAssets } from "../../npm-scripts/mcp-pages.ts";
 import { commit } from "../../src/commit.ts";
 
 export default defineConfig(
@@ -11,14 +9,7 @@ export default defineConfig(
     commit,
     pwa: {
       enabled: true,
-      beforePrecache: async (outDir) => {
-        await promisify(execFile)(process.execPath, [
-          "--import",
-          "tsx",
-          fileURLToPath(new URL("../../npm-scripts/mcp-pages.ts", import.meta.url)),
-          outDir,
-        ]);
-      },
+      beforePrecache: copyMcpPageAssets,
     },
     runtimeConfig: {
       apiUrl: "/api",

@@ -242,12 +242,18 @@
           "/api/*",
           "/content/*",
           "/outbox-upload/*",
-          "/__scheduled",
+          "/mcp",
+          "/.well-known/*",
+          "/auth/*",
+          "/consent",
+          "/device",
+          "/apps",
           "/manifest.webmanifest",
           "/sw.js",
           "/apple-touch-icon.png",
           "/favicon.ico",
-          "/icons/*"
+          "/icons/*",
+          "/__scheduled"
         ]
       },
       "routes": [],
