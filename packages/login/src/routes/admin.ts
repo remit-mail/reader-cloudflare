@@ -1,3 +1,5 @@
+import type { PeopleDirectory, PeopleRefusal } from "@remit/auth-service/people";
+import { PeopleErrorCode } from "@remit/domain-enums";
 import { z } from "zod";
 import type {
   ClassificationInput,
@@ -9,6 +11,7 @@ import {
   auditPage,
   type ClassificationRead,
   enrollPage,
+  type TenantClassificationRead,
   toResponse,
   type UserState,
 } from "../admin-page";
@@ -17,7 +20,6 @@ import type { Auth } from "../auth";
 import { addressOf, clearKey, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
 import { json, notFound } from "../http";
-import { sendInvite } from "../mail";
 import { reserveOrAudit } from "../second-factor";
 import {
   type AdminAction,
@@ -32,13 +34,12 @@ import {
   stepUpMethodOf,
   verifyProof,
 } from "../step-up";
-import { issueInvite, revokeInvite } from "./app";
 
 export interface AdminContext {
   readonly auth: Auth;
   readonly config: LoginConfig;
   readonly db: D1Database;
-  readonly email: SendEmail;
+  readonly people: PeopleDirectory;
   readonly settings: OperatorSettingsService;
 }
 
@@ -63,6 +64,7 @@ export const operatorSession = async (
 };
 
 interface UserListRow {
+  id: string;
   email: string;
   banned: number | null;
   two_factor_enabled: number | null;
@@ -74,7 +76,7 @@ interface UserListRow {
 const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
   const users = await db
     .prepare(
-      `SELECT user.email AS email, user.banned AS banned, user.two_factor_enabled AS two_factor_enabled,
+      `SELECT user.id AS id, user.email AS email, user.banned AS banned, user.two_factor_enabled AS two_factor_enabled,
         (SELECT COUNT(*) FROM passkey WHERE passkey.user_id = user.id) AS passkeys,
         (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?1) AS sessions,
         (SELECT MAX(at) FROM audit_event WHERE audit_event.email = lower(user.email) AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
@@ -90,6 +92,7 @@ const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
   const stateOf = (row: UserListRow): UserState => (row.banned ? "disabled" : "active");
   return [
     ...users.results.map((row) => ({
+      userId: row.id,
       email: row.email,
       state: stateOf(row),
       passkeys: row.passkeys,
@@ -98,6 +101,7 @@ const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
       lastSignIn: row.last_sign_in,
     })),
     ...invited.results.map((row) => ({
+      userId: null,
       email: row.email,
       state: row.expires_at > now ? ("invited" as const) : ("expired" as const),
       passkeys: 0,
@@ -112,7 +116,7 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
   const session = await operatorSession(context, request);
   if (session === null) return notFound();
   if (stepUpMethodOf(session.operator) === null) return toResponse(enrollPage());
-  const [users, classification] = await Promise.all([
+  const [users, classification, tenantSettings] = await Promise.all([
     listUsers(context.db, Date.now()),
     context.settings.readClassification().then(
       (view): ClassificationRead => ({ ok: true, view }),
@@ -121,9 +125,17 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
         message: error instanceof Error ? error.message : String(error),
       }),
     ),
+    context.settings.readTenantClassifications(session.operator.userId, session.operator.email),
   ]);
+  const emailById = new Map(
+    users.flatMap((user) => (user.userId === null ? [] : [[user.userId, user.email] as const])),
+  );
+  const tenants: TenantClassificationRead[] = tenantSettings.flatMap((tenant) => {
+    const email = emailById.get(tenant.userId);
+    return email === undefined ? [] : [{ ok: true, email, ...tenant }];
+  });
   return toResponse(
-    adminPage(session.operator.email, users, classification, (email) =>
+    adminPage(session.operator.email, users, classification, tenants, (email) =>
       isOperator(context.config, email),
     ),
   );
@@ -151,7 +163,7 @@ const actionBody = z.object({
   totpCode: z.string().max(12).optional(),
   classification: z
     .object({
-      presetId: z.string().max(64),
+      presetId: z.enum(["Jev", "Jina", "Mistral", "Gemini", "OpenAiCompatible", "Local"]),
       model: z.string().max(200),
       baseUrl: z.string().max(2048),
       apiKey: z.string().max(4096),
@@ -198,6 +210,8 @@ const AUDIT_EVENT: Readonly<Record<AdminAction, AuditEntry["event"]>> = {
   RevokeInvite: "InviteRevoked",
   SetClassification: "ClassificationSet",
   ClearClassification: "ClassificationCleared",
+  SetTenantClassification: "ClassificationSet",
+  ClearTenantClassification: "ClassificationCleared",
 };
 
 const refuse = async (
@@ -280,6 +294,35 @@ const runAction = async (
   const { db } = context;
   const now = Date.now();
   const audited = auditStatement(db, entry, now);
+  if (action === "ClearTenantClassification") {
+    const target = await userIdOf(db, targetEmail);
+    if (target === null)
+      return { ok: false, status: 404, message: `${targetEmail} has no account.` };
+    await context.settings.clearTenantClassification(target.id, operator.userId, operator.email);
+    await audited.run();
+    return { ok: true, message: `Cleared the classifier settings of ${targetEmail}.` };
+  }
+  if (action === "SetTenantClassification") {
+    if (classification === undefined) {
+      await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
+      return { ok: false, status: 400, message: "Send the classifier settings to save." };
+    }
+    const target = await userIdOf(db, targetEmail);
+    if (target === null)
+      return { ok: false, status: 404, message: `${targetEmail} has no account.` };
+    const written = await context.settings.writeTenantClassification(
+      target.id,
+      classification,
+      operator.userId,
+      operator.email,
+    );
+    if (!written.ok) {
+      await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
+      return { ok: false, status: 400, message: written.message };
+    }
+    await audited.run();
+    return { ok: true, message: `Saved the classifier settings of ${targetEmail}.` };
+  }
   if (action === "ClearClassification") {
     await context.settings.clearClassification();
     await audited.run();
@@ -299,31 +342,21 @@ const runAction = async (
     return { ok: true, message: "Saved the classifier default." };
   }
   if (action === "Invite") {
-    if ((await userIdOf(db, targetEmail)) !== null) {
-      return { ok: false, status: 409, message: `${targetEmail} already has an account.` };
-    }
-    const { inviteId, token } = await issueInvite(db, targetEmail, operator.email);
-    const sent = await sendInvite(context.email, context.config, targetEmail, token);
-    if (!sent.ok) {
-      await revokeInvite(db, inviteId);
-      await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
-      return { ok: false, status: 502, message: `The invite was not sent: ${sent.reason}` };
-    }
-    await audited.run();
+    const invited = await context.people.invitePerson({
+      callerId: operator.userId,
+      clientIp: entry.address,
+      email: targetEmail,
+    });
+    if (!invited.ok) return peopleFailure(invited.refusal, targetEmail);
     return { ok: true, message: `Invited ${targetEmail}.` };
   }
   if (action === "RevokeInvite") {
-    const [revoked] = await db.batch([
-      db
-        .prepare(
-          "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open'",
-        )
-        .bind(now, targetEmail),
-      auditStatement(db, entry, now, true),
-    ]);
-    if (revoked === undefined || revoked.meta.changes === 0) {
-      return { ok: false, status: 404, message: `${targetEmail} has no pending invite.` };
-    }
+    const revoked = await context.people.revokeInvite({
+      callerId: operator.userId,
+      clientIp: entry.address,
+      email: targetEmail,
+    });
+    if (!revoked.ok) return peopleFailure(revoked.refusal, targetEmail);
     return { ok: true, message: `Revoked the invite of ${targetEmail}.` };
   }
   if (action === "RotateKeys") {
@@ -346,41 +379,51 @@ const runAction = async (
   }
   const target = await userIdOf(db, targetEmail);
   if (target === null) return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-  const endSessions = [
-    db.prepare("DELETE FROM session WHERE user_id = ?").bind(target.id),
-    db.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(target.id),
-  ];
+  const request = { callerId: operator.userId, clientIp: entry.address, targetId: target.id };
   if (action === "Disable") {
-    await db.batch([
-      db.prepare("UPDATE user SET banned = 1, updated_at = ? WHERE id = ?").bind(now, target.id),
-      ...endSessions,
-      audited,
-    ]);
+    const changed = await context.people.updatePerson({
+      ...request,
+      operatorGrant: true,
+      stepUpToken: null,
+      status: "Disabled",
+    });
+    if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
     return { ok: true, message: `Disabled ${targetEmail}.` };
   }
   if (action === "Enable") {
     if (!target.banned)
       return { ok: false, status: 409, message: `${targetEmail} is not disabled.` };
-    await db.batch([
-      db.prepare("UPDATE user SET banned = 0, updated_at = ? WHERE id = ?").bind(now, target.id),
-      audited,
-    ]);
+    const changed = await context.people.updatePerson({
+      ...request,
+      operatorGrant: true,
+      stepUpToken: null,
+      status: "Active",
+    });
+    if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
     return { ok: true, message: `Enabled ${targetEmail}.` };
   }
   if (action === "ResetFactors") {
-    await db.batch([
-      db.prepare("DELETE FROM two_factor WHERE user_id = ?").bind(target.id),
-      db.prepare("DELETE FROM passkey WHERE user_id = ?").bind(target.id),
-      db
-        .prepare("UPDATE user SET two_factor_enabled = 0, updated_at = ? WHERE id = ?")
-        .bind(now, target.id),
-      ...endSessions,
-      audited,
-    ]);
+    const changed = await context.people.resetPersonFactors(request);
+    if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
     return { ok: true, message: `Reset the factors of ${targetEmail}.` };
   }
-  await db.batch([...endSessions, audited]);
+  const changed = await context.people.signOutPerson({
+    ...request,
+    operatorGrant: true,
+    stepUpToken: null,
+  });
+  if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
   return { ok: true, message: `Signed ${targetEmail} out everywhere.` };
+};
+
+const peopleFailure = (refusal: PeopleRefusal, email: string): Outcome => {
+  if (refusal === "not_found") {
+    return { ok: false, status: 404, message: `${email} was not found.` };
+  }
+  if (refusal === PeopleErrorCode.CannotDisableSelf) {
+    return { ok: false, status: 409, message: "You cannot disable your own account." };
+  }
+  return { ok: false, status: 403, message: `The people directory refused ${refusal}.` };
 };
 
 export const runAdminAction = async (

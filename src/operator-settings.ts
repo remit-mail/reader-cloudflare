@@ -1,10 +1,18 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import {
+  personSettingsOperationsClearPersonClassificationProvider,
+  personSettingsOperationsGetPersonSettings,
+  personSettingsOperationsUpdatePersonSettings,
+} from "@remit/api-http-client";
+import { createClient } from "@remit/api-http-client/client/index.js";
 import { parseClassificationDefault } from "@remit/backend/classification-default";
 import type { ClassificationDefaultStore } from "@remit/backend/create-remit-client";
+import type { UserIdentity } from "@remit/backend/serve";
 import {
   CLASSIFICATION_PRESETS,
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { eq, sql } from "drizzle-orm";
 import {
   classificationDefaultFromDeployment,
@@ -19,7 +27,7 @@ import {
   sealsEmptyKey,
 } from "./crypto/envelope";
 import { openAppDb } from "./db/client";
-import { classificationDefaults } from "./db/schema";
+import { classificationDefaults, tenantKeys } from "./db/schema";
 import type { Env } from "./env";
 import type {
   ClassificationInput,
@@ -27,7 +35,9 @@ import type {
   ClassificationView,
   ClassificationWrite,
   OperatorSettingsService,
+  TenantClassification,
 } from "./operator-settings-contract";
+import { tenantMail } from "./stubs";
 
 const DEPLOYMENT = "Deployment";
 
@@ -89,6 +99,60 @@ const viewOf = (row: ClassificationRow | undefined): ClassificationView => {
 };
 
 const refused = (message: string): ClassificationWrite => ({ ok: false, message });
+
+const errorMessage = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const { message } = error as { message?: unknown };
+    if (typeof message === "string") return message;
+  }
+  return String(error);
+};
+
+const operatorClient = (
+  env: Env,
+  userId: string,
+  operatorUserId: string,
+  operatorEmail: string,
+) => {
+  const identity: UserIdentity = {
+    kind: "user",
+    accountConfigId: deriveAccountConfigId(operatorUserId),
+    sub: operatorUserId,
+    email: operatorEmail,
+  };
+  return createClient({
+    baseUrl: new URL("/api", env.PUBLIC_ORIGIN).href,
+    fetch: (request, init) =>
+      tenantMail(env, userId).api(
+        request instanceof Request ? request : new Request(request, init),
+        identity,
+        true,
+        userId,
+        crypto.randomUUID(),
+      ),
+  });
+};
+
+const tenantIds = async (env: Env): Promise<readonly string[]> => {
+  const rows = await openAppDb(env.DB)
+    .selectDistinct({ tenantId: tenantKeys.tenantId })
+    .from(tenantKeys);
+  return rows.map((row) => row.tenantId);
+};
+
+const readTenantClassification = async (
+  env: Env,
+  userId: string,
+  operatorUserId: string,
+  operatorEmail: string,
+): Promise<TenantClassification> => {
+  const answer = await personSettingsOperationsGetPersonSettings({
+    client: operatorClient(env, userId, operatorUserId, operatorEmail),
+    path: { userId },
+  });
+  if (answer.data === undefined) throw new Error(errorMessage(answer.error));
+  return { userId, settings: answer.data };
+};
 
 export const writeClassification = async (
   env: Env,
@@ -175,5 +239,49 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
 
   clearClassification(): Promise<void> {
     return clearClassification(this.env);
+  }
+
+  async readTenantClassifications(
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<readonly TenantClassification[]> {
+    return Promise.all(
+      (await tenantIds(this.env)).map((userId) =>
+        readTenantClassification(this.env, userId, operatorUserId, operatorEmail),
+      ),
+    );
+  }
+
+  async writeTenantClassification(
+    userId: string,
+    input: ClassificationInput,
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<ClassificationWrite> {
+    const answer = await personSettingsOperationsUpdatePersonSettings({
+      client: operatorClient(this.env, userId, operatorUserId, operatorEmail),
+      path: { userId },
+      body: {
+        classificationPresetId: input.presetId,
+        classificationModel: input.model,
+        classificationBaseUrl: input.baseUrl,
+        classificationApiKey: input.apiKey,
+        classificationDailyLimit: input.dailyLimit,
+        classificationEnabled: input.enabled,
+      },
+    });
+    return answer.data === undefined ? refused(errorMessage(answer.error)) : { ok: true };
+  }
+
+  async clearTenantClassification(
+    userId: string,
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<void> {
+    const answer = await personSettingsOperationsClearPersonClassificationProvider({
+      client: operatorClient(this.env, userId, operatorUserId, operatorEmail),
+      path: { userId },
+    });
+    if (answer.data === undefined) throw new Error(errorMessage(answer.error));
   }
 }

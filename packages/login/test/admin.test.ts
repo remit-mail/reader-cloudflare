@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapOperators } from "../src/bootstrap";
 import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
+import { peopleAdmin } from "../src/people-admin";
 import { issueInvite } from "../src/routes/app";
 import { requestFreshLink } from "../src/routes/reset";
 import {
@@ -19,6 +20,9 @@ import {
   type SignedIn,
   settle,
   signIn,
+  tenantClassificationClears,
+  tenantClassifications,
+  tenantClassificationWrites,
   testEnv,
   totpCode,
   uniqueEmail,
@@ -326,6 +330,131 @@ describe("admin step-up", () => {
         (step + 1) * STEP_MS,
       ),
     ).toBe(1);
+  });
+
+  it("sets and clears a tenant classifier only on the operator's step-up and audits it", async () => {
+    const target = await testEnv.DB.prepare("SELECT id FROM user WHERE email = ?")
+      .bind(alice)
+      .first<{ id: string }>();
+    expect(target).not.toBeNull();
+    if (target === null) return;
+    tenantClassifications.push({
+      userId: target.id,
+      settings: {
+        defaultInvitationSenderChosen: false,
+        classificationPresets: [
+          {
+            presetId: "Mistral",
+            label: "Mistral",
+            group: "Hosted",
+            adapterShape: "ChatJsonSchema",
+            defaultBaseUrl: "https://api.eu.mistral.ai/v1",
+            defaultModel: "ministral-8b-latest",
+            needsKey: true,
+            price: { state: "NoPrice" },
+          },
+        ],
+        classification: { state: "NotConfigured" },
+        spam: {
+          thresholds: { state: "Unset" },
+          spamPlacement: "MoveToSpam",
+          phishingPlacement: "MoveToSpam",
+        },
+      },
+    });
+    try {
+      const page = await (await call("/admin", { cookie: operator.cookie })).text();
+      expect(page).toContain(`data-action="SetTenantClassification" data-target="${alice}"`);
+
+      const settings = {
+        presetId: "Mistral",
+        model: "",
+        baseUrl: "",
+        apiKey: "a-tenant-classifier-key",
+        dailyLimit: 200,
+        enabled: true,
+      } as const;
+      const writes = tenantClassificationWrites.length;
+      const id = await openTotpChallenge(operator, "SetTenantClassification", alice);
+      const saved = await call("/app/admin/action", {
+        cookie: operator.cookie,
+        body: {
+          adminChallengeId: id,
+          action: "SetTenantClassification",
+          targetEmail: alice,
+          totpCode: await totpCode(step),
+          classification: settings,
+        },
+      });
+      expect(saved.status).toBe(200);
+      expect(tenantClassificationWrites.slice(writes)).toEqual([
+        {
+          userId: target.id,
+          input: settings,
+          operatorUserId: operator.userId,
+          operatorEmail: OPERATOR,
+        },
+      ]);
+      expect(
+        await count(
+          "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND event = 'ClassificationSet' AND outcome = 'Succeeded' AND at >= ?",
+          OPERATOR,
+          alice,
+          step * STEP_MS,
+        ),
+      ).toBe(1);
+
+      vi.setSystemTime((step + 1) * STEP_MS + 10_000);
+      const clears = tenantClassificationClears.length;
+      const clearId = await openTotpChallenge(operator, "ClearTenantClassification", alice);
+      const cleared = await act(
+        operator,
+        clearId,
+        "ClearTenantClassification",
+        alice,
+        await totpCode(step + 1),
+      );
+      expect(cleared.status).toBe(200);
+      expect(tenantClassificationClears.slice(clears)).toEqual([target.id]);
+    } finally {
+      tenantClassifications.splice(0);
+    }
+  });
+
+  it("uses the same people paths for the API entrypoint and admin actions", async () => {
+    const people = peopleAdmin(testEnv);
+    const invitee = uniqueEmail("shared-invite");
+    const invited = await people.invitePerson({
+      callerId: operator.userId,
+      clientIp: "192.0.2.1",
+      email: invitee,
+    });
+    expect(invited).toEqual({ ok: true, value: { email: invitee } });
+    const revoke = await openTotpChallenge(operator, "RevokeInvite", invitee);
+    expect(
+      (await act(operator, revoke, "RevokeInvite", invitee, await totpCode(step))).status,
+    ).toBe(200);
+
+    const target = await testEnv.DB.prepare("SELECT id FROM user WHERE email = ?")
+      .bind(alice)
+      .first<{ id: string }>();
+    expect(target).not.toBeNull();
+    if (target === null) return;
+    const disabled = await people.updatePerson({
+      callerId: operator.userId,
+      clientIp: "192.0.2.1",
+      targetId: target.id,
+      operatorGrant: true,
+      stepUpToken: null,
+      status: "Disabled",
+    });
+    expect(disabled.ok && disabled.value.status).toBe("Disabled");
+    vi.setSystemTime((step + 1) * STEP_MS + 10_000);
+    const enable = await openTotpChallenge(operator, "Enable", alice);
+    expect((await act(operator, enable, "Enable", alice, await totpCode(step + 1))).status).toBe(
+      200,
+    );
+    expect(await isBanned(alice)).toBe(false);
   });
 
   it("revokes a pending invite so it neither redeems nor renews", async () => {

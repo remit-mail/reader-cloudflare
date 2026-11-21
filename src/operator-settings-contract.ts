@@ -20,7 +20,7 @@ export type ClassificationView =
     };
 
 export interface ClassificationInput {
-  readonly presetId: string;
+  readonly presetId: ClassificationPresetId;
   readonly model: string;
   readonly baseUrl: string;
   readonly apiKey: string;
@@ -39,4 +39,26 @@ export interface OperatorSettingsService {
     operatorEmail: string,
   ): Promise<ClassificationWrite>;
   clearClassification(): Promise<void>;
+  readTenantClassifications(
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<readonly TenantClassification[]>;
+  writeTenantClassification(
+    userId: string,
+    input: ClassificationInput,
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<ClassificationWrite>;
+  clearTenantClassification(
+    userId: string,
+    operatorUserId: string,
+    operatorEmail: string,
+  ): Promise<void>;
+}
+
+import type { ClassificationPresetId, UserSettingsResponse } from "@remit/api-openapi-types";
+
+export interface TenantClassification {
+  readonly userId: string;
+  readonly settings: UserSettingsResponse;
 }

@@ -6,6 +6,7 @@ import type {
   ClassificationInput,
   ClassificationView,
   OperatorSettingsService,
+  TenantClassification,
 } from "../../../src/operator-settings-contract";
 import { createAuth } from "../src/auth";
 import { mailerOf } from "../src/capture";
@@ -35,6 +36,14 @@ export interface ClassificationWriteCall {
 
 export const classificationWrites: ClassificationWriteCall[] = [];
 export const classificationClears: string[] = [];
+export const tenantClassificationWrites: Array<{
+  readonly userId: string;
+  readonly input: ClassificationInput;
+  readonly operatorUserId: string;
+  readonly operatorEmail: string;
+}> = [];
+export const tenantClassificationClears: string[] = [];
+export const tenantClassifications: TenantClassification[] = [];
 
 const NO_CLASSIFIER: ClassificationView = { state: "None", presets: [] };
 
@@ -46,6 +55,14 @@ const operatorSettings: OperatorSettingsService = {
   },
   clearClassification: async () => {
     classificationClears.push("cleared");
+  },
+  readTenantClassifications: async () => tenantClassifications,
+  writeTenantClassification: async (userId, input, operatorUserId, operatorEmail) => {
+    tenantClassificationWrites.push({ userId, input, operatorUserId, operatorEmail });
+    return { ok: true };
+  },
+  clearTenantClassification: async (userId) => {
+    tenantClassificationClears.push(userId);
   },
 };
 

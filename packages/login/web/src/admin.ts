@@ -85,7 +85,11 @@ const proofFor = async (
 };
 
 const settingsOf = (form: HTMLFormElement): Record<string, unknown> => {
-  if (form.dataset.action !== "SetClassification") return {};
+  if (
+    form.dataset.action !== "SetClassification" &&
+    form.dataset.action !== "SetTenantClassification"
+  )
+    return {};
   const data = new FormData(form);
   const field = (name: string): string => String(data.get(name) ?? "").trim();
   return {

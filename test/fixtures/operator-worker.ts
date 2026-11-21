@@ -34,7 +34,7 @@ export class DefaultTenant extends DurableObject<TestEnv> {
     const client = {
       classificationDefault: classificationDefaultStore(workerEnv(this.env), email),
     } as unknown as RemitClient;
-    return serveRequest(request, identity, true, client, "miniflare-test", operators);
+    return serveRequest(request, identity, true, client, "miniflare-test", operators, null);
   }
 }
 

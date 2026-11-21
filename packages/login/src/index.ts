@@ -13,6 +13,7 @@ import { configOf, isOperator, type LoginConfig } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
+import { PeopleAdmin, peopleAdmin } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
@@ -138,7 +139,7 @@ const serveApp = async (
     auth,
     config,
     db: env.DB,
-    email: mailerOf(env),
+    people: peopleAdmin(env),
     settings: env.OPERATOR_SETTINGS,
   };
   if (request.method === "GET" && path === "/app/config") {
@@ -222,7 +223,7 @@ const route = async (request: Request, env: Env): Promise<Response> => {
     auth,
     config,
     db: env.DB,
-    email: mailerOf(env),
+    people: peopleAdmin(env),
     settings: env.OPERATOR_SETTINGS,
   };
   if (request.method === "GET" && path === "/sign-out") return signOut(auth, config, request);
@@ -262,6 +263,8 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     await audit(this.env.DB, { ...entry, actor, email });
   }
 }
+
+export { PeopleAdmin };
 
 export default {
   async fetch(request, env): Promise<Response> {
