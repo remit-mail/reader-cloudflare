@@ -192,9 +192,10 @@ const classification = {
 };
 let defaultChanged = false;
 let tenantChanged = false;
+let failure;
 try {
-  const overridden = await callTool("set_classification_default", classification);
   defaultChanged = true;
+  const overridden = await callTool("set_classification_default", classification);
   check(
     "classification default from operator",
     overridden.source === "Operator",
@@ -221,6 +222,7 @@ try {
     `examined ${String(stats.examined)}, previously ${String(beforeStats.examined)}`,
   );
 
+  tenantChanged = true;
   const saved = await callTool("update_tenant_settings", {
     userId: access.CF_ACCESS_CLIENT_ID,
     classificationPresetId: configured.presetId,
@@ -230,7 +232,6 @@ try {
     classificationEnabled: configured.enabled,
     classificationDailyLimit: configured.dailyLimit,
   });
-  tenantChanged = true;
   check(
     "tenant classification key saved",
     saved.classification?.sources?.apiKey === "Saved",
@@ -254,12 +255,26 @@ try {
     cleared.source === "Config",
     `source is ${String(cleared.source)}`,
   );
-} finally {
-  if (tenantChanged) {
-    await callTool("clear_tenant_classification", { userId: access.CF_ACCESS_CLIENT_ID });
-  }
-  if (defaultChanged) await callTool("clear_classification_default");
+} catch (error) {
+  failure = error;
 }
+const cleanup = [
+  ...(tenantChanged
+    ? [callTool("clear_tenant_classification", { userId: access.CF_ACCESS_CLIENT_ID })]
+    : []),
+  ...(defaultChanged ? [callTool("clear_classification_default")] : []),
+];
+const cleanupErrors = (await Promise.allSettled(cleanup)).flatMap((result) =>
+  result.status === "rejected" ? [result.reason] : [],
+);
+if (cleanupErrors.length > 0) {
+  throw new AggregateError(
+    failure === undefined ? cleanupErrors : [failure, ...cleanupErrors],
+    failure === undefined ? "operator smoke cleanup failed" : "operator smoke and cleanup failed",
+    failure === undefined ? undefined : { cause: failure },
+  );
+}
+if (failure !== undefined) throw failure;
 
 const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
   headers: agentHeaders,
