@@ -1,6 +1,6 @@
 import type { LoginMailReader } from "./login-mail";
 import type { TenantMail } from "./mail/tenant-mail";
-import type { OperatorAuditService } from "./operator-audit-contract";
+import type { LoginOperatorService } from "./operator-audit-contract";
 import type { QueueEnvelope } from "./queue/routing";
 
 export interface Env {
@@ -31,7 +31,7 @@ export interface Env {
   readonly SPAM_PIPELINE?: string;
   readonly LOGIN_MAIL?: LoginMailReader;
   readonly LOGIN_MAIL_READER?: string;
-  readonly LOGIN_AUDIT: OperatorAuditService;
+  readonly LOGIN_OPERATOR: LoginOperatorService;
 }
 
 type WorkerEnv = Env;

@@ -34,6 +34,9 @@ export const verifyMcpBearer = async (
     ok: true,
     tenant,
     principal: verification.principal,
-    operator: hasOperatorGrant(tenant, verification.principal.scopes, env),
+    operator: hasOperatorGrant(
+      verification.principal.scopes,
+      await env.LOGIN_OPERATOR.isOperator(subject),
+    ),
   };
 };

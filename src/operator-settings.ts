@@ -6,7 +6,11 @@ import {
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
 import { eq, sql } from "drizzle-orm";
-import { classificationDefaultFromDeployment } from "./classification-default";
+import {
+  classificationDefaultFromDeployment,
+  type LastKnownSnapshot,
+  lastKnownSnapshot,
+} from "./classification-default";
 import { isHttpsUrl, keyChoiceOf } from "./classification-key";
 import {
   openClassificationKey,
@@ -28,6 +32,9 @@ import type {
 const DEPLOYMENT = "Deployment";
 
 type ClassificationRow = typeof classificationDefaults.$inferSelect;
+type ClassificationSetting = Awaited<ReturnType<ClassificationDefaultStore["get"]>>;
+
+const defaultSnapshots = new WeakMap<Env, LastKnownSnapshot<ClassificationSetting>>();
 
 const PRESETS: readonly ClassificationPresetOption[] = Object.values(CLASSIFICATION_PRESETS).map(
   ({ presetId, label }) => ({ presetId, label }),
@@ -129,19 +136,30 @@ export const clearClassification = async (env: Env): Promise<void> => {
 export const classificationDefaultStore = (
   env: Env,
   operatorEmail: string,
-): ClassificationDefaultStore => ({
-  get: async () => {
-    const override = await classificationDefaultOf(env);
-    return override === undefined
-      ? { value: await classificationDefaultFromDeployment(env), source: "Config" }
-      : { value: override, source: "Operator" };
-  },
-  put: async (value) => {
-    const written = await writeClassification(env, value, operatorEmail);
-    if (!written.ok) throw new Error(written.message);
-  },
-  delete: () => clearClassification(env),
-});
+): ClassificationDefaultStore => {
+  let snapshot = defaultSnapshots.get(env);
+  if (snapshot === undefined) {
+    snapshot = lastKnownSnapshot(async () => {
+      const override = await classificationDefaultOf(env);
+      return override === undefined
+        ? { value: await classificationDefaultFromDeployment(env), source: "Config" }
+        : { value: override, source: "Operator" };
+    });
+    defaultSnapshots.set(env, snapshot);
+  }
+  return {
+    get: snapshot.get,
+    put: async (value) => {
+      const written = await writeClassification(env, value, operatorEmail);
+      if (!written.ok) throw new Error(written.message);
+      snapshot.invalidate();
+    },
+    delete: async () => {
+      await clearClassification(env);
+      snapshot.invalidate();
+    },
+  };
+};
 
 export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorSettingsService {
   async readClassification(): Promise<ClassificationView> {

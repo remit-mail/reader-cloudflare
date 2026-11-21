@@ -5,7 +5,7 @@ import {
   type McpIdentity,
   mcpDatabase,
 } from "@remit/mcp-server/app";
-import { isOperator, requireTenant } from "../access";
+import { requireTenant } from "../access";
 import { openAppDb } from "../db/client";
 import { mcpAccount, mcpUser } from "../db/schema";
 import type { Env } from "../env";
@@ -23,16 +23,7 @@ export const withConnectingIp = (request: Request): Request => {
 
 const accessIdentity = (env: Env, origin: string): McpIdentity => ({
   isDisabled: async () => false,
-  isOperator: async (userId) =>
-    isOperator(
-      {
-        tenantId: userId,
-        accountConfigId: "",
-        email: userId,
-        service: false,
-      },
-      env,
-    ),
+  isOperator: (userId) => env.LOGIN_OPERATOR.isOperator(userId),
   audit: async (record) => log.info("mcp identity audit", { event: "mcp.audit", ...record }),
   browser: {
     subjectOf: async (headers) => {

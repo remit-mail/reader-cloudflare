@@ -2,14 +2,14 @@ import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { isAPIError } from "better-auth/api";
 import type {
+  LoginOperatorService,
   OperatorAuditRecord,
-  OperatorAuditService,
 } from "../../../src/operator-audit-contract";
 import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
-import { configOf, type LoginConfig } from "./config";
+import { configOf, isOperator, type LoginConfig } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
@@ -239,8 +239,15 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
   }
 }
 
-export class OperatorAudit extends WorkerEntrypoint<Env> implements OperatorAuditService {
-  write(record: OperatorAuditRecord): Promise<void> {
+export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
+  async isOperator(userId: string): Promise<boolean> {
+    const row = await this.env.DB.prepare("SELECT email FROM user WHERE id = ?")
+      .bind(userId)
+      .first<{ email: string }>();
+    return row !== null && isOperator(configOf(this.env), row.email);
+  }
+
+  writeAudit(record: OperatorAuditRecord): Promise<void> {
     return audit(this.env.DB, record);
   }
 }

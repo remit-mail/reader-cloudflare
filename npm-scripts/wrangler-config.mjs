@@ -99,9 +99,9 @@ export const renderWrangler = (base, outputs, config, stage) => {
     },
     services: [
       {
-        binding: "LOGIN_AUDIT",
+        binding: "LOGIN_OPERATOR",
         service: outputs.login_worker_name,
-        entrypoint: "OperatorAudit",
+        entrypoint: "LoginOperator",
       },
       ...(captureLoginMail
         ? [

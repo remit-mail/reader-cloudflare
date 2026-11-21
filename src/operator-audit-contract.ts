@@ -9,6 +9,7 @@ export interface OperatorAuditRecord {
   readonly clientId: string;
 }
 
-export interface OperatorAuditService {
-  write(record: OperatorAuditRecord): Promise<void>;
+export interface LoginOperatorService {
+  isOperator(userId: string): Promise<boolean>;
+  writeAudit(record: OperatorAuditRecord): Promise<void>;
 }

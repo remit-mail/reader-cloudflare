@@ -3,9 +3,9 @@ import { handlers, publicHandlers } from "@remit/backend/handlers";
 import { type ApiRegistry, type HandlerIdentity, serveApi } from "@remit/backend/serve";
 import { refuseQuota } from "../error-kind";
 import type {
+  LoginOperatorService,
   OperatorAuditEvent,
   OperatorAuditRecord,
-  OperatorAuditService,
 } from "../operator-audit-contract";
 import type { QueueName } from "../queue/routing";
 import { tenantOfUser } from "../tenant-directory";
@@ -77,7 +77,7 @@ export const serveRequest = async (
   operator: boolean,
   client: RemitClient,
   correlationId: string,
-  audit: OperatorAuditService,
+  operators: LoginOperatorService,
 ): Promise<Response> => {
   const url = new URL(request.url);
   url.pathname = url.pathname.slice(API_ROOT.length);
@@ -95,7 +95,7 @@ export const serveRequest = async (
   );
   if (operator) {
     const record = operatorAudit(request, identity, response.ok ? "Succeeded" : "Refused");
-    if (record !== undefined) await audit.write(record);
+    if (record !== undefined) await operators.writeAudit(record);
   }
   return response;
 };

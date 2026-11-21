@@ -22,13 +22,8 @@ describe("operator access", () => {
   });
 
   it("requires both the bearer grant and current operator membership", () => {
-    const operator = tenant("operator@remit.test");
-    assert.equal(hasOperatorGrant(operator, [], env), false);
-    assert.equal(
-      hasOperatorGrant(operator, ["operator"], {
-        OPERATOR_EMAILS: "other@remit.test",
-      }),
-      false,
-    );
+    assert.equal(hasOperatorGrant([], true), false);
+    assert.equal(hasOperatorGrant(["operator"], false), false);
+    assert.equal(hasOperatorGrant(["operator"], true), true);
   });
 });

@@ -17,7 +17,10 @@ const workerEnv = (env: TestEnv): Env =>
     MASTER_KEY: { get: async () => env.MASTER_KEY },
   }) as Env;
 
-const audit = { write: async () => undefined };
+const operators = {
+  isOperator: async () => true,
+  writeAudit: async () => undefined,
+};
 
 export class DefaultTenant extends DurableObject<TestEnv> {
   fetch(request: Request): Promise<Response> {
@@ -31,7 +34,7 @@ export class DefaultTenant extends DurableObject<TestEnv> {
     const client = {
       classificationDefault: classificationDefaultStore(workerEnv(this.env), email),
     } as unknown as RemitClient;
-    return serveRequest(request, identity, true, client, "miniflare-test", audit);
+    return serveRequest(request, identity, true, client, "miniflare-test", operators);
   }
 }
 
