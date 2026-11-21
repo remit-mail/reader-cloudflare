@@ -9,6 +9,7 @@ export default defineConfig(
     commit,
     pwa: {
       enabled: true,
+      navigationDenylist: ["/consent", "/device", "/apps"],
       beforePrecache: copyMcpPageAssets,
     },
     runtimeConfig: {
