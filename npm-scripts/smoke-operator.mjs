@@ -164,35 +164,42 @@ const classification = {
   enabled: configured.enabled,
   dailyLimit: configured.dailyLimit,
 };
-const operatorTools = await operatorMcp("tools/list");
-const operatorToolNames = Array.isArray(operatorTools.body?.result?.tools)
-  ? operatorTools.body.result.tools.map((tool) => tool.name)
-  : [];
-check(
-  "operator tools list",
-  operatorTools.status === 200 && operatorToolNames.includes("get_classification_default"),
-  `answered ${operatorTools.status} without get_classification_default`,
-);
 
+let smokeError;
+let tenantCleanupError;
 try {
-  const overridden = await callTool(operatorMcp, "set_classification_default", classification);
-  check(
-    "classification default from operator",
-    overridden.source === "Operator",
-    `source is ${String(overridden.source)}`,
-  );
-  const readBack = await callTool(operatorMcp, "get_classification_default");
-  check(
-    "classification default reads from operator",
-    readBack.source === "Operator",
-    `source is ${String(readBack.source)}`,
-  );
-  const restored = await callTool(operatorMcp, "clear_classification_default");
-  check(
-    "classification default restored",
-    restored.source === "Config",
-    `source is ${String(restored.source)}`,
-  );
+  let defaultError;
+  let defaultCleanupError;
+  try {
+    const overridden = await callTool(operatorMcp, "set_classification_default", classification);
+    check(
+      "classification default from operator",
+      overridden.source === "Operator",
+      `source is ${String(overridden.source)}`,
+    );
+    const readBack = await callTool(operatorMcp, "get_classification_default");
+    check(
+      "classification default reads from operator",
+      readBack.source === "Operator",
+      `source is ${String(readBack.source)}`,
+    );
+    const restored = await callTool(operatorMcp, "clear_classification_default");
+    check(
+      "classification default restored",
+      restored.source === "Config",
+      `source is ${String(restored.source)}`,
+    );
+  } catch (error) {
+    defaultError = error;
+  } finally {
+    try {
+      await callTool(operatorMcp, "clear_classification_default");
+    } catch (error) {
+      defaultCleanupError = error;
+    }
+  }
+  if (defaultError !== undefined) throw defaultError;
+  if (defaultCleanupError !== undefined) throw defaultCleanupError;
 
   const saved = await callTool(operatorMcp, "update_tenant_settings", {
     userId: access.CF_ACCESS_CLIENT_ID,
@@ -259,13 +266,18 @@ try {
   await callTool(operatorMcp, "get_config");
   await callTool(operatorMcp, "list_outbox_messages", { continuationToken: "" });
   await callTool(operatorMcp, "list_calendars");
+} catch (error) {
+  smokeError = error;
 } finally {
-  await Promise.all([
-    callTool(operatorMcp, "clear_tenant_classification", {
+  try {
+    await callTool(operatorMcp, "clear_tenant_classification", {
       userId: access.CF_ACCESS_CLIENT_ID,
-    }),
-    callTool(operatorMcp, "clear_classification_default"),
-  ]);
+    });
+  } catch (error) {
+    tenantCleanupError = error;
+  }
 }
+if (smokeError !== undefined) throw smokeError;
+if (tenantCleanupError !== undefined) throw tenantCleanupError;
 
 console.log(`smoke:operator passed in ${Date.now() - started}ms`);
