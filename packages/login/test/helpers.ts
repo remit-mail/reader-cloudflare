@@ -2,6 +2,11 @@ import { env as baseEnv, waitUntil } from "cloudflare:workers";
 import { createOTP } from "@better-auth/utils/otp";
 import { hashPassword, makeSignature, symmetricEncrypt } from "better-auth/crypto";
 import { vi } from "vitest";
+import type {
+  ClassificationInput,
+  ClassificationView,
+  OperatorSettingsService,
+} from "../../../src/operator-settings-contract";
 import { createAuth } from "../src/auth";
 import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
@@ -23,11 +28,31 @@ export interface SentMail {
 
 export const sent: SentMail[] = [];
 
+export interface ClassificationWriteCall {
+  readonly input: ClassificationInput;
+  readonly operatorEmail: string;
+}
+
+export const classificationWrites: ClassificationWriteCall[] = [];
+
+const NO_CLASSIFIER: ClassificationView = { state: "None", presets: [] };
+
+const operatorSettings: OperatorSettingsService = {
+  readClassification: async () => NO_CLASSIFIER,
+  writeClassification: async (input, operatorEmail) => {
+    classificationWrites.push({ input, operatorEmail });
+    return input.dailyLimit > 0
+      ? { ok: true, view: NO_CLASSIFIER }
+      : { ok: false, message: "dailyLimit must be a positive integer." };
+  },
+};
+
 export const testEnv: Env = {
   ...(baseEnv as Env),
   LOGIN_ORIGIN: ORIGIN,
   OPERATOR_EMAILS: `${OPERATOR},${OTHER_OPERATOR}`,
   LOGIN_AUTH_SECRET: { get: async () => SECRET } as SecretsStoreSecret,
+  OPERATOR_SETTINGS: operatorSettings,
   EMAIL: {
     send: async (message: { to?: unknown; text?: unknown }) => {
       sent.push({ to: message.to, text: String(message.text) });

@@ -1,0 +1,44 @@
+export interface ClassificationPresetOption {
+  readonly presetId: string;
+  readonly label: string;
+  readonly needsKey: boolean;
+  readonly defaultBaseUrl: string | null;
+  readonly defaultModel: string;
+}
+
+export type ClassificationView =
+  | { readonly state: "None"; readonly presets: readonly ClassificationPresetOption[] }
+  | {
+      readonly state: "Configured";
+      readonly presets: readonly ClassificationPresetOption[];
+      readonly presetId: string;
+      readonly model: string;
+      readonly baseUrl: string;
+      readonly dailyLimit: number;
+      readonly enabled: boolean;
+      readonly hasKey: boolean;
+      readonly version: number;
+      readonly updatedAt: number;
+      readonly updatedBy: string;
+    };
+
+export interface ClassificationInput {
+  readonly presetId: string;
+  readonly model: string;
+  readonly baseUrl: string;
+  readonly apiKey: string;
+  readonly dailyLimit: number;
+  readonly enabled: boolean;
+}
+
+export type ClassificationWrite =
+  | { readonly ok: true; readonly view: ClassificationView }
+  | { readonly ok: false; readonly message: string };
+
+export interface OperatorSettingsService {
+  readClassification(): Promise<ClassificationView>;
+  writeClassification(
+    input: ClassificationInput,
+    operatorEmail: string,
+  ): Promise<ClassificationWrite>;
+}

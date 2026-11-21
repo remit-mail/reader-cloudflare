@@ -22,6 +22,7 @@ enum AdminAction {
   RotateKeys: "RotateKeys",
   RevokeKeys: "RevokeKeys",
   RevokeInvite: "RevokeInvite",
+  SetClassification: "SetClassification",
 }
 
 enum StepUpMethod {
@@ -59,6 +60,7 @@ enum AuditEventKind {
   KeysRotated: "KeysRotated",
   KeysRevoked: "KeysRevoked",
   InviteRevoked: "InviteRevoked",
+  ClassificationSet: "ClassificationSet",
 }
 
 enum AuditOutcome {

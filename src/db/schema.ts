@@ -27,4 +27,9 @@ export {
   filters,
   labels,
 } from "@remit/drizzle-sqlite-schema";
-export { deadLetters, tenantAccountConfigs, tenantKeys } from "app-db-schema";
+export {
+  classificationDefaults,
+  deadLetters,
+  tenantAccountConfigs,
+  tenantKeys,
+} from "app-db-schema";

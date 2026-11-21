@@ -84,6 +84,22 @@ const proofFor = async (
   return code ? { totpCode: code.trim() } : null;
 };
 
+const settingsOf = (form: HTMLFormElement): Record<string, unknown> => {
+  if (form.dataset.action !== "SetClassification") return {};
+  const data = new FormData(form);
+  const field = (name: string): string => String(data.get(name) ?? "").trim();
+  return {
+    classification: {
+      presetId: field("presetId"),
+      model: field("model"),
+      baseUrl: field("baseUrl"),
+      apiKey: field("apiKey"),
+      dailyLimit: Number(field("dailyLimit")),
+      enabled: data.get("enabled") !== null,
+    },
+  };
+};
+
 const runAction = async (form: HTMLFormElement): Promise<void> => {
   const action = form.dataset.action ?? "";
   const input = form.querySelector<HTMLInputElement>("input[name=targetEmail]");
@@ -106,6 +122,7 @@ const runAction = async (form: HTMLFormElement): Promise<void> => {
     action,
     targetEmail,
     ...proof,
+    ...settingsOf(form),
   });
   remember({
     tone: done.status === 200 ? "ok" : "danger",

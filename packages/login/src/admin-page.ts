@@ -1,3 +1,5 @@
+import type { ClassificationView } from "../../../src/operator-settings-contract";
+
 const RAW = Symbol("raw");
 
 export interface Html {
@@ -101,9 +103,42 @@ const userRow = (user: AdminUser, operator: boolean): Html => html`<tr>
   </td>
 </tr>`;
 
+const DEFAULT_DAILY_LIMIT = 500;
+
+const classificationSection = (operatorEmail: string, view: ClassificationView): Html => {
+  const configured = view.state === "Configured" ? view : null;
+  const summary = configured
+    ? `Version ${configured.version}, set by ${configured.updatedBy} at ${when(configured.updatedAt)}. Accounts without their own key classify mail with it.`
+    : "No classifier default is set. Accounts without their own key do not classify mail.";
+  return html`<section class="card">
+    <h2>Classifier default</h2>
+    <p class="muted">${summary}</p>
+    <form method="post" action="/app/admin/action" class="admin-action classification" data-action="SetClassification" data-target="${operatorEmail}">
+      <label for="classification-preset">Preset</label>
+      <select id="classification-preset" name="presetId" required>
+        ${view.presets.map(
+          (preset) =>
+            html`<option value="${preset.presetId}" ${configured?.presetId === preset.presetId && html`selected`}>${preset.label}</option>`,
+        )}
+      </select>
+      <label for="classification-model">Model</label>
+      <input id="classification-model" name="model" type="text" autocomplete="off" value="${configured?.model ?? ""}" placeholder="the preset model" />
+      <label for="classification-base-url">Base URL</label>
+      <input id="classification-base-url" name="baseUrl" type="url" autocomplete="off" value="${configured?.baseUrl ?? ""}" placeholder="the preset base URL" />
+      <label for="classification-api-key">API key</label>
+      <input id="classification-api-key" name="apiKey" type="password" autocomplete="off" placeholder="${configured?.hasKey ? "unchanged" : ""}" />
+      <label for="classification-daily-limit">Daily limit per account</label>
+      <input id="classification-daily-limit" name="dailyLimit" type="number" min="1" step="1" required value="${configured?.dailyLimit ?? DEFAULT_DAILY_LIMIT}" />
+      <label><input name="enabled" type="checkbox" ${(configured === null || configured.enabled) && html`checked`} /> Classify mail with it</label>
+      <button type="submit" class="button primary">Save classifier</button>
+    </form>
+  </section>`;
+};
+
 export const adminPage = (
   operatorEmail: string,
   users: readonly AdminUser[],
+  classification: ClassificationView,
   isOperator: (email: string) => boolean,
 ): Html =>
   layout(
@@ -132,7 +167,8 @@ export const adminPage = (
         ${actionForm("RevokeKeys", operatorEmail, "Revoke signing keys", true)}
       </div>
       <p><a href="/admin/audit?days=7">Audit log</a></p>
-    </section>`,
+    </section>
+    ${classificationSection(operatorEmail, classification)}`,
   );
 
 export const enrollPage = (): Html =>

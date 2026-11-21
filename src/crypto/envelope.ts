@@ -119,3 +119,34 @@ const tenantDataKeys = (env: Env, tenantId: string): DataKeyProvider => ({
 
 export const tenantSecrets = (env: Env, tenantId: string): SecretsService =>
   createSecretsService(createCachedDataKeyProvider(tenantDataKeys(env, tenantId)));
+
+export interface SealedSecret {
+  readonly sealed: Uint8Array;
+  readonly iv: Uint8Array;
+  readonly keyVersion: number;
+}
+
+const classificationContext = (keyVersion: number): Uint8Array =>
+  encoder.encode(`classification_default:${keyVersion}`);
+
+export const sealClassificationKey = async (env: Env, apiKey: string): Promise<SealedSecret> => {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const sealed = await crypto.subtle.encrypt(
+    { name: AES_GCM, iv, additionalData: classificationContext(MASTER_KEY_VERSION) },
+    await importMasterKey(env),
+    encoder.encode(apiKey),
+  );
+  return { sealed: new Uint8Array(sealed), iv, keyVersion: MASTER_KEY_VERSION };
+};
+
+export const openClassificationKey = async (env: Env, secret: SealedSecret): Promise<string> => {
+  if (secret.keyVersion !== MASTER_KEY_VERSION) {
+    throw new Error(`no master key for key_version ${secret.keyVersion}`);
+  }
+  const plaintext = await crypto.subtle.decrypt(
+    { name: AES_GCM, iv: secret.iv, additionalData: classificationContext(secret.keyVersion) },
+    await importMasterKey(env),
+    secret.sealed,
+  );
+  return new TextDecoder().decode(plaintext);
+};
