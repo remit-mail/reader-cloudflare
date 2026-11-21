@@ -1,8 +1,8 @@
 export type OperatorAuditEvent = "ClassificationSet" | "ClassificationCleared" | "SettingsUpdated";
 
 export interface OperatorAuditRecord {
-  readonly actor: string;
-  readonly email: string;
+  readonly actorId: string;
+  readonly targetId: string;
   readonly address: string;
   readonly event: OperatorAuditEvent;
   readonly outcome: "Succeeded" | "Refused";

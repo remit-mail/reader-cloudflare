@@ -240,15 +240,26 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
 }
 
 export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
-  async isOperator(userId: string): Promise<boolean> {
+  private async emailOf(userId: string): Promise<string | null> {
     const row = await this.env.DB.prepare("SELECT email FROM user WHERE id = ?")
       .bind(userId)
       .first<{ email: string }>();
-    return row !== null && isOperator(configOf(this.env), row.email);
+    return row?.email ?? null;
   }
 
-  writeAudit(record: OperatorAuditRecord): Promise<void> {
-    return audit(this.env.DB, record);
+  async isOperator(userId: string): Promise<boolean> {
+    const email = await this.emailOf(userId);
+    return email !== null && isOperator(configOf(this.env), email);
+  }
+
+  async writeAudit(record: OperatorAuditRecord): Promise<void> {
+    const [actor, email] = await Promise.all([
+      this.emailOf(record.actorId),
+      this.emailOf(record.targetId),
+    ]);
+    if (actor === null || email === null) throw new Error("Operator audit user does not exist");
+    const { actorId: _, targetId: __, ...entry } = record;
+    await audit(this.env.DB, { ...entry, actor, email });
   }
 }
 

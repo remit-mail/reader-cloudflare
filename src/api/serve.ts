@@ -45,22 +45,22 @@ const operatorAudit = (
   if (identity.kind !== "user") return undefined;
   const path = new URL(request.url).pathname.slice(API_ROOT.length);
   let event: OperatorAuditEvent | undefined;
-  let target = identity.email;
+  let targetId = identity.sub;
   if (path === "/system/classification-default") {
     if (request.method === "PUT") event = "ClassificationSet";
     if (request.method === "DELETE") event = "ClassificationCleared";
   } else {
     const match = /^\/people\/([^/]+)\/settings(?:\/(classification-provider))?$/.exec(path);
     if (match !== null) {
-      target = decodeURIComponent(match[1] ?? "");
+      targetId = decodeURIComponent(match[1] ?? "");
       if (request.method === "PATCH" && match[2] === undefined) event = "SettingsUpdated";
       if (request.method === "DELETE" && match[2] !== undefined) event = "ClassificationCleared";
     }
   }
   if (event === undefined) return undefined;
   return {
-    actor: identity.email,
-    email: target,
+    actorId: identity.sub,
+    targetId,
     address:
       request.headers.get("x-remit-client-ip") ??
       request.headers.get("cf-connecting-ip") ??
