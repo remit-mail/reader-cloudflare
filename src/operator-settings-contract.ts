@@ -39,20 +39,20 @@ export interface OperatorSettingsService {
     operatorEmail: string,
   ): Promise<ClassificationWrite>;
   clearClassification(): Promise<void>;
-  listTenantIds(): Promise<readonly string[]>;
-  hasTenant(userId: string): Promise<boolean>;
-  readTenantClassification(userId: string): Promise<TenantClassification>;
+  listTenantEmails(): Promise<readonly string[]>;
+  hasTenant(email: string): Promise<boolean>;
+  readTenantClassification(email: string): Promise<TenantClassification>;
   writeTenantClassification(
-    userId: string,
+    email: string,
     input: ClassificationInput,
   ): Promise<ClassificationWrite>;
-  clearTenantClassification(userId: string): Promise<void>;
-  revokePersonCredentials(userId: string, disabled: boolean): Promise<void>;
+  clearTenantClassification(email: string): Promise<void>;
+  revokePersonCredentials(email: string, disabled: boolean): Promise<void>;
 }
 
 import type { ClassificationPresetId, UserSettingsResponse } from "@remit/api-openapi-types";
 
 export interface TenantClassification {
-  readonly userId: string;
+  readonly email: string;
   readonly settings: UserSettingsResponse;
 }

@@ -245,15 +245,8 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
 }
 
 export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
-  private async emailOf(userId: string): Promise<string | null> {
-    const row = await this.env.DB.prepare("SELECT email FROM user WHERE id = ?")
-      .bind(userId)
-      .first<{ email: string }>();
-    return row?.email ?? null;
-  }
-
   private banOf(email: string): Promise<{ banned: number | null } | null> {
-    return this.env.DB.prepare("SELECT banned FROM user WHERE email = ?")
+    return this.env.DB.prepare("SELECT banned FROM user WHERE lower(email) = ?")
       .bind(normalizeEmail(email))
       .first<{ banned: number | null }>();
   }
@@ -268,13 +261,17 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
   }
 
   async writeAudit(record: OperatorAuditRecord): Promise<void> {
-    const [actor, email] = await Promise.all([
-      this.emailOf(record.actorId),
-      this.emailOf(record.targetId),
+    const [actor, target] = await Promise.all([
+      this.banOf(record.actorEmail),
+      this.banOf(record.targetEmail),
     ]);
-    if (actor === null || email === null) throw new Error("Operator audit user does not exist");
-    const { actorId: _, targetId: __, ...entry } = record;
-    await audit(this.env.DB, { ...entry, actor, email });
+    if (actor === null || target === null) throw new Error("Operator audit user does not exist");
+    const { actorEmail, targetEmail, ...entry } = record;
+    await audit(this.env.DB, {
+      ...entry,
+      actor: normalizeEmail(actorEmail),
+      email: normalizeEmail(targetEmail),
+    });
   }
 }
 

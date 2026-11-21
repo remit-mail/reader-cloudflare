@@ -116,7 +116,7 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
   const session = await operatorSession(context, request);
   if (session === null) return notFound();
   if (stepUpMethodOf(session.operator) === null) return toResponse(enrollPage());
-  const [users, classification, tenantIds] = await Promise.all([
+  const [users, classification, tenantEmailList] = await Promise.all([
     listUsers(context.db, Date.now()),
     context.settings.readClassification().then(
       (view): ClassificationRead => ({ ok: true, view }),
@@ -125,15 +125,14 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
         message: error instanceof Error ? error.message : String(error),
       }),
     ),
-    context.settings.listTenantIds(),
+    context.settings.listTenantEmails(),
   ]);
-  const emailById = new Map(
-    users.flatMap((user) => (user.userId === null ? [] : [[user.userId, user.email] as const])),
+  const tenantEmails = new Set(tenantEmailList.map(normalizeEmail));
+  const tenants = users.flatMap(({ userId, email }) =>
+    userId === null || !tenantEmails.has(normalizeEmail(email)) || isOperator(context.config, email)
+      ? []
+      : [{ userId, email }],
   );
-  const tenants = tenantIds.flatMap((userId) => {
-    const email = emailById.get(userId);
-    return email === undefined || isOperator(context.config, email) ? [] : [{ userId, email }];
-  });
   return toResponse(
     adminPage(session.operator.email, users, classification, tenants, (email) =>
       isOperator(context.config, email),
@@ -155,9 +154,9 @@ export const renderTenantClassification = async (
     .bind(userId)
     .first<{ email: string }>();
   if (user === null || isOperator(context.config, user.email)) return notFound();
-  if (!(await context.settings.hasTenant(userId))) return notFound();
-  const tenant = await context.settings.readTenantClassification(userId);
-  return toResponse(tenantClassificationForm({ ok: true, email: user.email, ...tenant }));
+  if (!(await context.settings.hasTenant(user.email))) return notFound();
+  const tenant = await context.settings.readTenantClassification(user.email);
+  return toResponse(tenantClassificationForm({ ok: true, userId, ...tenant }));
 };
 
 export const renderAudit = async (context: AdminContext, request: Request): Promise<Response> => {
@@ -315,9 +314,9 @@ const runAction = async (
   const audited = auditStatement(db, entry, now);
   if (action === "ClearTenantClassification") {
     const target = await userIdOf(db, targetEmail);
-    if (target === null || !(await context.settings.hasTenant(target.id)))
+    if (target === null || !(await context.settings.hasTenant(targetEmail)))
       return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-    await context.settings.clearTenantClassification(target.id);
+    await context.settings.clearTenantClassification(targetEmail);
     await audited.run();
     return { ok: true, message: `Cleared the classifier settings of ${targetEmail}.` };
   }
@@ -327,9 +326,9 @@ const runAction = async (
       return { ok: false, status: 400, message: "Send the classifier settings to save." };
     }
     const target = await userIdOf(db, targetEmail);
-    if (target === null || !(await context.settings.hasTenant(target.id)))
+    if (target === null || !(await context.settings.hasTenant(targetEmail)))
       return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-    const written = await context.settings.writeTenantClassification(target.id, classification);
+    const written = await context.settings.writeTenantClassification(targetEmail, classification);
     if (!written.ok) {
       await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
       return { ok: false, status: 400, message: written.message };

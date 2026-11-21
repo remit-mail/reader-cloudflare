@@ -20,7 +20,7 @@ import {
   sealsEmptyKey,
 } from "./crypto/envelope";
 import { openAppDb } from "./db/client";
-import { classificationDefaults, tenantKeys } from "./db/schema";
+import { classificationDefaults } from "./db/schema";
 import type { Env } from "./env";
 import type {
   ClassificationInput,
@@ -31,6 +31,7 @@ import type {
   TenantClassification,
 } from "./operator-settings-contract";
 import { tenantMail } from "./stubs";
+import { mailTenantEmails, mailTenantOfEmail, tenantOfEmail } from "./tenant-email";
 
 const DEPLOYMENT = "Deployment";
 
@@ -93,28 +94,15 @@ const viewOf = (row: ClassificationRow | undefined): ClassificationView => {
 
 const refused = (message: string): ClassificationWrite => ({ ok: false, message });
 
-const tenantIds = async (env: Env): Promise<readonly string[]> => {
-  const rows = await openAppDb(env.DB)
-    .selectDistinct({ tenantId: tenantKeys.tenantId })
-    .from(tenantKeys);
-  return rows.map((row) => row.tenantId);
+const mailTenantOf = async (env: Env, email: string): Promise<string> => {
+  const tenantId = await mailTenantOfEmail(env.DB, email);
+  if (tenantId === undefined) throw new Error(`${email} has no mail tenant`);
+  return tenantId;
 };
 
-const tenantExists = async (env: Env, userId: string): Promise<boolean> => {
-  const row = await openAppDb(env.DB)
-    .select({ tenantId: tenantKeys.tenantId })
-    .from(tenantKeys)
-    .where(eq(tenantKeys.tenantId, userId))
-    .limit(1);
-  return row.length === 1;
-};
-
-const readTenantClassification = async (
-  env: Env,
-  userId: string,
-): Promise<TenantClassification> => {
-  if (!(await tenantExists(env, userId))) throw new Error(`tenant ${userId} does not exist`);
-  return { userId, settings: await tenantMail(env, userId).readUserSettings(userId) };
+const readTenantClassification = async (env: Env, email: string): Promise<TenantClassification> => {
+  const tenantId = await mailTenantOf(env, email);
+  return { email, settings: await tenantMail(env, tenantId).readUserSettings(tenantId) };
 };
 
 export const writeClassification = async (
@@ -204,24 +192,25 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
     return clearClassification(this.env);
   }
 
-  listTenantIds(): Promise<readonly string[]> {
-    return tenantIds(this.env);
+  listTenantEmails(): Promise<readonly string[]> {
+    return mailTenantEmails(this.env.DB);
   }
 
-  hasTenant(userId: string): Promise<boolean> {
-    return tenantExists(this.env, userId);
+  async hasTenant(email: string): Promise<boolean> {
+    return (await mailTenantOfEmail(this.env.DB, email)) !== undefined;
   }
 
-  readTenantClassification(userId: string): Promise<TenantClassification> {
-    return readTenantClassification(this.env, userId);
+  readTenantClassification(email: string): Promise<TenantClassification> {
+    return readTenantClassification(this.env, email);
   }
 
   async writeTenantClassification(
-    userId: string,
+    email: string,
     input: ClassificationInput,
   ): Promise<ClassificationWrite> {
-    if (!(await tenantExists(this.env, userId))) return refused("Person has no mail tenant.");
-    const answer = await tenantMail(this.env, userId).updateUserSettings(userId, {
+    const tenantId = await mailTenantOfEmail(this.env.DB, email);
+    if (tenantId === undefined) return refused("Person has no mail tenant.");
+    const answer = await tenantMail(this.env, tenantId).updateUserSettings(tenantId, {
       classificationPresetId: input.presetId,
       classificationModel: input.model,
       classificationBaseUrl: input.baseUrl,
@@ -232,22 +221,24 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
     return answer.ok ? { ok: true } : refused(answer.error.message);
   }
 
-  async clearTenantClassification(userId: string): Promise<void> {
-    if (!(await tenantExists(this.env, userId))) throw new Error(`tenant ${userId} does not exist`);
-    await tenantMail(this.env, userId).clearClassificationProvider(userId);
+  async clearTenantClassification(email: string): Promise<void> {
+    const tenantId = await mailTenantOf(this.env, email);
+    await tenantMail(this.env, tenantId).clearClassificationProvider(tenantId);
   }
 
-  async revokePersonCredentials(userId: string, disabled: boolean): Promise<void> {
+  async revokePersonCredentials(email: string, disabled: boolean): Promise<void> {
+    const tenantId = await tenantOfEmail(this.env.DB, email);
+    if (tenantId === undefined) return;
     await this.env.DB.batch([
-      this.env.DB.prepare("DELETE FROM mcp_oauth_access_token WHERE user_id = ?").bind(userId),
-      this.env.DB.prepare("DELETE FROM mcp_oauth_refresh_token WHERE user_id = ?").bind(userId),
-      this.env.DB.prepare("DELETE FROM mcp_session WHERE user_id = ?").bind(userId),
+      this.env.DB.prepare("DELETE FROM mcp_oauth_access_token WHERE user_id = ?").bind(tenantId),
+      this.env.DB.prepare("DELETE FROM mcp_oauth_refresh_token WHERE user_id = ?").bind(tenantId),
+      this.env.DB.prepare("DELETE FROM mcp_session WHERE user_id = ?").bind(tenantId),
       ...(disabled
         ? [
-            this.env.DB.prepare("DELETE FROM mcp_oauth_consent WHERE user_id = ?").bind(userId),
-            this.env.DB.prepare("DELETE FROM mcp_device_code WHERE user_id = ?").bind(userId),
+            this.env.DB.prepare("DELETE FROM mcp_oauth_consent WHERE user_id = ?").bind(tenantId),
+            this.env.DB.prepare("DELETE FROM mcp_device_code WHERE user_id = ?").bind(tenantId),
             this.env.DB.prepare("DELETE FROM calendar_feed_token WHERE account_config_id = ?").bind(
-              deriveAccountConfigId(userId),
+              deriveAccountConfigId(tenantId),
             ),
           ]
         : []),

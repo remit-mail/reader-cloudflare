@@ -1,4 +1,4 @@
-import { blob, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const tenantKeys = sqliteTable(
   "tenant_key",
@@ -38,3 +38,12 @@ export const classificationDefaults = sqliteTable("classification_default", {
   updatedAt: integer("updated_at", { mode: "number" }).notNull(),
   updatedBy: text("updated_by").notNull(),
 });
+
+export const tenantEmails = sqliteTable(
+  "tenant_email",
+  {
+    tenantId: text("tenant_id").primaryKey(),
+    email: text("email").notNull(),
+  },
+  (table) => [uniqueIndex("tenant_email_email").on(table.email)],
+);

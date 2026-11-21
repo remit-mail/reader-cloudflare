@@ -1,6 +1,7 @@
 import type { UserIdentity } from "@remit/backend/serve";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Env } from "./env";
+import { recordTenantEmail } from "./tenant-email";
 
 export interface Tenant {
   readonly tenantId: string;
@@ -180,12 +181,17 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const toHex = (bytes: ArrayBuffer): string =>
   Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 
-const devTenant = async (request: Request, email: string): Promise<TenantResult> => {
+const admittedPerson = async (env: Env, tenantId: string, email: string): Promise<TenantResult> => {
+  await recordTenantEmail(env.DB, tenantId, email);
+  return admitted(tenantId, email, false);
+};
+
+const devTenant = async (request: Request, env: Env, email: string): Promise<TenantResult> => {
   if (!LOOPBACK_HOSTS.has(new URL(request.url).hostname)) {
     return denied("dev identity is only accepted on loopback");
   }
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
-  return admitted(`dev-${toHex(digest).slice(0, 32)}`, email, false);
+  return admittedPerson(env, `dev-${toHex(digest).slice(0, 32)}`, email);
 };
 
 type ClaimsResult =
@@ -233,13 +239,21 @@ const verifiedClaims = async (request: Request, env: Env): Promise<ClaimsResult>
 
 export const requireTenant = async (request: Request, env: Env): Promise<TenantResult> => {
   if (env.ACCESS_DEV_IDENTITY !== undefined) {
-    return devTenant(request, request.headers.get(DEV_IDENTITY_HEADER) ?? env.ACCESS_DEV_IDENTITY);
+    return devTenant(
+      request,
+      env,
+      request.headers.get(DEV_IDENTITY_HEADER) ?? env.ACCESS_DEV_IDENTITY,
+    );
   }
   const verified = await verifiedClaims(request, env);
   if (!verified.ok) return verified;
   const subject = subjectOf(verified.claims);
   if (subject === "") return denied("Access token names no subject");
-  return admitted(subject, verified.claims.email || subject, verified.claims.sub === "");
+  const { email } = verified.claims;
+  if (verified.claims.sub === "" || email === undefined || email === "") {
+    return admitted(subject, email || subject, verified.claims.sub === "");
+  }
+  return admittedPerson(env, subject, email);
 };
 
 export const requireServiceTenant = async (request: Request, env: Env): Promise<TenantResult> => {

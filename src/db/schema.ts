@@ -31,5 +31,6 @@ export {
   classificationDefaults,
   deadLetters,
   tenantAccountConfigs,
+  tenantEmails,
   tenantKeys,
 } from "app-db-schema";
