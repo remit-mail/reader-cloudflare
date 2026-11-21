@@ -1,3 +1,4 @@
+import type { UserSettingsResponse } from "@remit/api-openapi-types";
 import type { ClassificationView } from "../../../src/operator-settings-contract";
 
 const RAW = Symbol("raw");
@@ -64,6 +65,7 @@ const layout = (title: string, body: Html): Html => html`<!doctype html>
 export type UserState = "invited" | "expired" | "active" | "disabled";
 
 export interface AdminUser {
+  readonly userId: string | null;
   readonly email: string;
   readonly state: UserState;
   readonly passkeys: number;
@@ -154,10 +156,53 @@ const classificationSection = (operatorEmail: string, view: ClassificationView):
   </section>`;
 };
 
+export interface TenantClassificationRead {
+  readonly ok: true;
+  readonly userId: string;
+  readonly email: string;
+  readonly settings: UserSettingsResponse;
+}
+
+export interface AdminTenant {
+  readonly userId: string;
+  readonly email: string;
+}
+
+export const tenantClassificationForm = (tenant: TenantClassificationRead): Html => {
+  const { classification } = tenant.settings;
+  const configured = classification.state === "Configured" ? classification : null;
+  const selected = classification.state === "NotConfigured" ? null : classification.presetId;
+  const hasKey = configured !== null && configured.sources.apiKey !== "Default";
+  return html`<form method="post" action="/app/admin/action" class="admin-action classification" data-action="SetTenantClassification" data-target="${tenant.email}">
+      <label for="tenant-${tenant.userId}-preset">Preset</label>
+      <select id="tenant-${tenant.userId}-preset" name="presetId" required>
+        ${tenant.settings.classificationPresets.map(
+          (preset) =>
+            html`<option value="${preset.presetId}" ${selected === preset.presetId && html`selected`}>${preset.label}</option>`,
+        )}
+      </select>
+      <label for="tenant-${tenant.userId}-model">Model</label>
+      <input id="tenant-${tenant.userId}-model" name="model" type="text" autocomplete="off" value="${configured?.model ?? ""}" placeholder="the preset model" />
+      <label for="tenant-${tenant.userId}-base-url">Base URL</label>
+      <input id="tenant-${tenant.userId}-base-url" name="baseUrl" type="url" autocomplete="off" value="${configured?.baseUrl ?? ""}" placeholder="the preset base URL" />
+      <label for="tenant-${tenant.userId}-api-key">API key</label>
+      <input id="tenant-${tenant.userId}-api-key" name="apiKey" type="password" autocomplete="off" placeholder="${hasKey ? "unchanged" : ""}" />
+      <label for="tenant-${tenant.userId}-daily-limit">Daily limit per account</label>
+      <input id="tenant-${tenant.userId}-daily-limit" name="dailyLimit" type="number" min="1" step="1" required value="${configured?.dailyLimit ?? DEFAULT_DAILY_LIMIT}" />
+      <label><input name="enabled" type="checkbox" ${configured?.enabled && html`checked`} /> Classify mail with it</label>
+      <button type="submit" class="button primary">Save classifier</button>
+    </form>
+    ${
+      classification.state !== "NotConfigured" &&
+      actionForm("ClearTenantClassification", tenant.email, "Clear this person's classifier", true)
+    }`;
+};
+
 export const adminPage = (
   operatorEmail: string,
   users: readonly AdminUser[],
   classification: ClassificationRead,
+  tenants: readonly AdminTenant[],
   isOperator: (email: string) => boolean,
 ): Html =>
   layout(
@@ -191,7 +236,23 @@ export const adminPage = (
       classification.ok
         ? classificationSection(operatorEmail, classification.view)
         : classificationFailure(classification.message)
-    }`,
+    }
+    <section class="card">
+      <h2>Tenant classifiers</h2>
+      <p class="muted">Settings and keys saved for people who have opened remit.</p>
+      ${
+        tenants.length === 0
+          ? html`<p class="muted">No tenant exists yet.</p>`
+          : tenants.map(
+              (
+                tenant,
+              ) => html`<details class="tenant-classification" data-settings-path="/app/admin/tenant-classification?userId=${tenant.userId}">
+                <summary>${tenant.email}</summary>
+                <div class="tenant-classification-settings"><p class="muted">Open to load classifier settings.</p></div>
+              </details>`,
+            )
+      }
+    </section>`,
   );
 
 export const enrollPage = (): Html =>

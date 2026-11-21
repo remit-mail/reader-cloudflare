@@ -82,6 +82,8 @@ export const adminChallenges = sqliteTable(
         | "RevokeInvite"
         | "SetClassification"
         | "ClearClassification"
+        | "SetTenantClassification"
+        | "ClearTenantClassification"
       >()
       .notNull(),
     targetEmail: text("target_email").notNull(),
@@ -143,6 +145,7 @@ export const auditEvents = sqliteTable(
         | "ClassificationSet"
         | "ClassificationCleared"
         | "SettingsUpdated"
+        | "PeopleRequestRefused"
       >()
       .notNull(),
     outcome: text("outcome").$type<"Succeeded" | "Refused">().notNull(),

@@ -264,6 +264,42 @@ const main = async () => {
       ],
       { env },
     );
+    run(
+      bin("wrangler"),
+      [
+        "d1",
+        "migrations",
+        "apply",
+        "reader-cloudflare-login",
+        "--local",
+        "--env",
+        "e2e",
+        "--config",
+        "packages/login/wrangler.jsonc",
+        "--persist-to",
+        stateDir,
+      ],
+      { env },
+    );
+    const now = Date.now();
+    run(
+      bin("wrangler"),
+      [
+        "d1",
+        "execute",
+        "reader-cloudflare-login",
+        "--local",
+        "--env",
+        "e2e",
+        "--config",
+        "packages/login/wrangler.jsonc",
+        "--persist-to",
+        stateDir,
+        "--command",
+        `INSERT INTO user (id, name, email, email_verified, created_at, updated_at, banned, two_factor_enabled) VALUES ('e2e@remit.test', 'e2e@remit.test', 'e2e@remit.test', 1, ${now}, ${now}, 0, 0), ('e2e-person', 'person@remit.test', 'person@remit.test', 1, ${now}, ${now}, 0, 0)`,
+      ],
+      { env },
+    );
     const createLocalSecret = (name, value) =>
       run(
         bin("wrangler"),
@@ -286,6 +322,7 @@ const main = async () => {
     createLocalSecret("MASTER_KEY", randomBytes(32).toString("base64"));
     createLocalSecret("MSOAUTH_CLIENT_SECRET", readerEnv.MSOAUTH_CLIENT_SECRET);
     createLocalSecret("MCP_AUTH_SECRET", randomBytes(32).toString("base64"));
+    createLocalSecret("LOGIN_AUTH_SECRET", randomBytes(32).toString("base64"));
     xoauth2 = spawn(process.execPath, [join(e2eDir, "xoauth2-shim.mjs")], {
       cwd: root,
       env,
@@ -306,6 +343,10 @@ const main = async () => {
     log = openSync(wranglerLog, "w");
     const [command, args] = withCap(bin("wrangler"), [
       "dev",
+      "--config",
+      "wrangler.jsonc",
+      "--config",
+      "packages/login/wrangler.jsonc",
       "--env",
       "e2e",
       "--ip",

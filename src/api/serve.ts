@@ -1,3 +1,4 @@
+import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { RemitClient } from "@remit/backend/client";
 import { handlers, publicHandlers } from "@remit/backend/handlers";
 import { type ApiRegistry, type HandlerIdentity, serveApi } from "@remit/backend/serve";
@@ -78,6 +79,7 @@ export const serveRequest = async (
   client: RemitClient,
   correlationId: string,
   operators: LoginOperatorService,
+  people: PeopleDirectory | null,
 ): Promise<Response> => {
   const url = new URL(request.url);
   url.pathname = url.pathname.slice(API_ROOT.length);
@@ -89,7 +91,7 @@ export const serveRequest = async (
       identity: async () => identity,
       operator: async () => operator,
       operatorGrant: async () => operator,
-      peopleDirectory: async () => null,
+      peopleDirectory: async () => people,
     },
     correlationId,
   );

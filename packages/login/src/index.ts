@@ -13,11 +13,13 @@ import { configOf, isOperator, type LoginConfig } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
+import { PeopleAdmin, peopleAdmin } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
   renderAdmin,
   renderAudit,
+  renderTenantClassification,
   runAdminAction,
 } from "./routes/admin";
 import { accessLogoutUrl, lookupInvite, redeemInvite } from "./routes/app";
@@ -138,11 +140,14 @@ const serveApp = async (
     auth,
     config,
     db: env.DB,
-    email: mailerOf(env),
+    people: peopleAdmin(env),
     settings: env.OPERATOR_SETTINGS,
   };
   if (request.method === "GET" && path === "/app/config") {
     return Response.json({ readerOrigin: config.readerOrigin, passkeys: true });
+  }
+  if (request.method === "GET" && path === "/app/admin/tenant-classification") {
+    return renderTenantClassification(admin, request);
   }
   if (request.method !== "POST") return notFound();
   const headers = request.headers;
@@ -222,7 +227,7 @@ const route = async (request: Request, env: Env): Promise<Response> => {
     auth,
     config,
     db: env.DB,
-    email: mailerOf(env),
+    people: peopleAdmin(env),
     settings: env.OPERATOR_SETTINGS,
   };
   if (request.method === "GET" && path === "/sign-out") return signOut(auth, config, request);
@@ -252,6 +257,13 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     return email !== null && isOperator(configOf(this.env), email);
   }
 
+  async isDisabled(userId: string): Promise<boolean> {
+    const row = await this.env.DB.prepare("SELECT banned FROM user WHERE id = ?")
+      .bind(userId)
+      .first<{ banned: number | null }>();
+    return row === null || Boolean(row.banned);
+  }
+
   async writeAudit(record: OperatorAuditRecord): Promise<void> {
     const [actor, email] = await Promise.all([
       this.emailOf(record.actorId),
@@ -262,6 +274,8 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     await audit(this.env.DB, { ...entry, actor, email });
   }
 }
+
+export { PeopleAdmin };
 
 export default {
   async fetch(request, env): Promise<Response> {

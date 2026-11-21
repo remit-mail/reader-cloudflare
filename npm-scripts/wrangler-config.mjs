@@ -103,6 +103,11 @@ export const renderWrangler = (base, outputs, config, stage) => {
         service: outputs.login_worker_name,
         entrypoint: "LoginOperator",
       },
+      {
+        binding: "PEOPLE_DIRECTORY",
+        service: outputs.login_worker_name,
+        entrypoint: "PeopleAdmin",
+      },
       ...(captureLoginMail
         ? [
             {

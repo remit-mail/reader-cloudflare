@@ -6,6 +6,7 @@ import type {
   ClassificationInput,
   ClassificationView,
   OperatorSettingsService,
+  TenantClassification,
 } from "../../../src/operator-settings-contract";
 import { createAuth } from "../src/auth";
 import { mailerOf } from "../src/capture";
@@ -35,6 +36,12 @@ export interface ClassificationWriteCall {
 
 export const classificationWrites: ClassificationWriteCall[] = [];
 export const classificationClears: string[] = [];
+export const tenantClassificationWrites: Array<{
+  readonly userId: string;
+  readonly input: ClassificationInput;
+}> = [];
+export const tenantClassificationClears: string[] = [];
+export const tenantClassifications: TenantClassification[] = [];
 
 const NO_CLASSIFIER: ClassificationView = { state: "None", presets: [] };
 
@@ -47,6 +54,21 @@ const operatorSettings: OperatorSettingsService = {
   clearClassification: async () => {
     classificationClears.push("cleared");
   },
+  listTenantIds: async () => tenantClassifications.map(({ userId }) => userId),
+  hasTenant: async (userId) => tenantClassifications.some((tenant) => tenant.userId === userId),
+  readTenantClassification: async (userId) => {
+    const tenant = tenantClassifications.find((candidate) => candidate.userId === userId);
+    if (tenant === undefined) throw new Error(`tenant ${userId} was not found`);
+    return tenant;
+  },
+  writeTenantClassification: async (userId, input) => {
+    tenantClassificationWrites.push({ userId, input });
+    return { ok: true };
+  },
+  clearTenantClassification: async (userId) => {
+    tenantClassificationClears.push(userId);
+  },
+  revokePersonCredentials: async () => {},
 };
 
 export const testEnv: Env = {
