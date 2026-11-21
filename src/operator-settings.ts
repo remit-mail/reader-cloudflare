@@ -5,6 +5,7 @@ import {
   CLASSIFICATION_PRESETS,
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { eq, sql } from "drizzle-orm";
 import {
   classificationDefaultFromDeployment,
@@ -19,7 +20,7 @@ import {
   sealsEmptyKey,
 } from "./crypto/envelope";
 import { openAppDb } from "./db/client";
-import { classificationDefaults } from "./db/schema";
+import { classificationDefaults, tenantKeys } from "./db/schema";
 import type { Env } from "./env";
 import type {
   ClassificationInput,
@@ -27,7 +28,9 @@ import type {
   ClassificationView,
   ClassificationWrite,
   OperatorSettingsService,
+  TenantClassification,
 } from "./operator-settings-contract";
+import { tenantMail } from "./stubs";
 
 const DEPLOYMENT = "Deployment";
 
@@ -89,6 +92,30 @@ const viewOf = (row: ClassificationRow | undefined): ClassificationView => {
 };
 
 const refused = (message: string): ClassificationWrite => ({ ok: false, message });
+
+const tenantIds = async (env: Env): Promise<readonly string[]> => {
+  const rows = await openAppDb(env.DB)
+    .selectDistinct({ tenantId: tenantKeys.tenantId })
+    .from(tenantKeys);
+  return rows.map((row) => row.tenantId);
+};
+
+const tenantExists = async (env: Env, userId: string): Promise<boolean> => {
+  const row = await openAppDb(env.DB)
+    .select({ tenantId: tenantKeys.tenantId })
+    .from(tenantKeys)
+    .where(eq(tenantKeys.tenantId, userId))
+    .limit(1);
+  return row.length === 1;
+};
+
+const readTenantClassification = async (
+  env: Env,
+  userId: string,
+): Promise<TenantClassification> => {
+  if (!(await tenantExists(env, userId))) throw new Error(`tenant ${userId} does not exist`);
+  return { userId, settings: await tenantMail(env, userId).readUserSettings(userId) };
+};
 
 export const writeClassification = async (
   env: Env,
@@ -175,5 +202,55 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
 
   clearClassification(): Promise<void> {
     return clearClassification(this.env);
+  }
+
+  listTenantIds(): Promise<readonly string[]> {
+    return tenantIds(this.env);
+  }
+
+  hasTenant(userId: string): Promise<boolean> {
+    return tenantExists(this.env, userId);
+  }
+
+  readTenantClassification(userId: string): Promise<TenantClassification> {
+    return readTenantClassification(this.env, userId);
+  }
+
+  async writeTenantClassification(
+    userId: string,
+    input: ClassificationInput,
+  ): Promise<ClassificationWrite> {
+    if (!(await tenantExists(this.env, userId))) return refused("Person has no mail tenant.");
+    const answer = await tenantMail(this.env, userId).updateUserSettings(userId, {
+      classificationPresetId: input.presetId,
+      classificationModel: input.model,
+      classificationBaseUrl: input.baseUrl,
+      classificationApiKey: input.apiKey,
+      classificationDailyLimit: input.dailyLimit,
+      classificationEnabled: input.enabled,
+    });
+    return answer.ok ? { ok: true } : refused(answer.error.message);
+  }
+
+  async clearTenantClassification(userId: string): Promise<void> {
+    if (!(await tenantExists(this.env, userId))) throw new Error(`tenant ${userId} does not exist`);
+    await tenantMail(this.env, userId).clearClassificationProvider(userId);
+  }
+
+  async revokePersonCredentials(userId: string, disabled: boolean): Promise<void> {
+    await this.env.DB.batch([
+      this.env.DB.prepare("DELETE FROM mcp_oauth_access_token WHERE user_id = ?").bind(userId),
+      this.env.DB.prepare("DELETE FROM mcp_oauth_refresh_token WHERE user_id = ?").bind(userId),
+      this.env.DB.prepare("DELETE FROM mcp_session WHERE user_id = ?").bind(userId),
+      ...(disabled
+        ? [
+            this.env.DB.prepare("DELETE FROM mcp_oauth_consent WHERE user_id = ?").bind(userId),
+            this.env.DB.prepare("DELETE FROM mcp_device_code WHERE user_id = ?").bind(userId),
+            this.env.DB.prepare("DELETE FROM calendar_feed_token WHERE account_config_id = ?").bind(
+              deriveAccountConfigId(userId),
+            ),
+          ]
+        : []),
+    ]);
   }
 }

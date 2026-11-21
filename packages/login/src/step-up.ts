@@ -21,6 +21,8 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
   "RevokeInvite",
   "SetClassification",
   "ClearClassification",
+  "SetTenantClassification",
+  "ClearTenantClassification",
 ];
 
 export const SELF_ACTIONS: ReadonlySet<AdminAction> = new Set([

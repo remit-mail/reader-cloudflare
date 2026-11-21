@@ -137,6 +137,18 @@
       }
     ]
   },
+  "services": [
+    {
+      "binding": "LOGIN_OPERATOR",
+      "service": "reader-cloudflare-login",
+      "entrypoint": "LoginOperator"
+    },
+    {
+      "binding": "PEOPLE_DIRECTORY",
+      "service": "reader-cloudflare-login",
+      "entrypoint": "PeopleAdmin"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -317,6 +329,18 @@
           }
         ]
       },
+      "services": [
+        {
+          "binding": "LOGIN_OPERATOR",
+          "service": "reader-cloudflare-login-e2e",
+          "entrypoint": "LoginOperator"
+        },
+        {
+          "binding": "PEOPLE_DIRECTORY",
+          "service": "reader-cloudflare-login-e2e",
+          "entrypoint": "PeopleAdmin"
+        }
+      ],
       "ratelimits": [
         {
           "name": "TENANT_RATE_LIMIT",

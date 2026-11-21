@@ -24,6 +24,8 @@ enum AdminAction {
   RevokeInvite: "RevokeInvite",
   SetClassification: "SetClassification",
   ClearClassification: "ClearClassification",
+  SetTenantClassification: "SetTenantClassification",
+  ClearTenantClassification: "ClearTenantClassification",
 }
 
 enum StepUpMethod {
@@ -64,6 +66,7 @@ enum AuditEventKind {
   ClassificationSet: "ClassificationSet",
   ClassificationCleared: "ClassificationCleared",
   SettingsUpdated: "SettingsUpdated",
+  PeopleRequestRefused: "PeopleRequestRefused",
 }
 
 enum AuditOutcome {
