@@ -5,7 +5,7 @@ import { ImapFlow } from "imapflow";
 import { resolveAccountId } from "./cf-api.mjs";
 import { readDeploySecrets } from "./deploy-config.mjs";
 import { accessEnvOf, CF_ENV, CONFIG_DIR, readEnvFile, TEST_ACCOUNT_ENV } from "./env.mjs";
-import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.mjs";
+import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.ts";
 import { PROD } from "./stages.mjs";
 
 const OPERATOR_TOKEN = join(CONFIG_DIR, "operator-mcp-token");

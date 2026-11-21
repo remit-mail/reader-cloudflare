@@ -1,6 +1,19 @@
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
-export const callMcp = async (url, headers, body) => {
+interface McpMessage {
+  readonly result?: Record<string, unknown>;
+}
+
+interface McpResponse {
+  readonly status: number;
+  readonly body: McpMessage | undefined;
+}
+
+export const callMcp = async (
+  url: URL,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): Promise<McpResponse> => {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -20,6 +33,6 @@ export const callMcp = async (url, headers, body) => {
     : text;
   return {
     status: response.status,
-    body: data === undefined || data === "" ? undefined : JSON.parse(data),
+    body: data === undefined || data === "" ? undefined : (JSON.parse(data) as McpMessage),
   };
 };

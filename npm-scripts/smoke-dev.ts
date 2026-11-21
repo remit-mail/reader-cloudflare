@@ -9,7 +9,7 @@ import {
 import { accessHeaders, connect, must, succeeds } from "./dev-api.ts";
 import { CALENDAR, DRAFTS, WEEKLY_SUMMARY } from "./dev-fixtures.ts";
 import { fetchOnceServed } from "./host-ready.ts";
-import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.mjs";
+import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
 const HOUR_MS = 60 * 60_000;
