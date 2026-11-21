@@ -7,7 +7,7 @@ import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
 import { configOf, type LoginConfig } from "./config";
 import type { Env } from "./env";
-import { json, notFound, text } from "./http";
+import { isRecord, json, notFound, text } from "./http";
 import { log } from "./log";
 import {
   type AdminContext,
@@ -29,7 +29,6 @@ const SPA_PAGES: ReadonlySet<string> = new Set([
   "/reset",
   "/reset/password",
   "/security",
-  "/sign-out",
 ]);
 
 const STATIC_FILES: ReadonlySet<string> = new Set(["/login.css", "/admin.js", "/favicon.svg"]);
@@ -117,6 +116,20 @@ const answered = (pending: Promise<Response>): Promise<Response> =>
     return json(error.statusCode, error.body ?? { message: error.message });
   });
 
+const signOut = async (auth: Auth, request: Request): Promise<Response> => {
+  const answer = await auth.api.appSignOut({ headers: request.headers, asResponse: true });
+  const body: unknown = await answer.json();
+  if (!isRecord(body) || typeof body.url !== "string") {
+    throw new Error(`sign-out answered ${answer.status} without a logout url`);
+  }
+  const response = new Response(null, {
+    status: 302,
+    headers: { location: body.url, "cache-control": "no-store" },
+  });
+  for (const cookie of answer.headers.getSetCookie()) response.headers.append("set-cookie", cookie);
+  return response;
+};
+
 const serveApp = async (
   auth: Auth,
   env: Env,
@@ -168,8 +181,6 @@ const serveApp = async (
           asResponse: true,
         }),
       );
-    case "/app/sign-out":
-      return answered(auth.api.appSignOut({ headers, asResponse: true }));
     case "/app/sign-out-everywhere":
       return answered(auth.api.appSignOutEverywhere({ headers, asResponse: true }));
     case "/app/admin/challenge":
@@ -205,6 +216,7 @@ const route = async (request: Request, env: Env): Promise<Response> => {
   const auth = await createAuth(env, waitUntil);
   if (path.startsWith(`${API_BASE_PATH}/`)) return serveAuth(auth, env, config, request, url);
   const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
+  if (request.method === "GET" && path === "/sign-out") return signOut(auth, request);
   if (request.method === "GET" && path === "/admin") return renderAdmin(admin, request);
   if (request.method === "GET" && path === "/admin/audit") return renderAudit(admin, request);
   if (path.startsWith("/app/")) return serveApp(auth, env, config, request, path);

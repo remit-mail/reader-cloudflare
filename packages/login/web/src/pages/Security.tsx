@@ -1,6 +1,6 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui/auth";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { type Answer, get, post, readerOriginOf } from "../api";
+import { type Answer, FAILURE_EVENT, get, leave, post, readerOriginOf } from "../api";
 import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
 import {
   BackupCodeList,
@@ -17,7 +17,6 @@ import {
   Text,
 } from "../ui";
 import { AppSetup } from "./Invite";
-import { useSignOut } from "./SignOut";
 
 export interface Passkey {
   readonly id: string;
@@ -139,6 +138,22 @@ const Cancel = ({ onClose, focus }: { onClose: () => void; focus?: boolean }) =>
 );
 
 const noop = () => undefined;
+
+const useSignOut = (path: string) => {
+  const [busy, setBusy] = useState(false);
+  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    void post(path).then(async (answer) => {
+      const failure = answer.ok ? await leave(answer) : answer.message;
+      if (failure === null) return;
+      setBusy(false);
+      window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
+    });
+  };
+  return { busy, onSubmit };
+};
 
 const SignOutEverywhereForm = ({ onClose }: { onClose: () => void }) => {
   const { busy, onSubmit } = useSignOut("/app/sign-out-everywhere");

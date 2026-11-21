@@ -6,7 +6,6 @@ import { BackupCodes, Invite, WelcomePassword, WelcomeSecondStep } from "./pages
 import { Reset, ResetPassword } from "./pages/Reset";
 import { Security } from "./pages/Security";
 import { SecondStep, SignIn } from "./pages/SignIn";
-import { SignOut } from "./pages/SignOut";
 import { followColorScheme } from "./scheme";
 import { Failure } from "./ui";
 
@@ -20,7 +19,6 @@ const PAGES: Readonly<Record<string, () => ReactNode>> = {
   "/reset": () => <Reset />,
   "/reset/password": () => <ResetPassword />,
   "/security": () => <Security />,
-  "/sign-out": () => <SignOut />,
 };
 
 const App = () => {
