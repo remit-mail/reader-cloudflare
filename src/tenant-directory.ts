@@ -1,4 +1,3 @@
-import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { eq } from "drizzle-orm";
 import { openAppDb } from "./db/client";
 import { calendarFeedTokens, tenantAccountConfigs } from "./db/schema";
@@ -13,9 +12,6 @@ export const tenantOfAccountConfig = async (
     .where(eq(tenantAccountConfigs.accountConfigId, accountConfigId));
   return row?.tenantId;
 };
-
-export const tenantOfUser = (binding: D1Database, userId: string): Promise<string | undefined> =>
-  tenantOfAccountConfig(binding, deriveAccountConfigId(userId));
 
 export const tenantOfFeedToken = async (
   binding: D1Database,

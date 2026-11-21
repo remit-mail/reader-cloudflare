@@ -1,17 +1,28 @@
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { describe, expect, it } from "vitest";
 
 const OPERATOR_SUBJECT = "access-subject-of-the-operator";
 
+const db = (env as unknown as { DB: D1Database }).DB;
+
+const OPERATOR_HEADERS = { "x-operator": "operator@remit.test", "x-subject": OPERATOR_SUBJECT };
+
+const seedTenant = (tenantId: string, email: string): Promise<D1Result[]> =>
+  db.batch([
+    db
+      .prepare("INSERT OR REPLACE INTO tenant_email (tenant_id, email) VALUES (?, ?)")
+      .bind(tenantId, email),
+    db
+      .prepare(
+        "INSERT OR REPLACE INTO tenant_key (tenant_id, key_version, wrapped_key, iv) VALUES (?, 1, x'00', x'00')",
+      )
+      .bind(tenantId),
+  ]);
+
 describe("operator classifier default", () => {
   it("makes a PUT visible to a second tenant", async () => {
-    await (env as unknown as { DB: D1Database }).DB.prepare(
-      "INSERT OR REPLACE INTO tenant_email (tenant_id, email) VALUES (?, ?)",
-    )
-      .bind(OPERATOR_SUBJECT, "operator@remit.test")
-      .run();
-
     const saved = await SELF.fetch("http://example.test/api/system/classification-default", {
       method: "PUT",
       headers: {
@@ -36,5 +47,41 @@ describe("operator classifier default", () => {
     });
     expect(resolved.status).toBe(200);
     expect(await resolved.json()).toMatchObject({ presetId: "Mistral", source: "Operator" });
+  });
+});
+
+describe("person settings", () => {
+  it("answers for a listed person by their login id", async () => {
+    const tenantId = "access-subject-of-a-person";
+    await seedTenant(tenantId, "person@remit.test");
+
+    const read = await SELF.fetch("http://example.test/api/people/login-id-of-a-person/settings", {
+      headers: OPERATOR_HEADERS,
+    });
+    expect(read.status).toBe(200);
+    expect(read.headers.get("x-account-config-read")).toBe(deriveAccountConfigId(tenantId));
+
+    const unknown = await SELF.fetch("http://example.test/api/people/someone-else/settings", {
+      headers: OPERATOR_HEADERS,
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("hides another operator's settings", async () => {
+    await seedTenant("access-subject-of-another-operator", "other-operator@remit.test");
+    const settings = "http://example.test/api/people/login-id-of-another-operator/settings";
+
+    const read = await SELF.fetch(settings, { headers: OPERATOR_HEADERS });
+    const patched = await SELF.fetch(settings, {
+      method: "PATCH",
+      headers: { ...OPERATOR_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const cleared = await SELF.fetch(`${settings}/classification-provider`, {
+      method: "DELETE",
+      headers: OPERATOR_HEADERS,
+    });
+
+    expect([read.status, patched.status, cleared.status]).toEqual([404, 404, 404]);
   });
 });

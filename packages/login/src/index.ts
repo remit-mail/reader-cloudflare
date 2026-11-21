@@ -4,6 +4,7 @@ import { isAPIError } from "better-auth/api";
 import type {
   LoginOperatorService,
   OperatorAuditRecord,
+  PersonEmail,
 } from "../../../src/operator-audit-contract";
 import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
@@ -13,7 +14,7 @@ import { configOf, isOperator, type LoginConfig, normalizeEmail } from "./config
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
-import { PeopleAdmin, peopleAdmin } from "./people-admin";
+import { PeopleAdmin, peopleAdmin, personEmail } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
@@ -246,7 +247,7 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
 
 export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
   private banOf(email: string): Promise<{ banned: number | null } | null> {
-    return this.env.DB.prepare("SELECT banned FROM user WHERE lower(email) = ?")
+    return this.env.DB.prepare("SELECT banned FROM user WHERE email = ?")
       .bind(normalizeEmail(email))
       .first<{ banned: number | null }>();
   }
@@ -258,6 +259,10 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
   async isDisabled(email: string): Promise<boolean> {
     const row = await this.banOf(email);
     return row === null || Boolean(row.banned);
+  }
+
+  personEmail(callerEmail: string, userId: string): Promise<PersonEmail> {
+    return personEmail(this.env, callerEmail, userId);
   }
 
   async writeAudit(record: OperatorAuditRecord): Promise<void> {

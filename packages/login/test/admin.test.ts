@@ -258,7 +258,7 @@ describe("admin step-up", () => {
     expect(await sessionsOf(OTHER_OPERATOR)).toBe(1);
     expect(
       await peopleAdmin(testEnv).updatePerson({
-        callerId: operator.userId,
+        callerId: OPERATOR,
         clientIp: "192.0.2.1",
         targetId: other.id,
         operatorGrant: true,

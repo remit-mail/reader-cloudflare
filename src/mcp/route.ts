@@ -52,7 +52,13 @@ const serveTools = async (
   annotateLog({ tenantId: tenant.tenantId });
   const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenant.tenantId });
   if (!success) return rateLimited(RATE_LIMIT_PERIOD_SECONDS);
-  return tenantMail(env, tenant.tenantId).mcp(request, principal, operator, currentCorrelationId());
+  return tenantMail(env, tenant.tenantId).mcp(
+    request,
+    principal,
+    tenant.email,
+    operator,
+    currentCorrelationId(),
+  );
 };
 
 export const serveMcpApi = async (request: Request, env: Env): Promise<Response> => {
