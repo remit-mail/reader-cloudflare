@@ -10,7 +10,7 @@ export interface OperatorAuditRecord {
 }
 
 export interface LoginOperatorService {
-  isDisabled(userId: string): Promise<boolean>;
-  isOperator(userId: string): Promise<boolean>;
+  isDisabled(email: string): Promise<boolean>;
+  isOperator(email: string): Promise<boolean>;
   writeAudit(record: OperatorAuditRecord): Promise<void>;
 }

@@ -6,6 +6,7 @@ import {
 } from "@remit/mcp-server/app";
 import { hasOperatorGrant, type Tenant } from "../access";
 import type { Env } from "../env";
+import { isSubjectOperator } from "./subject-email";
 
 export type McpBearerResult =
   | {
@@ -36,7 +37,7 @@ export const verifyMcpBearer = async (
     principal: verification.principal,
     operator: hasOperatorGrant(
       verification.principal.scopes,
-      await env.LOGIN_OPERATOR.isOperator(subject),
+      await isSubjectOperator(env.DB, env.LOGIN_OPERATOR, subject),
     ),
   };
 };
