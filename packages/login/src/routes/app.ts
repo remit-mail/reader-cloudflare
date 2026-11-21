@@ -42,7 +42,7 @@ const grantCookie = (config: LoginConfig, value: string, maxAge: number): string
     ...(config.loginOrigin.startsWith("https://") ? ["Secure"] : []),
   ].join("; ");
 
-const accessLogoutUrl = (config: LoginConfig): string =>
+export const accessLogoutUrl = (config: LoginConfig): string =>
   `${config.readerOrigin}/cdn-cgi/access/logout?${new URLSearchParams({ returnTo: `${config.readerOrigin}/` })}`;
 
 const tokenOf = (body: unknown): string | null => {
@@ -391,7 +391,7 @@ export const appEndpoints = (deps: AuthDeps) => {
         async (ctx) => {
           const current = await getSessionFromCtx(ctx);
           deleteSessionCookie(ctx);
-          if (!current) return ctx.json({ url: accessLogoutUrl(config) });
+          if (!current) return;
           const { session, user } = current;
           await db.batch([
             db.prepare("DELETE FROM oauth_access_token WHERE session_id = ?").bind(session.id),
@@ -404,7 +404,6 @@ export const appEndpoints = (deps: AuthDeps) => {
             event: "SignOut",
             outcome: "Succeeded",
           });
-          return ctx.json({ url: accessLogoutUrl(config) });
         },
       ),
       appSignOutEverywhere: createAuthEndpoint(

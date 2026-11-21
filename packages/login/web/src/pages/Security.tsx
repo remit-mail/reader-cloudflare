@@ -139,24 +139,19 @@ const Cancel = ({ onClose, focus }: { onClose: () => void; focus?: boolean }) =>
 
 const noop = () => undefined;
 
-const useSignOut = (path: string) => {
+const SignOutEverywhereForm = ({ onClose }: { onClose: () => void }) => {
   const [busy, setBusy] = useState(false);
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
-    void post(path).then(async (answer) => {
+    void post("/app/sign-out-everywhere").then(async (answer) => {
       const failure = answer.ok ? await leave(answer) : answer.message;
       if (failure === null) return;
       setBusy(false);
       window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
     });
   };
-  return { busy, onSubmit };
-};
-
-const SignOutEverywhereForm = ({ onClose }: { onClose: () => void }) => {
-  const { busy, onSubmit } = useSignOut("/app/sign-out-everywhere");
   return (
     <form onSubmit={onSubmit} className="flex gap-2">
       <Button type="submit" variant="danger" disabled={busy}>
