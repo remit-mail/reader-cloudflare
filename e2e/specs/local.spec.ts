@@ -2,6 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, type Page, test } from "@playwright/test";
+import {
+  peopleOperationsInvitePerson,
+  peopleOperationsListPeople,
+  peopleOperationsUpdatePerson,
+} from "@remit/api-http-client";
+import { createClient } from "@remit/api-http-client/client/index.js";
 import { strFromU8, unzipSync } from "fflate";
 import { z } from "zod";
 import { ApiClient, waitFor } from "../.reader/packages/e2e/src/api.js";
@@ -110,12 +116,51 @@ const CRON = "*/5 * * * *";
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
 
+const operatorClient = createClient({
+  baseUrl: `${process.env.E2E_BASE_URL}/api`,
+  fetch: (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    const headers = new Headers(request.headers);
+    headers.set("x-dev-identity", DEV_IDENTITY);
+    headers.set("origin", process.env.E2E_BASE_URL ?? "");
+    return fetch(new Request(request, { headers }));
+  },
+});
+
 test("operator operations admit the operator and refuse the agent identity", async () => {
   const operator = await tenantRequest(DEV_IDENTITY)("GET", "/system/classification-default");
   expect(operator.status).toBe(200);
 
   const agent = await tenantRequest("agent@remit.test")("GET", "/system/classification-default");
   expect(agent.status).toBe(403);
+});
+
+test("an operator invites and disables a hosted person through the API", async () => {
+  const email = `invited-${Date.now()}@remit.test`;
+  const invited = await peopleOperationsInvitePerson({
+    client: operatorClient,
+    body: { email },
+  });
+  expect(invited.data).toEqual({ email });
+
+  const disabled = await peopleOperationsUpdatePerson({
+    client: operatorClient,
+    path: { userId: "e2e-person" },
+    body: { status: "Disabled" },
+  });
+  expect(disabled.data).toMatchObject({
+    userId: "e2e-person",
+    email: "person@remit.test",
+    status: "Disabled",
+  });
+
+  const listed = await peopleOperationsListPeople({ client: operatorClient });
+  expect(listed.data?.people).toContainEqual(
+    expect.objectContaining({
+      userId: "e2e-person",
+      status: "Disabled",
+    }),
+  );
 });
 
 interface Shared {

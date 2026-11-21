@@ -1,7 +1,7 @@
 import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import type { PeopleAuditEvent, Person, PersonStatus } from "@remit/api-openapi-types";
 import type {
-  PeopleAdmin as PeopleAdminService,
+  PeopleDirectory,
   PeopleOutcome,
   PeopleRequest,
   PersonRequest,
@@ -9,6 +9,7 @@ import type {
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import { audit, auditRows } from "./audit";
+import { createAuth } from "./auth";
 import { mailerOf } from "./capture";
 import { configOf, normalizeEmail } from "./config";
 import { randomId, randomToken, sha256Hex } from "./crypto";
@@ -105,7 +106,7 @@ const guardedTarget = async (
   return target(env.DB, request);
 };
 
-export const peopleAdmin = (env: Env): PeopleAdminService => ({
+export const peopleAdmin = (env: Env): PeopleDirectory => ({
   listPeople: async (request) => {
     if (!(await activeCaller(env.DB, request))) return refused(PeopleErrorCode.CallerDisabled);
     const rows = await env.DB.prepare(
@@ -253,6 +254,16 @@ export const peopleAdmin = (env: Env): PeopleAdminService => ({
     const now = Date.now();
     const expiresAt = now + 24 * 60 * 60_000;
     const token = randomToken();
+    const context = await (await createAuth(env, waitUntil)).$context;
+    const credential = (await context.internalAdapter.findAccounts(row.id)).find(
+      (account) => account.providerId === "credential",
+    );
+    if (credential !== undefined) {
+      await context.internalAdapter.updatePassword(
+        row.id,
+        await context.password.hash(randomToken()),
+      );
+    }
     await env.DB.batch([
       env.DB.prepare(
         "UPDATE reset_link SET state = 'Replaced', state_changed_at = ? WHERE user_id = ? AND state = 'Open'",
@@ -290,62 +301,46 @@ export const peopleAdmin = (env: Env): PeopleAdminService => ({
       ),
     );
   },
-
-  enableByEmail: async (email) => {
-    const row = await env.DB.prepare(
-      "UPDATE user SET banned = 0, updated_at = ? WHERE lower(email) = ? RETURNING id",
-    )
-      .bind(Date.now(), normalizeEmail(email))
-      .first<{ id: string }>();
-    if (row === null) return refused("not_found");
-    const updated = await personRow(env.DB, row.id);
-    if (updated === null) throw new Error(`user ${row.id} vanished after enable`);
-    return { ok: true, value: person(updated, "shell") };
-  },
-
-  resetByEmail: async () => refused("not_found"),
-  applySignInSwitch: () => undefined,
-  close: () => undefined,
 });
 
 export class PeopleAdmin extends WorkerEntrypoint<Env> {
-  listPeople(...args: Parameters<PeopleAdminService["listPeople"]>) {
+  listPeople(...args: Parameters<PeopleDirectory["listPeople"]>) {
     return peopleAdmin(this.env).listPeople(...args);
   }
 
-  listAudit(...args: Parameters<PeopleAdminService["listAudit"]>) {
+  listAudit(...args: Parameters<PeopleDirectory["listAudit"]>) {
     return peopleAdmin(this.env).listAudit(...args);
   }
 
-  invitePerson(...args: Parameters<PeopleAdminService["invitePerson"]>) {
+  invitePerson(...args: Parameters<PeopleDirectory["invitePerson"]>) {
     return peopleAdmin(this.env).invitePerson(...args);
   }
 
-  revokeInvite(...args: Parameters<PeopleAdminService["revokeInvite"]>) {
+  revokeInvite(...args: Parameters<PeopleDirectory["revokeInvite"]>) {
     return peopleAdmin(this.env).revokeInvite(...args);
   }
 
-  resetPersonFactors(...args: Parameters<PeopleAdminService["resetPersonFactors"]>) {
+  resetPersonFactors(...args: Parameters<PeopleDirectory["resetPersonFactors"]>) {
     return peopleAdmin(this.env).resetPersonFactors(...args);
   }
 
-  createStepUp(...args: Parameters<PeopleAdminService["createStepUp"]>) {
+  createStepUp(...args: Parameters<PeopleDirectory["createStepUp"]>) {
     return peopleAdmin(this.env).createStepUp(...args);
   }
 
-  signOutPerson(...args: Parameters<PeopleAdminService["signOutPerson"]>) {
+  signOutPerson(...args: Parameters<PeopleDirectory["signOutPerson"]>) {
     return peopleAdmin(this.env).signOutPerson(...args);
   }
 
-  updatePerson(...args: Parameters<PeopleAdminService["updatePerson"]>) {
+  updatePerson(...args: Parameters<PeopleDirectory["updatePerson"]>) {
     return peopleAdmin(this.env).updatePerson(...args);
   }
 
-  createPasswordReset(...args: Parameters<PeopleAdminService["createPasswordReset"]>) {
+  createPasswordReset(...args: Parameters<PeopleDirectory["createPasswordReset"]>) {
     return peopleAdmin(this.env).createPasswordReset(...args);
   }
 
-  recordRefusal(...args: Parameters<PeopleAdminService["recordRefusal"]>) {
+  recordRefusal(...args: Parameters<PeopleDirectory["recordRefusal"]>) {
     return peopleAdmin(this.env).recordRefusal(...args);
   }
 }
