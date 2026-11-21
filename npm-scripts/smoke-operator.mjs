@@ -5,9 +5,9 @@ import { ImapFlow } from "imapflow";
 import { resolveAccountId } from "./cf-api.mjs";
 import { readDeploySecrets } from "./deploy-config.mjs";
 import { accessEnvOf, CF_ENV, CONFIG_DIR, readEnvFile, TEST_ACCOUNT_ENV } from "./env.mjs";
+import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.mjs";
 import { PROD } from "./stages.mjs";
 
-const MCP_PROTOCOL_VERSION = "2025-06-18";
 const OPERATOR_TOKEN = join(CONFIG_DIR, "operator-mcp-token");
 const POLL_MS = 5_000;
 const TIMEOUT_MS = 10 * 60_000;
@@ -52,32 +52,16 @@ if (!deploySecrets.classification) {
   process.exit(1);
 }
 
-const parseMcpResponse = async (response) => {
-  const text = await response.text();
-  const data = (response.headers.get("content-type") ?? "").includes("text/event-stream")
-    ? text
-        .split("\n")
-        .find((line) => line.startsWith("data:"))
-        ?.slice("data:".length)
-    : text;
-  return data === undefined || data === "" ? undefined : JSON.parse(data);
-};
-
 let requestId = 0;
-const mcp = async (path, headers, method, params) => {
-  const response = await fetch(new URL(path, access.APP_URL), {
-    method: "POST",
-    headers: {
+const mcp = (path, headers, method, params) =>
+  callMcp(
+    new URL(path, access.APP_URL),
+    {
       ...headers,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
       "mcp-protocol-version": MCP_PROTOCOL_VERSION,
     },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
-    redirect: "manual",
-  });
-  return { status: response.status, body: await parseMcpResponse(response) };
-};
+    { id: ++requestId, method, params },
+  );
 
 const operatorMcp = (method, params) =>
   mcp("/mcp", { authorization: `Bearer ${operatorToken}` }, method, params);
@@ -176,10 +160,12 @@ check(
 const initialTenant = await callTool("get_tenant_settings", {
   userId: access.CF_ACCESS_CLIENT_ID,
 });
+const initialSources = initialTenant.classification?.sources;
 check(
-  "tenant classification key starts inherited",
-  initialTenant.classification?.sources?.apiKey === "Deployment",
-  `source is ${String(initialTenant.classification?.sources?.apiKey)}`,
+  "tenant classification starts inherited",
+  initialSources !== undefined &&
+    Object.values(initialSources).every((source) => source === "Deployment"),
+  "one or more classifier settings are not inherited",
 );
 
 const classification = {
