@@ -2,20 +2,17 @@ import { Button, ButtonLink } from "@remit/ui/auth";
 import { type FormEvent, useEffect, useState } from "react";
 import {
   type Answer,
-  type Failure,
-  failureOf,
   finish,
   keepQuery,
   lockedUntil,
   navigate,
   post,
-  type Refused,
   restartAuthorize,
-  SIGN_IN_LINK_EXPIRED,
   untilRetry,
   withOAuth,
 } from "../api";
 import { passkeysSupported, signInWithPasskey } from "../passkeys";
+import { type Failure, failureOf, type Refusal, SIGN_IN_LINK_EXPIRED } from "../refusal";
 import { passwordProblem, type SignInProblem, signInNotice } from "../sign-in-problem";
 import {
   Field,
@@ -31,9 +28,7 @@ import {
   TextLink,
 } from "../ui";
 
-export type { SignInProblem } from "../sign-in-problem";
-
-const passkeyProblem = (answer: Refused): SignInProblem =>
+const passkeyProblem = (answer: Refusal): SignInProblem =>
   answer.code === "PASSKEY_PROMPT"
     ? { kind: "passkey-cancelled" }
     : { kind: "passkey-refused", message: answer.message };
@@ -208,7 +203,7 @@ export type SecondStepProblem =
   | { readonly kind: "passkey-cancelled" }
   | { readonly kind: "passkey-other-account" };
 
-const secondStepProblem = (answer: Refused): SecondStepProblem => {
+const secondStepProblem = (answer: Refusal): SecondStepProblem => {
   if (answer.code === "PASSKEY_PROMPT") return { kind: "passkey-cancelled" };
   if (answer.code === "PASSKEY_OF_ANOTHER_ACCOUNT") return { kind: "passkey-other-account" };
   if (answer.code === "INVALID_TWO_FACTOR_COOKIE" || answer.code === SIGN_IN_LINK_EXPIRED) {
@@ -228,26 +223,10 @@ export interface SecondStepViewProps {
   readonly onMethod: (method: SecondStepMethod) => void;
 }
 
-const SharedBanner = ({ problem }: { problem: SecondStepProblem | null }) => {
-  if (problem?.kind === "locked") {
-    return (
-      <Notice tone="warning" title="Sign-in is paused">
-        {problem.message}
-      </Notice>
-    );
-  }
-  if (problem?.kind === "server") {
-    return (
-      <Notice tone="danger" title="The check failed on our side" report={problem.message}>
-        Try again in a minute.
-      </Notice>
-    );
-  }
-  if (problem?.kind === "refused") {
-    return <Notice tone="danger" title={problem.message} report={problem.message} />;
-  }
-  return null;
-};
+const SharedBanner = ({ problem }: { problem: SecondStepProblem | null }) =>
+  problem?.kind === "locked" || problem?.kind === "server" || problem?.kind === "refused" ? (
+    <ProblemBanner problem={problem} />
+  ) : null;
 
 const PasswordChanged = ({ show }: { show: boolean }) =>
   show ? (
@@ -268,8 +247,13 @@ export const SecondStepView = ({
   if (problem?.kind === "expired") {
     return (
       <Page title="Sign in again">
-        <Text>More than 10 minutes passed since you typed your password. Type it again.</Text>
-        <ButtonLink href="/sign-in">Back to sign-in</ButtonLink>
+        <Text>
+          A sign-in page works for 10 minutes from when it opens. Start again and sign in on the
+          fresh page.
+        </Text>
+        <Button ref={focusOnMount} onClick={restartAuthorize} className="w-full">
+          Back to sign-in
+        </Button>
       </Page>
     );
   }

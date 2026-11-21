@@ -1,14 +1,6 @@
 import { Button } from "@remit/ui/auth";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import {
-  type Answer,
-  dropLinkToken,
-  failureOf,
-  navigate,
-  post,
-  type Refused,
-  takeLinkToken,
-} from "../api";
+import { type Answer, dropLinkToken, navigate, post, takeLinkToken } from "../api";
 import {
   FreshLinkSentView,
   LinkExpiredView,
@@ -19,6 +11,7 @@ import {
 } from "../flow";
 import { addPasskey, passkeysSupported } from "../passkeys";
 import { QrCode } from "../qr";
+import { failureOf, type Refusal } from "../refusal";
 import {
   BackupCodeList,
   Field,
@@ -169,7 +162,7 @@ export type PasswordProblem =
   | { readonly kind: "check-failed"; readonly message: string }
   | { readonly kind: "refused"; readonly message: string };
 
-const passwordProblem = (answer: Refused): PasswordProblem => {
+const passwordProblem = (answer: Refusal): PasswordProblem => {
   if (failureOf(answer).kind === "server") {
     return { kind: "check-failed", message: answer.message };
   }

@@ -5,11 +5,12 @@ import {
   startAuthentication,
   startRegistration,
 } from "@simplewebauthn/browser";
-import { type Answer, get, post, type Refused, withOAuth } from "./api";
+import { type Answer, get, post, withOAuth } from "./api";
+import type { Refusal } from "./refusal";
 
 export const passkeysSupported = (): boolean => browserSupportsWebAuthn();
 
-const failed = (error: unknown): Refused => ({
+const failed = (error: unknown): Refusal => ({
   ok: false,
   status: 0,
   message: `The passkey prompt did not finish: ${error instanceof Error ? error.message : String(error)}.`,
@@ -18,7 +19,7 @@ const failed = (error: unknown): Refused => ({
 });
 
 export const assertPasskey = async (): Promise<
-  { ok: true; assertion: unknown } | { ok: false; answer: Refused }
+  { ok: true; assertion: unknown } | { ok: false; answer: Refusal }
 > => {
   const options = await get("/api/auth/passkey/generate-authenticate-options");
   if (!options.ok) return { ok: false, answer: options };
