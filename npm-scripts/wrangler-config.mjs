@@ -92,19 +92,27 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ACCESS_TEAM_DOMAIN: outputs.access_team_domain,
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
+      OPERATOR_EMAILS: config.operator_emails.join(","),
       ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
       ...(classification && { CLASSIFICATION_DEFAULT_PRESET: classification.preset }),
       ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
     },
-    ...(captureLoginMail && {
-      services: [
-        {
-          binding: "LOGIN_MAIL",
-          service: outputs.login_worker_name,
-          entrypoint: CAPTURED_MAIL_ENTRYPOINT,
-        },
-      ],
-    }),
+    services: [
+      {
+        binding: "LOGIN_OPERATOR",
+        service: outputs.login_worker_name,
+        entrypoint: "LoginOperator",
+      },
+      ...(captureLoginMail
+        ? [
+            {
+              binding: "LOGIN_MAIL",
+              service: outputs.login_worker_name,
+              entrypoint: CAPTURED_MAIL_ENTRYPOINT,
+            },
+          ]
+        : []),
+    ],
     d1_databases: [
       { ...database, database_name: outputs.d1_database_name, database_id: outputs.d1_database_id },
     ],

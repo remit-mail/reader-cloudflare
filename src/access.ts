@@ -6,6 +6,7 @@ export interface Tenant {
   readonly tenantId: string;
   readonly accountConfigId: string;
   readonly email: string;
+  readonly service: boolean;
 }
 
 export type TenantResult =
@@ -151,10 +152,19 @@ const denied = (reason: string): { readonly ok: false; readonly reason: string }
 
 const subjectOf = (claims: AccessClaims): string => claims.sub || (claims.common_name ?? "");
 
-const admitted = (tenantId: string, email: string): TenantResult => ({
+const admitted = (tenantId: string, email: string, service: boolean): TenantResult => ({
   ok: true,
-  tenant: { tenantId, accountConfigId: deriveAccountConfigId(tenantId), email },
+  tenant: { tenantId, accountConfigId: deriveAccountConfigId(tenantId), email, service },
 });
+
+export const isOperator = (tenant: Tenant, env: Pick<Env, "OPERATOR_EMAILS">): boolean =>
+  !tenant.service &&
+  env.OPERATOR_EMAILS.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .includes(tenant.email.toLowerCase());
+
+export const hasOperatorGrant = (scopes: readonly string[], operator: boolean): boolean =>
+  scopes.includes("operator") && operator;
 
 export const identityOf = (tenant: Tenant): UserIdentity => ({
   kind: "user",
@@ -175,7 +185,7 @@ const devTenant = async (request: Request, email: string): Promise<TenantResult>
     return denied("dev identity is only accepted on loopback");
   }
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
-  return admitted(`dev-${toHex(digest).slice(0, 32)}`, email);
+  return admitted(`dev-${toHex(digest).slice(0, 32)}`, email, false);
 };
 
 type ClaimsResult =
@@ -229,7 +239,7 @@ export const requireTenant = async (request: Request, env: Env): Promise<TenantR
   if (!verified.ok) return verified;
   const subject = subjectOf(verified.claims);
   if (subject === "") return denied("Access token names no subject");
-  return admitted(subject, verified.claims.email || subject);
+  return admitted(subject, verified.claims.email || subject, verified.claims.sub === "");
 };
 
 export const requireServiceTenant = async (request: Request, env: Env): Promise<TenantResult> => {
@@ -239,5 +249,5 @@ export const requireServiceTenant = async (request: Request, env: Env): Promise<
   if (sub !== "" || commonName === undefined || commonName === "") {
     return denied("Access token is not a service token");
   }
-  return admitted(commonName, commonName);
+  return admitted(commonName, commonName, true);
 };

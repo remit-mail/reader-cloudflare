@@ -3,9 +3,11 @@
   "compilerOptions": {
     "paths": {
       "@remit/account-worker/process": ["./.types/account-worker/src/process.d.ts"],
+      "@remit/auth-service/people": ["./.types/auth-service/src/people.d.ts"],
       "@remit/config-format": ["./.types/config-format/src/index.d.ts"],
       "@remit/config-transfer": ["./.types/config-transfer/src/index.d.ts"],
       "@remit/drizzle-service": ["./.types/drizzle-service/src/index.d.ts"],
+      "@remit/drizzle-service/sqlite": ["./.types/drizzle-service/src/sqlite.d.ts"],
       "@remit/mail-oauth-service": ["./.types/mail-oauth-service/src/index.d.ts"],
       "@remit/secrets-service": ["./.types/secrets-service/src/index.d.ts"],
       "@remit/smtp-service": ["./.types/smtp-service/src/index.d.ts"],

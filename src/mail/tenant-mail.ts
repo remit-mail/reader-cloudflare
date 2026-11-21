@@ -5,10 +5,12 @@ import {
   processAccountFanoutEvent,
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
+import { createClient } from "@remit/api-http-client/client/index.js";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
 import { type SpamPipeline, spamPipelineFromEnv } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
@@ -30,20 +32,17 @@ import { handleSendMessage, type SendMessageContext } from "@remit/smtp-worker/p
 import type { StorageService } from "@remit/storage-service";
 import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlite";
 import migrations from "../../migrations/mail/migrations";
+import { apiConfig } from "../api/config";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
-import { ANONYMOUS, serveRequest } from "../api/serve";
+import { ANONYMOUS, personSettingsTarget, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
-import {
-  classificationDefaultFromDeployment,
-  classificationDefaultSnapshot,
-} from "../classification-default";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
 import { d1Queries, openAppStore, withD1Meter } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, log, withLogContext } from "../log";
-import { classificationDefaultOf } from "../operator-settings";
+import { classificationDefaultStore } from "../operator-settings";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
@@ -163,9 +162,15 @@ const consumeSmtp = (
   }
 };
 
-const mcpDeps = (client: RemitClient): McpDeps =>
+const mcpDeps = (
+  client: RemitClient,
+  apiClient: (userId: string, operator: boolean) => ReturnType<typeof createClient>,
+): McpDeps =>
   mcpDepsOf(client, {
+    apiConfig,
+    calendarClient: (userId) => apiClient(userId, false),
     logger,
+    operatorClient: (userId) => apiClient(userId, true),
     settle: {
       settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
       pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
@@ -213,27 +218,62 @@ export class TenantMail extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(() => migrateDurableObject(db, migrations));
   }
 
-  async api(request: Request, identity: UserIdentity, correlationId: string): Promise<Response> {
+  async api(
+    request: Request,
+    identity: UserIdentity,
+    operator: boolean,
+    mailTenantId: string,
+    correlationId: string,
+  ): Promise<Response> {
     return withLogContext({ correlationId, tenantId: identity.sub }, () =>
       served(async () => {
-        await this.bootstrap(identity.sub);
+        const target = await personSettingsTarget(request, this.env.DB);
+        if (target.targeted) {
+          if (target.tenantId === undefined) {
+            return Response.json(
+              { code: "not_found", message: "Person not found" },
+              { status: 404 },
+            );
+          }
+          if (target.tenantId !== mailTenantId) {
+            return this.env.TENANT_MAIL.get(this.env.TENANT_MAIL.idFromName(target.tenantId)).api(
+              request,
+              identity,
+              operator,
+              target.tenantId,
+              correlationId,
+            );
+          }
+        }
+        await this.bootstrap(mailTenantId);
         return serveRequest(
           request,
           identity,
-          (await this.compose(identity.sub)).client,
+          operator,
+          this.clientFor((await this.compose(mailTenantId)).client, identity.email),
           correlationId,
+          this.env.LOGIN_OPERATOR,
         );
       }),
     );
   }
 
-  async mcp(request: Request, principal: McpPrincipal, correlationId: string): Promise<Response> {
+  async mcp(
+    request: Request,
+    principal: McpPrincipal,
+    operator: boolean,
+    correlationId: string,
+  ): Promise<Response> {
     const tenantId = principal.userId;
     return withLogContext({ correlationId, tenantId }, () =>
       served(async () => {
         await this.bootstrap(tenantId);
         const { client } = await this.compose(tenantId);
-        return createMcpHandler(principal, mcpDeps(client))(request);
+        return createMcpHandler(
+          principal,
+          mcpDeps(client, (userId, granted) => this.apiClient(userId, granted, correlationId)),
+          operator,
+        )(request);
       }),
     );
   }
@@ -253,7 +293,14 @@ export class TenantMail extends DurableObject<Env> {
   async publicApi(request: Request, tenantId: string, correlationId: string): Promise<Response> {
     return withLogContext({ correlationId, tenantId }, () =>
       served(async () =>
-        serveRequest(request, ANONYMOUS, (await this.compose(tenantId)).client, correlationId),
+        serveRequest(
+          request,
+          ANONYMOUS,
+          false,
+          (await this.compose(tenantId)).client,
+          correlationId,
+          this.env.LOGIN_OPERATOR,
+        ),
       ),
     );
   }
@@ -370,10 +417,7 @@ export class TenantMail extends DurableObject<Env> {
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(pool),
       mailTransports: { imap: transport, smtp: workersSmtpSocket },
-      getClassificationDefault: classificationDefaultSnapshot(
-        () => classificationDefaultOf(this.env),
-        () => classificationDefaultFromDeployment(this.env),
-      ),
+      classificationDefault: classificationDefaultStore(this.env, tenantId),
       spamPipeline: this.spamPipeline,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),
@@ -390,6 +434,37 @@ export class TenantMail extends DurableObject<Env> {
         smtp: queueProducer<"Standard", EventOn<"smtp">>("Standard", this.env, tenantId),
         body: queueProducer<"Standard", EventOn<"body">>("Standard", this.env, tenantId),
       },
+    });
+  }
+
+  private clientFor(client: RemitClient, operatorEmail: string): RemitClient {
+    return {
+      ...client,
+      classificationDefault: classificationDefaultStore(this.env, operatorEmail),
+    };
+  }
+
+  private apiClient(
+    userId: string,
+    operator: boolean,
+    correlationId: string,
+  ): ReturnType<typeof createClient> {
+    const identity: UserIdentity = {
+      kind: "user",
+      accountConfigId: deriveAccountConfigId(userId),
+      sub: userId,
+      email: userId,
+    };
+    return createClient({
+      baseUrl: this.env.PUBLIC_ORIGIN,
+      fetch: (request, init) =>
+        this.api(
+          request instanceof Request ? request : new Request(request, init),
+          identity,
+          operator,
+          userId,
+          correlationId,
+        ),
     });
   }
 }

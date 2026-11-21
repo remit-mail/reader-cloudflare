@@ -4,11 +4,16 @@ import {
   type McpAuth,
   type McpPrincipal,
 } from "@remit/mcp-server/app";
-import type { Tenant } from "../access";
+import { hasOperatorGrant, type Tenant } from "../access";
 import type { Env } from "../env";
 
 export type McpBearerResult =
-  | { readonly ok: true; readonly tenant: Tenant; readonly principal: McpPrincipal }
+  | {
+      readonly ok: true;
+      readonly tenant: Tenant;
+      readonly principal: McpPrincipal;
+      readonly operator: boolean;
+    }
   | { readonly ok: false; readonly reason: string };
 
 export const verifyMcpBearer = async (
@@ -19,9 +24,19 @@ export const verifyMcpBearer = async (
   const verification = await createBetterAuthTokenVerifier(auth, env.PUBLIC_ORIGIN).verify(bearer);
   if (!verification.ok) return verification;
   const subject = verification.principal.userId;
+  const tenant = {
+    tenantId: subject,
+    accountConfigId: deriveAccountConfigId(subject),
+    email: subject,
+    service: false,
+  };
   return {
     ok: true,
-    tenant: { tenantId: subject, accountConfigId: deriveAccountConfigId(subject), email: subject },
+    tenant,
     principal: verification.principal,
+    operator: hasOperatorGrant(
+      verification.principal.scopes,
+      await env.LOGIN_OPERATOR.isOperator(subject),
+    ),
   };
 };

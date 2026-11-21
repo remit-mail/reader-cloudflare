@@ -1,11 +1,15 @@
 import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { isAPIError } from "better-auth/api";
-import { purgeStatements } from "./audit";
+import type {
+  LoginOperatorService,
+  OperatorAuditRecord,
+} from "../../../src/operator-audit-contract";
+import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
-import { configOf, type LoginConfig } from "./config";
+import { configOf, isOperator, type LoginConfig } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
@@ -232,6 +236,30 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
   latest(): Promise<CapturedMail[]> {
     if (!capturesMail(this.env)) throw new Error("this login Worker does not capture mail");
     return latestCapturedMail(this.env.DB, Date.now());
+  }
+}
+
+export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
+  private async emailOf(userId: string): Promise<string | null> {
+    const row = await this.env.DB.prepare("SELECT email FROM user WHERE id = ?")
+      .bind(userId)
+      .first<{ email: string }>();
+    return row?.email ?? null;
+  }
+
+  async isOperator(userId: string): Promise<boolean> {
+    const email = await this.emailOf(userId);
+    return email !== null && isOperator(configOf(this.env), email);
+  }
+
+  async writeAudit(record: OperatorAuditRecord): Promise<void> {
+    const [actor, email] = await Promise.all([
+      this.emailOf(record.actorId),
+      this.emailOf(record.targetId),
+    ]);
+    if (actor === null || email === null) throw new Error("Operator audit user does not exist");
+    const { actorId: _, targetId: __, ...entry } = record;
+    await audit(this.env.DB, { ...entry, actor, email });
   }
 }
 

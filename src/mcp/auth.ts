@@ -23,6 +23,7 @@ export const withConnectingIp = (request: Request): Request => {
 
 const accessIdentity = (env: Env, origin: string): McpIdentity => ({
   isDisabled: async () => false,
+  isOperator: (userId) => env.LOGIN_OPERATOR.isOperator(userId),
   audit: async (record) => log.info("mcp identity audit", { event: "mcp.audit", ...record }),
   browser: {
     subjectOf: async (headers) => {

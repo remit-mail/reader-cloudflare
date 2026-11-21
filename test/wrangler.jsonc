@@ -1,0 +1,23 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "operator-api-test",
+  "main": "fixtures/operator-worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "MASTER_KEY": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "operator-api-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../migrations",
+      "migrations_pattern": "../migrations/{*.sql,*/migration.sql}"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "TENANTS", "class_name": "DefaultTenant" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DefaultTenant"] }]
+}
