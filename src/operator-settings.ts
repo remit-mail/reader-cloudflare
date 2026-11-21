@@ -1,10 +1,12 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { parseClassificationDefault } from "@remit/backend/classification-default";
+import type { ClassificationDefaultStore } from "@remit/backend/create-remit-client";
 import {
   CLASSIFICATION_PRESETS,
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
 import { eq, sql } from "drizzle-orm";
+import { classificationDefaultFromDeployment } from "./classification-default";
 import { isHttpsUrl, keyChoiceOf } from "./classification-key";
 import {
   openClassificationKey,
@@ -123,6 +125,23 @@ export const clearClassification = async (env: Env): Promise<void> => {
     .delete(classificationDefaults)
     .where(eq(classificationDefaults.classificationDefaultId, DEPLOYMENT));
 };
+
+export const classificationDefaultStore = (
+  env: Env,
+  operatorEmail: string,
+): ClassificationDefaultStore => ({
+  get: async () => {
+    const override = await classificationDefaultOf(env);
+    return override === undefined
+      ? { value: await classificationDefaultFromDeployment(env), source: "Config" }
+      : { value: override, source: "Operator" };
+  },
+  put: async (value) => {
+    const written = await writeClassification(env, value, operatorEmail);
+    if (!written.ok) throw new Error(written.message);
+  },
+  delete: () => clearClassification(env),
+});
 
 export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorSettingsService {
   async readClassification(): Promise<ClassificationView> {

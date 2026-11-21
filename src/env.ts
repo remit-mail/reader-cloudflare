@@ -19,6 +19,7 @@ export interface Env {
   readonly ACCESS_TEAM_DOMAIN: string;
   readonly ACCESS_AUD: string;
   readonly PUBLIC_ORIGIN: string;
+  readonly OPERATOR_EMAILS: string;
   readonly ACCESS_DEV_IDENTITY?: string;
   readonly PLAINTEXT_MAIL_HOSTS?: string;
   readonly MSOAUTH_CLIENT_ID?: string;

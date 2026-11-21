@@ -47,11 +47,12 @@ const serveTools = async (
   env: Env,
   tenant: Tenant,
   principal: McpPrincipal,
+  operator: boolean,
 ): Promise<Response> => {
   annotateLog({ tenantId: tenant.tenantId });
   const { success } = await env.TENANT_RATE_LIMIT.limit({ key: tenant.tenantId });
   if (!success) return rateLimited(RATE_LIMIT_PERIOD_SECONDS);
-  return tenantMail(env, tenant.tenantId).mcp(request, principal, currentCorrelationId());
+  return tenantMail(env, tenant.tenantId).mcp(request, principal, operator, currentCorrelationId());
 };
 
 export const serveMcpApi = async (request: Request, env: Env): Promise<Response> => {
@@ -62,10 +63,16 @@ export const serveMcpApi = async (request: Request, env: Env): Promise<Response>
     return unauthorized(result.reason);
   }
   const { tenant } = result;
-  return serveTools(withConnectingIp(request), env, tenant, {
-    userId: tenant.tenantId,
-    scopes: MCP_SCOPES,
-  });
+  return serveTools(
+    withConnectingIp(request),
+    env,
+    tenant,
+    {
+      userId: tenant.tenantId,
+      scopes: MCP_SCOPES,
+    },
+    false,
+  );
 };
 
 const serveBearer = async (request: Request, env: Env): Promise<Response> => {
@@ -76,7 +83,13 @@ const serveBearer = async (request: Request, env: Env): Promise<Response> => {
     log.warn("mcp refused", { reason: verified.reason });
     return challenge(resourceConfig(env), "invalid_token");
   }
-  return serveTools(withConnectingIp(request), env, verified.tenant, verified.principal);
+  return serveTools(
+    withConnectingIp(request),
+    env,
+    verified.tenant,
+    verified.principal,
+    verified.operator,
+  );
 };
 
 const pages = async (request: Request, env: Env): Promise<Response> =>

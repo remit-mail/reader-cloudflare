@@ -1,5 +1,5 @@
 import { api } from "@remit/backend/api";
-import { identityOf, requireTenant, type Tenant } from "./access";
+import { identityOf, isOperator, requireTenant, type Tenant } from "./access";
 import { API_BODY_MAX_BYTES, RATE_LIMIT_PERIOD_SECONDS } from "./api/host-limits";
 import {
   API_ROOT,
@@ -178,7 +178,13 @@ const serveApi: Serve = async (request, env, tenant) => {
       return payloadTooLarge("An API request body", API_BODY_MAX_BYTES);
     }
   }
-  return tenantMail(env, tenant.tenantId).api(request, identityOf(tenant), currentCorrelationId());
+  return tenantMail(env, tenant.tenantId).api(
+    request,
+    identityOf(tenant),
+    isOperator(tenant, env),
+    tenant.tenantId,
+    currentCorrelationId(),
+  );
 };
 
 const authenticated = async (

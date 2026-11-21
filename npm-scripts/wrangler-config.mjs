@@ -92,6 +92,7 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ACCESS_TEAM_DOMAIN: outputs.access_team_domain,
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
+      OPERATOR_EMAILS: config.operator_emails.join(","),
       ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
       ...(classification && { CLASSIFICATION_DEFAULT_PRESET: classification.preset }),
       ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
