@@ -76,13 +76,20 @@ describe("authorization code after the sign-in ended", () => {
   });
 
   it("refuses a code whose session was deleted after it was issued", async () => {
-    const user = await createUser(uniqueEmail("signed-out"));
+    const email = uniqueEmail("signed-out");
+    const user = await createUser(email);
     const session = await signIn(user.id);
     const code = await authorize(session.cookie);
     await testEnv.DB.prepare("DELETE FROM session WHERE id = ?").bind(session.sessionId).run();
     const answer = await redeem(code);
     expect(answer.status).toBe(400);
     expect(((await answer.json()) as { error: string }).error).toBe("invalid_grant");
+    const refused = await testEnv.DB.prepare(
+      "SELECT client_id FROM audit_event WHERE email = ? AND event = 'TokenIssued' AND outcome = 'Refused'",
+    )
+      .bind(email)
+      .first<{ client_id: string }>();
+    expect(refused?.client_id).toBe(CLIENT_ID);
   });
 
   it("refuses a code for a user banned after it was issued", async () => {

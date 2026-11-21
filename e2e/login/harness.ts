@@ -78,13 +78,14 @@ export interface Tokens {
 export const exchange = async (code: string, verifier: string): Promise<Tokens> => {
   const response = await fetch(`${BASE_URL}/api/auth/oauth2/token`, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: {
+      authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64")}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
       redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
       code_verifier: verifier,
     }),
   });
