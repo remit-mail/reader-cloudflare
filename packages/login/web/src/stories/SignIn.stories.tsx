@@ -4,9 +4,9 @@ import {
   type SecondStepMethod,
   type SecondStepProblem,
   SecondStepView,
-  type SignInProblem,
   SignInView,
 } from "../pages/SignIn";
+import type { SignInProblem } from "../sign-in-problem";
 import { hold, noop } from "./fixtures";
 
 const meta: Meta = { title: "Playground/Proposed/Identity/Sign in" };

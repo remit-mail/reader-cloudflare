@@ -2,13 +2,9 @@ export const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issue
 
 import { type Refusal, refusalOf } from "./refusal";
 
-export { type Failure, failureOf, SIGN_IN_LINK_EXPIRED } from "./refusal";
-
 export type Answer =
   | { readonly ok: true; readonly status: number; readonly body: Record<string, unknown> }
   | Refusal;
-
-export type Refused = Refusal;
 
 export const lockedUntil = (problem: { readonly kind: string } | null): number | null =>
   problem?.kind === "locked" && "retryAt" in problem && typeof problem.retryAt === "number"
