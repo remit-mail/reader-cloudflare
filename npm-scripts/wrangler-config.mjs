@@ -97,15 +97,22 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ...(classification && { CLASSIFICATION_DEFAULT_PRESET: classification.preset }),
       ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
     },
-    ...(captureLoginMail && {
-      services: [
-        {
-          binding: "LOGIN_MAIL",
-          service: outputs.login_worker_name,
-          entrypoint: CAPTURED_MAIL_ENTRYPOINT,
-        },
-      ],
-    }),
+    services: [
+      {
+        binding: "LOGIN_AUDIT",
+        service: outputs.login_worker_name,
+        entrypoint: "OperatorAudit",
+      },
+      ...(captureLoginMail
+        ? [
+            {
+              binding: "LOGIN_MAIL",
+              service: outputs.login_worker_name,
+              entrypoint: CAPTURED_MAIL_ENTRYPOINT,
+            },
+          ]
+        : []),
+    ],
     d1_databases: [
       { ...database, database_name: outputs.d1_database_name, database_id: outputs.d1_database_id },
     ],

@@ -4,7 +4,7 @@ import {
   type McpAuth,
   type McpPrincipal,
 } from "@remit/mcp-server/app";
-import { isOperator, type Tenant } from "../access";
+import { hasOperatorGrant, type Tenant } from "../access";
 import type { Env } from "../env";
 
 export type McpBearerResult =
@@ -34,6 +34,6 @@ export const verifyMcpBearer = async (
     ok: true,
     tenant,
     principal: verification.principal,
-    operator: verification.principal.scopes.includes("operator") && isOperator(tenant, env),
+    operator: hasOperatorGrant(tenant, verification.principal.scopes, env),
   };
 };

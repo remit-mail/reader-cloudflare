@@ -63,6 +63,7 @@ enum AuditEventKind {
   InviteRevoked: "InviteRevoked",
   ClassificationSet: "ClassificationSet",
   ClassificationCleared: "ClassificationCleared",
+  SettingsUpdated: "SettingsUpdated",
 }
 
 enum AuditOutcome {

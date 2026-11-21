@@ -31,7 +31,7 @@ import {
   readAcceptedEnvelope,
   waitForAcceptedMessage,
 } from "../.reader/packages/e2e/src/smtp-sink.js";
-import { plainTextUrlOf } from "./tenant";
+import { plainTextUrlOf, tenantRequest } from "./tenant";
 
 const DEV_IDENTITY = "e2e@remit.test";
 const RECIPIENT = "sender@remit.test";
@@ -109,6 +109,14 @@ const CRON = "*/5 * * * *";
 
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
+
+test("operator operations admit the operator and refuse the agent identity", async () => {
+  const operator = await tenantRequest(DEV_IDENTITY)("GET", "/system/classification-default");
+  expect(operator.status).toBe(200);
+
+  const agent = await tenantRequest("agent@remit.test")("GET", "/system/classification-default");
+  expect(agent.status).toBe(403);
+});
 
 interface Shared {
   accountId: string;

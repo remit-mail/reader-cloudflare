@@ -50,7 +50,7 @@
     "seed:dev": "tsx npm-scripts/seed-dev.ts",
     "smoke:dev": "tsx npm-scripts/smoke-dev.ts",
     "test": "npm run build:schema && npm run test:app && npm run test --workspace login",
-    "test:app": "node --import tsx --test --test-timeout=60000 test/*.test.ts",
+    "test:app": "node --import tsx --test --test-timeout=60000 test/*.test.ts && vitest run --config test/vitest.config.ts",
     "db:generate:login": "npm run build:schema && npm run db:generate --workspace login"
   },
   "devDependencies": {

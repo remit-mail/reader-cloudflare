@@ -142,6 +142,7 @@ export const auditEvents = sqliteTable(
         | "InviteRevoked"
         | "ClassificationSet"
         | "ClassificationCleared"
+        | "SettingsUpdated"
       >()
       .notNull(),
     outcome: text("outcome").$type<"Succeeded" | "Refused">().notNull(),

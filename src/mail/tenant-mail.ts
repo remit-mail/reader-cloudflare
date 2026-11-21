@@ -252,6 +252,7 @@ export class TenantMail extends DurableObject<Env> {
           operator,
           this.clientFor((await this.compose(mailTenantId)).client, identity.email),
           correlationId,
+          this.env.LOGIN_AUDIT,
         );
       }),
     );
@@ -298,6 +299,7 @@ export class TenantMail extends DurableObject<Env> {
           false,
           (await this.compose(tenantId)).client,
           correlationId,
+          this.env.LOGIN_AUDIT,
         ),
       ),
     );

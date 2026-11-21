@@ -1,7 +1,11 @@
 import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
 import { oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { isAPIError } from "better-auth/api";
-import { purgeStatements } from "./audit";
+import type {
+  OperatorAuditRecord,
+  OperatorAuditService,
+} from "../../../src/operator-audit-contract";
+import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
@@ -232,6 +236,12 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
   latest(): Promise<CapturedMail[]> {
     if (!capturesMail(this.env)) throw new Error("this login Worker does not capture mail");
     return latestCapturedMail(this.env.DB, Date.now());
+  }
+}
+
+export class OperatorAudit extends WorkerEntrypoint<Env> implements OperatorAuditService {
+  write(record: OperatorAuditRecord): Promise<void> {
+    return audit(this.env.DB, record);
   }
 }
 

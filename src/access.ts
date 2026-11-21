@@ -163,6 +163,12 @@ export const isOperator = (tenant: Tenant, env: Pick<Env, "OPERATOR_EMAILS">): b
     .map((email) => email.trim().toLowerCase())
     .includes(tenant.email.toLowerCase());
 
+export const hasOperatorGrant = (
+  tenant: Tenant,
+  scopes: readonly string[],
+  env: Pick<Env, "OPERATOR_EMAILS">,
+): boolean => scopes.includes("operator") && isOperator(tenant, env);
+
 export const identityOf = (tenant: Tenant): UserIdentity => ({
   kind: "user",
   accountConfigId: tenant.accountConfigId,

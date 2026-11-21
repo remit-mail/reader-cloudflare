@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isOperator, type Tenant } from "../src/access";
+import { hasOperatorGrant, isOperator, type Tenant } from "../src/access";
 
 const tenant = (email: string, service = false): Tenant => ({
   tenantId: email,
@@ -19,5 +19,16 @@ describe("operator access", () => {
 
   it("never admits a service token", () => {
     assert.equal(isOperator(tenant("operator@remit.test", true), env), false);
+  });
+
+  it("requires both the bearer grant and current operator membership", () => {
+    const operator = tenant("operator@remit.test");
+    assert.equal(hasOperatorGrant(operator, [], env), false);
+    assert.equal(
+      hasOperatorGrant(operator, ["operator"], {
+        OPERATOR_EMAILS: "other@remit.test",
+      }),
+      false,
+    );
   });
 });
