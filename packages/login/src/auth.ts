@@ -108,6 +108,13 @@ export interface AuthDeps {
 const refuseAuthorizationCode = (description: string): APIError =>
   new APIError("BAD_REQUEST", { error: "invalid_grant", error_description: description });
 
+const basicClientId = (authorization: string | null): string | null => {
+  if (!authorization?.startsWith("Basic ")) return null;
+  const decoded = atob(authorization.slice("Basic ".length).trim());
+  const separator = decoded.indexOf(":");
+  return separator === -1 ? null : decodeURIComponent(decoded.slice(0, separator));
+};
+
 const tokenRaceGuard = (db: D1Database) =>
   createAuthMiddleware(async (ctx) => {
     if (!isRecord(ctx.body) || ctx.body.grant_type !== "authorization_code") return;
@@ -147,7 +154,9 @@ const tokenRaceGuard = (db: D1Database) =>
       address: addressOf({ headers: ctx.headers ?? new Headers() }),
       event: "TokenIssued",
       outcome: "Refused",
-      clientId: typeof ctx.body.client_id === "string" ? ctx.body.client_id : "none",
+      clientId:
+        basicClientId(ctx.headers?.get("authorization") ?? null) ??
+        (typeof ctx.body.client_id === "string" ? ctx.body.client_id : "none"),
     });
     throw refuseAuthorizationCode("the sign-in behind this code has ended");
   });
