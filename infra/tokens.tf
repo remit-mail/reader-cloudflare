@@ -43,6 +43,7 @@ locals {
     "Workers Observability Write",
     "Workers CI Read",
     "Queues Read",
+    "D1 Read",
   ]
 }
 

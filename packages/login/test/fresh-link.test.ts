@@ -86,6 +86,9 @@ describe("fresh link", () => {
     const shadowed = uniqueEmail("shadowed");
     const older = await issueInvite(testEnv.DB, shadowed, "operator@remit.test");
     const newest = await issueInvite(testEnv.DB, shadowed, "operator@remit.test");
+    await testEnv.DB.prepare("UPDATE invite SET created_at = 0 WHERE email = ?")
+      .bind(shadowed)
+      .run();
     await revokeInvite(testEnv.DB, newest.inviteId);
     await freshLink(older.token);
     expect(mailsTo(shadowed)).toHaveLength(0);
