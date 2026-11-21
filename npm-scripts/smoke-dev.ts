@@ -9,6 +9,7 @@ import {
 import { accessHeaders, connect, must, succeeds } from "./dev-api.ts";
 import { CALENDAR, DRAFTS, WEEKLY_SUMMARY } from "./dev-fixtures.ts";
 import { fetchOnceServed } from "./host-ready.ts";
+import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
 const HOUR_MS = 60 * 60_000;
@@ -126,33 +127,19 @@ check(
   `POST /mcp without a bearer answered ${mcpChallenge.status} with WWW-Authenticate ${JSON.stringify(challenge)}`,
 );
 
-const MCP_PROTOCOL_VERSION = "2025-06-18";
-
 const callAgentMcp = async (
   body: Record<string, unknown>,
   headers: Record<string, string> = {},
 ): Promise<{ status: number; result: Record<string, unknown> | undefined }> => {
-  const response = await fetch(new URL("/api/mcp", target.appUrl), {
-    method: "POST",
-    headers: {
+  const response = await callMcp(
+    new URL("/api/mcp", target.appUrl),
+    {
       ...accessHeaders(target),
       ...headers,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
     },
-    body: JSON.stringify({ jsonrpc: "2.0", ...body }),
-    redirect: "manual",
-  });
-  const text = await response.text();
-  const json = (response.headers.get("content-type") ?? "").includes("text/event-stream")
-    ? text
-        .split("\n")
-        .find((line) => line.startsWith("data:"))
-        ?.slice("data:".length)
-    : text;
-  if (!response.ok || json === undefined) return { status: response.status, result: undefined };
-  const message = JSON.parse(json) as { result?: Record<string, unknown> };
-  return { status: response.status, result: message.result };
+    body,
+  );
+  return { status: response.status, result: response.body?.result };
 };
 
 const initialized = await callAgentMcp({

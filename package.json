@@ -46,6 +46,7 @@
     "mcp:login": "tsx npm-scripts/mcp-login.ts",
     "login:mail": "node npm-scripts/login-mail.mjs",
     "smoke:sync": "node npm-scripts/smoke-sync.mjs",
+    "smoke:operator": "tsx npm-scripts/smoke-operator.mjs",
     "seed:dev": "tsx npm-scripts/seed-dev.ts",
     "smoke:dev": "tsx npm-scripts/smoke-dev.ts",
     "test": "npm run build:schema && npm run test:app && npm run test --workspace login",
