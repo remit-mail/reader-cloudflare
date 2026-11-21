@@ -164,6 +164,26 @@ const classification = {
   enabled: configured.enabled,
   dailyLimit: configured.dailyLimit,
 };
+const toolNames = async (caller, step) => {
+  const response = await caller("tools/list");
+  const tools = response.body?.result?.tools;
+  check(step, response.status === 200 && Array.isArray(tools), `answered ${response.status}`);
+  return tools.map((tool) => tool.name);
+};
+const operatorToolNames = await toolNames(operatorMcp, "operator tools list");
+const agentToolNames = await toolNames(agentMcp, "agent tools list");
+const agentToolSet = new Set(agentToolNames);
+const operatorOnlyNames = operatorToolNames.filter((name) => !agentToolSet.has(name));
+check(
+  "operator tools are distinct",
+  operatorOnlyNames.length > 0 && operatorOnlyNames.includes("get_classification_default"),
+  "operator tools have no distinct classification default tool",
+);
+check(
+  "agent excludes operator tools",
+  operatorOnlyNames.every((name) => !agentToolSet.has(name)),
+  "agent lists an operator-only tool",
+);
 
 let smokeError;
 let tenantCleanupError;
@@ -248,16 +268,6 @@ try {
     "agent classification default forbidden",
     agentDefault.status === 403,
     `answered ${agentDefault.status}`,
-  );
-
-  const agentTools = await agentMcp("tools/list");
-  const agentToolNames = Array.isArray(agentTools.body?.result?.tools)
-    ? agentTools.body.result.tools.map((tool) => tool.name)
-    : [];
-  check(
-    "agent has no operator tools",
-    agentTools.status === 200 && !agentToolNames.includes("get_classification_default"),
-    `answered ${agentTools.status} with get_classification_default`,
   );
 
   const people = await callTool(operatorMcp, "list_people");
