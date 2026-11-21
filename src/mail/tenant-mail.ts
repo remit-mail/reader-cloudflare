@@ -51,7 +51,6 @@ import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, log, withLogContext } from "../log";
 import { classificationDefaultStore } from "../operator-settings";
-import { hostedPeopleDirectory } from "../people-directory";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
@@ -262,7 +261,7 @@ export class TenantMail extends DurableObject<Env> {
           this.clientFor((await this.compose(mailTenantId)).client, identity.email),
           correlationId,
           this.env.LOGIN_OPERATOR,
-          hostedPeopleDirectory(this.env),
+          this.env.PEOPLE_DIRECTORY,
         );
       }),
     );
@@ -338,7 +337,7 @@ export class TenantMail extends DurableObject<Env> {
           (await this.compose(tenantId)).client,
           correlationId,
           this.env.LOGIN_OPERATOR,
-          hostedPeopleDirectory(this.env),
+          this.env.PEOPLE_DIRECTORY,
         ),
       ),
     );
