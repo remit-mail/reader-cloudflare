@@ -202,8 +202,7 @@ try {
     `source is ${String(overridden.source)}`,
   );
 
-  const statsSince = new Date(0).toISOString();
-  const beforeStats = await callAgentTool("classifier_stats", { since: statsSince });
+  const statsSince = new Date().toISOString();
   await appendMessage();
 
   const synced = spawnSync("npm", ["run", "smoke:sync"], { stdio: "inherit" });
@@ -212,15 +211,11 @@ try {
 
   const statsDeadline = Date.now() + TIMEOUT_MS;
   let stats = await callAgentTool("classifier_stats", { since: statsSince });
-  while (stats.examined <= beforeStats.examined && Date.now() < statsDeadline) {
+  while (stats.examined === 0 && Date.now() < statsDeadline) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     stats = await callAgentTool("classifier_stats", { since: statsSince });
   }
-  check(
-    "classifier decisions",
-    stats.examined > beforeStats.examined,
-    `examined ${String(stats.examined)}, previously ${String(beforeStats.examined)}`,
-  );
+  check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
 
   tenantChanged = true;
   const saved = await callTool("update_tenant_settings", {
