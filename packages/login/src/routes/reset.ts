@@ -191,7 +191,9 @@ const renew = async (deps: MailDeps, tokenHash: string, address: string): Promis
   if (account !== null && account.banned !== 0) return;
   if (invite !== null) {
     const newest = await db
-      .prepare("SELECT state FROM invite WHERE email = ? ORDER BY created_at DESC LIMIT 1")
+      .prepare(
+        "SELECT state FROM invite WHERE email = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+      )
       .bind(email)
       .first<{ state: InviteRow["state"] }>();
     if (invite.state === "Revoked" || newest?.state === "Revoked") return;
