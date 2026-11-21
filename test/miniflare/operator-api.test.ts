@@ -4,14 +4,10 @@ import { describe, expect, it } from "vitest";
 
 const OPERATOR_SUBJECT = "access-subject-of-the-operator";
 
+const db = (env as unknown as { DB: D1Database }).DB;
+
 describe("operator classifier default", () => {
   it("makes a PUT visible to a second tenant", async () => {
-    await (env as unknown as { DB: D1Database }).DB.prepare(
-      "INSERT OR REPLACE INTO tenant_email (tenant_id, email) VALUES (?, ?)",
-    )
-      .bind(OPERATOR_SUBJECT, "operator@remit.test")
-      .run();
-
     const saved = await SELF.fetch("http://example.test/api/system/classification-default", {
       method: "PUT",
       headers: {
@@ -36,5 +32,31 @@ describe("operator classifier default", () => {
     });
     expect(resolved.status).toBe(200);
     expect(await resolved.json()).toMatchObject({ presetId: "Mistral", source: "Operator" });
+  });
+});
+
+describe("person settings", () => {
+  it("answers for a listed person by their login id", async () => {
+    const tenantId = "access-subject-of-a-person";
+    await db.batch([
+      db
+        .prepare("INSERT OR REPLACE INTO tenant_email (tenant_id, email) VALUES (?, ?)")
+        .bind(tenantId, "person@remit.test"),
+      db
+        .prepare(
+          "INSERT OR REPLACE INTO tenant_key (tenant_id, key_version, wrapped_key, iv) VALUES (?, 1, x'00', x'00')",
+        )
+        .bind(tenantId),
+    ]);
+
+    const read = await SELF.fetch("http://example.test/api/people/login-id-of-a-person/settings", {
+      headers: { "x-operator": "operator@remit.test", "x-subject": OPERATOR_SUBJECT },
+    });
+    expect(read.status).toBe(200);
+
+    const unknown = await SELF.fetch("http://example.test/api/people/someone-else/settings", {
+      headers: { "x-operator": "operator@remit.test", "x-subject": OPERATOR_SUBJECT },
+    });
+    expect(unknown.status).toBe(404);
   });
 });

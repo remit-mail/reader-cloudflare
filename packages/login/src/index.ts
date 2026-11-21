@@ -246,7 +246,7 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
 
 export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
   private banOf(email: string): Promise<{ banned: number | null } | null> {
-    return this.env.DB.prepare("SELECT banned FROM user WHERE lower(email) = ?")
+    return this.env.DB.prepare("SELECT banned FROM user WHERE email = ?")
       .bind(normalizeEmail(email))
       .first<{ banned: number | null }>();
   }

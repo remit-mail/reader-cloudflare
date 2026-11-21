@@ -356,7 +356,7 @@ const runAction = async (
   }
   if (action === "Invite") {
     const invited = await context.people.invitePerson({
-      callerId: operator.userId,
+      callerId: operator.email,
       clientIp: entry.address,
       email: targetEmail,
     });
@@ -365,7 +365,7 @@ const runAction = async (
   }
   if (action === "RevokeInvite") {
     const revoked = await context.people.revokeInvite({
-      callerId: operator.userId,
+      callerId: operator.email,
       clientIp: entry.address,
       email: targetEmail,
     });
@@ -392,7 +392,7 @@ const runAction = async (
   }
   const target = await userIdOf(db, targetEmail);
   if (target === null) return { ok: false, status: 404, message: `${targetEmail} has no account.` };
-  const request = { callerId: operator.userId, clientIp: entry.address, targetId: target.id };
+  const request = { callerId: operator.email, clientIp: entry.address, targetId: target.id };
   if (action === "Disable") {
     const changed = await context.people.updatePerson({
       ...request,
