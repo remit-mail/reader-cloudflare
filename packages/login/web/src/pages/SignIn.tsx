@@ -10,10 +10,13 @@ import {
   navigate,
   post,
   type Refused,
+  restartAuthorize,
+  SIGN_IN_LINK_EXPIRED,
   untilRetry,
   withOAuth,
 } from "../api";
 import { passkeysSupported, signInWithPasskey } from "../passkeys";
+import { passwordProblem, type SignInProblem, signInNotice } from "../sign-in-problem";
 import {
   Field,
   Form,
@@ -28,18 +31,7 @@ import {
   TextLink,
 } from "../ui";
 
-export type SignInProblem =
-  | Failure
-  | { readonly kind: "wrong" }
-  | { readonly kind: "disabled" }
-  | { readonly kind: "passkey-cancelled" }
-  | { readonly kind: "passkey-refused"; readonly message: string };
-
-const passwordProblem = (answer: Refused): SignInProblem => {
-  if (answer.status === 401) return { kind: "wrong" };
-  if (answer.code === "BANNED_USER") return { kind: "disabled" };
-  return failureOf(answer);
-};
+export type { SignInProblem } from "../sign-in-problem";
 
 const passkeyProblem = (answer: Refused): SignInProblem =>
   answer.code === "PASSKEY_PROMPT"
@@ -47,37 +39,25 @@ const passkeyProblem = (answer: Refused): SignInProblem =>
     : { kind: "passkey-refused", message: answer.message };
 
 const ProblemBanner = ({ problem }: { problem: SignInProblem }) => {
-  switch (problem.kind) {
-    case "wrong":
-      return (
-        <Notice tone="danger" title="Wrong email or password">
-          Check both and try again. Forgot it?{" "}
+  const notice = signInNotice(problem);
+  if (notice === null) return null;
+  return (
+    <Notice tone={notice.tone} title={notice.title} report={notice.report}>
+      {notice.body}
+      {notice.action === "reset" ? (
+        <>
+          {" "}
           <TextLink href={keepQuery("/reset")}>Reset your password</TextLink>
-        </Notice>
-      );
-    case "locked":
-      return (
-        <Notice tone="warning" title="Sign-in is paused">
-          {problem.message} Forgot your password? Reset it with a link by email.
-        </Notice>
-      );
-    case "disabled":
-      return (
-        <Notice tone="danger" title="This account is disabled">
-          Ask the person who invited you.
-        </Notice>
-      );
-    case "server":
-      return (
-        <Notice tone="danger" title="Sign-in failed on our side" report={problem.message}>
-          This is not your fault. Try again in a minute. If it keeps failing, report it.
-        </Notice>
-      );
-    case "refused":
-      return <Notice tone="danger" title={problem.message} report={problem.message} />;
-    default:
-      return null;
-  }
+        </>
+      ) : null}
+      {notice.action === "restart" ? (
+        <>
+          {" "}
+          <LinkButton onClick={restartAuthorize}>Start again</LinkButton>
+        </>
+      ) : null}
+    </Notice>
+  );
 };
 
 export interface SignInViewProps {
@@ -231,7 +211,9 @@ export type SecondStepProblem =
 const secondStepProblem = (answer: Refused): SecondStepProblem => {
   if (answer.code === "PASSKEY_PROMPT") return { kind: "passkey-cancelled" };
   if (answer.code === "PASSKEY_OF_ANOTHER_ACCOUNT") return { kind: "passkey-other-account" };
-  if (answer.code === "INVALID_TWO_FACTOR_COOKIE") return { kind: "expired" };
+  if (answer.code === "INVALID_TWO_FACTOR_COOKIE" || answer.code === SIGN_IN_LINK_EXPIRED) {
+    return { kind: "expired" };
+  }
   if (answer.status === 401) return { kind: "wrong-code" };
   return failureOf(answer);
 };

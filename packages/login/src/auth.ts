@@ -27,6 +27,9 @@ import {
 
 const DAY_SECONDS = 24 * 60 * 60;
 
+// better-auth signs the /sign-in link with the authorization code lifetime, so this is also how long a person has to type their password.
+export const SIGN_IN_WINDOW_SECONDS = 600;
+
 export const API_BASE_PATH = "/api/auth";
 
 export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
@@ -327,7 +330,7 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         consentPage: "/sign-in",
         allowDynamicClientRegistration: false,
         grantTypes: ["authorization_code"],
-        codeExpiresIn: 60,
+        codeExpiresIn: SIGN_IN_WINDOW_SECONDS,
         accessTokenExpiresIn: 900,
         idTokenExpiresIn: 900,
         cachedTrustedClients: new Set([config.clientId]),
