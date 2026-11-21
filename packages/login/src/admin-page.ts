@@ -163,14 +163,17 @@ export interface TenantClassificationRead {
   readonly settings: UserSettingsResponse;
 }
 
-const tenantClassificationForm = (tenant: TenantClassificationRead): Html => {
+export interface AdminTenant {
+  readonly userId: string;
+  readonly email: string;
+}
+
+export const tenantClassificationForm = (tenant: TenantClassificationRead): Html => {
   const { classification } = tenant.settings;
   const configured = classification.state === "Configured" ? classification : null;
   const selected = classification.state === "NotConfigured" ? null : classification.presetId;
   const hasKey = configured !== null && configured.sources.apiKey !== "Default";
-  return html`<details>
-    <summary>${tenant.email}</summary>
-    <form method="post" action="/app/admin/action" class="admin-action classification" data-action="SetTenantClassification" data-target="${tenant.email}">
+  return html`<form method="post" action="/app/admin/action" class="admin-action classification" data-action="SetTenantClassification" data-target="${tenant.email}">
       <label for="tenant-${tenant.userId}-preset">Preset</label>
       <select id="tenant-${tenant.userId}-preset" name="presetId" required>
         ${tenant.settings.classificationPresets.map(
@@ -192,15 +195,14 @@ const tenantClassificationForm = (tenant: TenantClassificationRead): Html => {
     ${
       classification.state !== "NotConfigured" &&
       actionForm("ClearTenantClassification", tenant.email, "Clear this person's classifier", true)
-    }
-  </details>`;
+    }`;
 };
 
 export const adminPage = (
   operatorEmail: string,
   users: readonly AdminUser[],
   classification: ClassificationRead,
-  tenants: readonly TenantClassificationRead[],
+  tenants: readonly AdminTenant[],
   isOperator: (email: string) => boolean,
 ): Html =>
   layout(
@@ -238,7 +240,18 @@ export const adminPage = (
     <section class="card">
       <h2>Tenant classifiers</h2>
       <p class="muted">Settings and keys saved for people who have opened remit.</p>
-      ${tenants.length === 0 ? html`<p class="muted">No tenant exists yet.</p>` : tenants.map(tenantClassificationForm)}
+      ${
+        tenants.length === 0
+          ? html`<p class="muted">No tenant exists yet.</p>`
+          : tenants.map(
+              (
+                tenant,
+              ) => html`<details class="tenant-classification" data-settings-path="/app/admin/tenant-classification?userId=${tenant.userId}">
+                <summary>${tenant.email}</summary>
+                <div class="tenant-classification-settings"><p class="muted">Open to load classifier settings.</p></div>
+              </details>`,
+            )
+      }
     </section>`,
   );
 

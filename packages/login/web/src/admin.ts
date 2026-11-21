@@ -135,17 +135,48 @@ const runAction = async (form: HTMLFormElement): Promise<void> => {
   window.location.reload();
 };
 
+const bindForm = (form: HTMLFormElement): void => {
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runAction(form).catch((error: unknown) => {
+      showFlash({
+        tone: "danger",
+        message: `The action did not finish: ${error instanceof Error ? error.message : String(error)}.`,
+      });
+    });
+  });
+};
+
+const loadTenantClassification = async (details: HTMLDetailsElement): Promise<void> => {
+  if (!details.open || details.dataset.loaded === "true") return;
+  details.dataset.loaded = "true";
+  const path = details.dataset.settingsPath ?? "";
+  const response = await fetch(path, { credentials: "same-origin" });
+  if (!response.ok) throw new Error(`the login site answered ${response.status}`);
+  const container = details.querySelector<HTMLElement>(".tenant-classification-settings");
+  if (container === null) throw new Error("the tenant classifier container is missing");
+  container.innerHTML = await response.text();
+  for (const form of container.querySelectorAll<HTMLFormElement>("form.admin-action")) {
+    bindForm(form);
+  }
+};
+
 followColorScheme();
 
 document.addEventListener("DOMContentLoaded", () => {
   recall();
   for (const form of document.querySelectorAll<HTMLFormElement>("form.admin-action")) {
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      runAction(form).catch((error: unknown) => {
+    bindForm(form);
+  }
+  for (const details of document.querySelectorAll<HTMLDetailsElement>(
+    "details.tenant-classification",
+  )) {
+    details.addEventListener("toggle", () => {
+      loadTenantClassification(details).catch((error: unknown) => {
+        details.dataset.loaded = "false";
         showFlash({
           tone: "danger",
-          message: `The action did not finish: ${error instanceof Error ? error.message : String(error)}.`,
+          message: `The tenant classifier did not load: ${error instanceof Error ? error.message : String(error)}.`,
         });
       });
     });

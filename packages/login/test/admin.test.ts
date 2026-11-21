@@ -364,7 +364,16 @@ describe("admin step-up", () => {
     });
     try {
       const page = await (await call("/admin", { cookie: operator.cookie })).text();
-      expect(page).toContain(`data-action="SetTenantClassification" data-target="${alice}"`);
+      expect(page).toContain(`/app/admin/tenant-classification?userId=${target.id}`);
+      expect(page).not.toContain(`data-action="SetTenantClassification" data-target="${alice}"`);
+      const settingsPage = await (
+        await call(`/app/admin/tenant-classification?userId=${target.id}`, {
+          cookie: operator.cookie,
+        })
+      ).text();
+      expect(settingsPage).toContain(
+        `data-action="SetTenantClassification" data-target="${alice}"`,
+      );
 
       const settings = {
         presetId: "Mistral",
@@ -423,6 +432,18 @@ describe("admin step-up", () => {
 
   it("uses the same people paths for the API entrypoint and admin actions", async () => {
     const people = peopleAdmin(testEnv);
+    const otherOperator = await createUser(OTHER_OPERATOR, { totp: true });
+    const refusedOperator = await people.updatePerson({
+      callerId: operator.userId,
+      clientIp: "192.0.2.1",
+      targetId: otherOperator.id,
+      operatorGrant: true,
+      stepUpToken: null,
+      status: "Disabled",
+    });
+    expect(refusedOperator).toEqual({ ok: false, refusal: "not_found" });
+    expect(await isBanned(OTHER_OPERATOR)).toBe(false);
+
     const invitee = uniqueEmail("shared-invite");
     const invited = await people.invitePerson({
       callerId: operator.userId,

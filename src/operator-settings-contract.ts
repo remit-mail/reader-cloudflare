@@ -39,10 +39,12 @@ export interface OperatorSettingsService {
     operatorEmail: string,
   ): Promise<ClassificationWrite>;
   clearClassification(): Promise<void>;
-  readTenantClassifications(
+  listTenantIds(): Promise<readonly string[]>;
+  readTenantClassification(
+    userId: string,
     operatorUserId: string,
     operatorEmail: string,
-  ): Promise<readonly TenantClassification[]>;
+  ): Promise<TenantClassification>;
   writeTenantClassification(
     userId: string,
     input: ClassificationInput,

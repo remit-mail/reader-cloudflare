@@ -19,6 +19,7 @@ import {
   openAdminChallenge,
   renderAdmin,
   renderAudit,
+  renderTenantClassification,
   runAdminAction,
 } from "./routes/admin";
 import { accessLogoutUrl, lookupInvite, redeemInvite } from "./routes/app";
@@ -144,6 +145,9 @@ const serveApp = async (
   };
   if (request.method === "GET" && path === "/app/config") {
     return Response.json({ readerOrigin: config.readerOrigin, passkeys: true });
+  }
+  if (request.method === "GET" && path === "/app/admin/tenant-classification") {
+    return renderTenantClassification(admin, request);
   }
   if (request.method !== "POST") return notFound();
   const headers = request.headers;

@@ -241,15 +241,16 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
     return clearClassification(this.env);
   }
 
-  async readTenantClassifications(
+  listTenantIds(): Promise<readonly string[]> {
+    return tenantIds(this.env);
+  }
+
+  readTenantClassification(
+    userId: string,
     operatorUserId: string,
     operatorEmail: string,
-  ): Promise<readonly TenantClassification[]> {
-    return Promise.all(
-      (await tenantIds(this.env)).map((userId) =>
-        readTenantClassification(this.env, userId, operatorUserId, operatorEmail),
-      ),
-    );
+  ): Promise<TenantClassification> {
+    return readTenantClassification(this.env, userId, operatorUserId, operatorEmail);
   }
 
   async writeTenantClassification(

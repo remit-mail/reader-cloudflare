@@ -11,7 +11,7 @@ import {
   auditPage,
   type ClassificationRead,
   enrollPage,
-  type TenantClassificationRead,
+  tenantClassificationForm,
   toResponse,
   type UserState,
 } from "../admin-page";
@@ -116,7 +116,7 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
   const session = await operatorSession(context, request);
   if (session === null) return notFound();
   if (stepUpMethodOf(session.operator) === null) return toResponse(enrollPage());
-  const [users, classification, tenantSettings] = await Promise.all([
+  const [users, classification, tenantIds] = await Promise.all([
     listUsers(context.db, Date.now()),
     context.settings.readClassification().then(
       (view): ClassificationRead => ({ ok: true, view }),
@@ -125,20 +125,42 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
         message: error instanceof Error ? error.message : String(error),
       }),
     ),
-    context.settings.readTenantClassifications(session.operator.userId, session.operator.email),
+    context.settings.listTenantIds(),
   ]);
   const emailById = new Map(
     users.flatMap((user) => (user.userId === null ? [] : [[user.userId, user.email] as const])),
   );
-  const tenants: TenantClassificationRead[] = tenantSettings.flatMap((tenant) => {
-    const email = emailById.get(tenant.userId);
-    return email === undefined ? [] : [{ ok: true, email, ...tenant }];
+  const tenants = tenantIds.flatMap((userId) => {
+    const email = emailById.get(userId);
+    return email === undefined || isOperator(context.config, email) ? [] : [{ userId, email }];
   });
   return toResponse(
     adminPage(session.operator.email, users, classification, tenants, (email) =>
       isOperator(context.config, email),
     ),
   );
+};
+
+export const renderTenantClassification = async (
+  context: AdminContext,
+  request: Request,
+): Promise<Response> => {
+  const session = await operatorSession(context, request);
+  if (session === null) return notFound();
+  if (stepUpMethodOf(session.operator) === null) return notFound();
+  const userId = new URL(request.url).searchParams.get("userId");
+  if (userId === null || userId.length > 320) return notFound();
+  const user = await context.db
+    .prepare("SELECT email FROM user WHERE id = ?")
+    .bind(userId)
+    .first<{ email: string }>();
+  if (user === null || isOperator(context.config, user.email)) return notFound();
+  const tenant = await context.settings.readTenantClassification(
+    userId,
+    session.operator.userId,
+    session.operator.email,
+  );
+  return toResponse(tenantClassificationForm({ ok: true, email: user.email, ...tenant }));
 };
 
 export const renderAudit = async (context: AdminContext, request: Request): Promise<Response> => {

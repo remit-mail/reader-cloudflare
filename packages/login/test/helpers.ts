@@ -56,7 +56,12 @@ const operatorSettings: OperatorSettingsService = {
   clearClassification: async () => {
     classificationClears.push("cleared");
   },
-  readTenantClassifications: async () => tenantClassifications,
+  listTenantIds: async () => tenantClassifications.map(({ userId }) => userId),
+  readTenantClassification: async (userId) => {
+    const tenant = tenantClassifications.find((candidate) => candidate.userId === userId);
+    if (tenant === undefined) throw new Error(`tenant ${userId} was not found`);
+    return tenant;
+  },
   writeTenantClassification: async (userId, input, operatorUserId, operatorEmail) => {
     tenantClassificationWrites.push({ userId, input, operatorUserId, operatorEmail });
     return { ok: true };

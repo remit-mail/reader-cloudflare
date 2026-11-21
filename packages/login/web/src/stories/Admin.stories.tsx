@@ -7,6 +7,7 @@ import {
   auditPage,
   enrollPage,
   type Html,
+  tenantClassificationForm,
   toResponse,
 } from "../../../src/admin-page";
 import loginCss from "../styles/login.css?url";
@@ -135,9 +136,22 @@ export const People: Story = {
         OPERATOR,
         USERS,
         { ok: true, view: CLASSIFIER },
-        [{ ok: true, userId: "person-1", email: "person1@example.com", settings: TENANT_SETTINGS }],
+        [{ userId: "person-1", email: "person1@example.com" }],
         (email) => email === OPERATOR,
       ),
+    ),
+  ],
+};
+
+export const TenantClassifier: Story = {
+  loaders: [
+    load(
+      tenantClassificationForm({
+        ok: true,
+        userId: "person-1",
+        email: "person1@example.com",
+        settings: TENANT_SETTINGS,
+      }),
     ),
   ],
 };

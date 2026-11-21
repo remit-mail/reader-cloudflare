@@ -8,10 +8,10 @@ import type {
   TargetedRequest,
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
-import { audit, auditRows } from "./audit";
+import { audit, auditRows, auditStatement } from "./audit";
 import { createAuth } from "./auth";
 import { mailerOf } from "./capture";
-import { configOf, normalizeEmail } from "./config";
+import { configOf, isOperator, normalizeEmail } from "./config";
 import { randomId, randomToken, sha256Hex } from "./crypto";
 import type { Env } from "./env";
 import { sendInvite } from "./mail";
@@ -70,29 +70,34 @@ const callerEmail = async (db: D1Database, callerId: string): Promise<string> =>
   return row.email;
 };
 
-const target = async (
-  db: D1Database,
-  request: PersonRequest,
-): Promise<PeopleOutcome<PersonRow>> => {
-  if (!(await activeCaller(db, request))) return refused(PeopleErrorCode.CallerDisabled);
-  const row = await personRow(db, request.targetId);
-  return row === null ? refused("not_found") : { ok: true, value: row };
+const target = async (env: Env, request: PersonRequest): Promise<PeopleOutcome<PersonRow>> => {
+  if (!(await activeCaller(env.DB, request))) return refused(PeopleErrorCode.CallerDisabled);
+  const row = await personRow(env.DB, request.targetId);
+  if (row === null || (row.id !== request.callerId && isOperator(configOf(env), row.email))) {
+    return refused("not_found");
+  }
+  return { ok: true, value: row };
 };
 
-const auditPerson = async (
+const personAuditStatement = async (
   env: Env,
   request: PeopleRequest,
   email: string,
   event: "Disabled" | "Enabled" | "FactorReset" | "SignOutEverywhere" | "PasswordReset",
-): Promise<void> =>
-  audit(env.DB, {
-    actor: await callerEmail(env.DB, request.callerId),
-    email,
-    address: request.clientIp,
-    event,
-    outcome: "Succeeded",
-    clientId: "api",
-  });
+  at: number,
+): Promise<D1PreparedStatement> =>
+  auditStatement(
+    env.DB,
+    {
+      actor: await callerEmail(env.DB, request.callerId),
+      email,
+      address: request.clientIp,
+      event,
+      outcome: "Succeeded",
+      clientId: "api",
+    },
+    at,
+  );
 
 const guardedTarget = async (
   env: Env,
@@ -103,7 +108,7 @@ const guardedTarget = async (
   if (status === "Disabled" && request.targetId === request.callerId) {
     return refused(PeopleErrorCode.CannotDisableSelf);
   }
-  return target(env.DB, request);
+  return target(env, request);
 };
 
 export const peopleAdmin = (env: Env): PeopleDirectory => ({
@@ -170,38 +175,45 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
   revokeInvite: async (request) => {
     if (!(await activeCaller(env.DB, request))) return refused(PeopleErrorCode.CallerDisabled);
     const email = normalizeEmail(request.email);
-    const revoked = await env.DB.prepare(
-      "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open'",
-    )
-      .bind(Date.now(), email)
-      .run();
-    if (revoked.meta.changes === 0) return refused("not_found");
-    await audit(env.DB, {
-      actor: await callerEmail(env.DB, request.callerId),
-      email,
-      address: request.clientIp,
-      event: "InviteRevoked",
-      outcome: "Succeeded",
-      clientId: "api",
-    });
+    const now = Date.now();
+    const [revoked] = await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE invite SET state = 'Revoked', state_changed_at = ? WHERE email = ? AND state = 'Open'",
+      ).bind(now, email),
+      auditStatement(
+        env.DB,
+        {
+          actor: await callerEmail(env.DB, request.callerId),
+          email,
+          address: request.clientIp,
+          event: "InviteRevoked",
+          outcome: "Succeeded",
+          clientId: "api",
+        },
+        now,
+        true,
+      ),
+    ]);
+    if (revoked === undefined || revoked.meta.changes === 0) return refused("not_found");
     return { ok: true, value: { email } };
   },
 
   resetPersonFactors: async (request) => {
-    const found = await target(env.DB, request);
+    const found = await target(env, request);
     if (!found.ok) return found;
     const row = found.value;
+    const now = Date.now();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM two_factor WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM passkey WHERE user_id = ?").bind(row.id),
       env.DB.prepare("UPDATE user SET two_factor_enabled = 0, updated_at = ? WHERE id = ?").bind(
-        Date.now(),
+        now,
         row.id,
       ),
       env.DB.prepare("DELETE FROM session WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
+      await personAuditStatement(env, request, row.email, "FactorReset", now),
     ]);
-    await auditPerson(env, request, row.email, "FactorReset");
     const updated = await personRow(env.DB, row.id);
     if (updated === null) throw new Error(`user ${row.id} vanished after resetting factors`);
     return { ok: true, value: person(updated, request.callerId) };
@@ -213,11 +225,12 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const found = await guardedTarget(env, request);
     if (!found.ok) return found;
     const row = found.value;
+    const now = Date.now();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM session WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
+      await personAuditStatement(env, request, row.email, "SignOutEverywhere", now),
     ]);
-    await auditPerson(env, request, row.email, "SignOutEverywhere");
     const updated = await personRow(env.DB, row.id);
     if (updated === null) throw new Error(`user ${row.id} vanished after sign-out`);
     return { ok: true, value: person(updated, request.callerId) };
@@ -228,10 +241,11 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     if (!found.ok) return found;
     const row = found.value;
     const disabled = request.status === "Disabled";
+    const now = Date.now();
     await env.DB.batch([
       env.DB.prepare("UPDATE user SET banned = ?, updated_at = ? WHERE id = ?").bind(
         disabled ? 1 : 0,
-        Date.now(),
+        now,
         row.id,
       ),
       ...(disabled
@@ -240,8 +254,8 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
             env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
           ]
         : []),
+      await personAuditStatement(env, request, row.email, disabled ? "Disabled" : "Enabled", now),
     ]);
-    await auditPerson(env, request, row.email, disabled ? "Disabled" : "Enabled");
     const updated = await personRow(env.DB, row.id);
     if (updated === null) throw new Error(`user ${row.id} vanished after status update`);
     return { ok: true, value: person(updated, request.callerId) };
@@ -255,15 +269,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const expiresAt = now + 24 * 60 * 60_000;
     const token = randomToken();
     const context = await (await createAuth(env, waitUntil)).$context;
-    const credential = (await context.internalAdapter.findAccounts(row.id)).find(
-      (account) => account.providerId === "credential",
-    );
-    if (credential !== undefined) {
-      await context.internalAdapter.updatePassword(
-        row.id,
-        await context.password.hash(randomToken()),
-      );
-    }
+    const scrambledHash = await context.password.hash(randomToken());
     await env.DB.batch([
       env.DB.prepare(
         "UPDATE reset_link SET state = 'Replaced', state_changed_at = ? WHERE user_id = ? AND state = 'Open'",
@@ -271,10 +277,13 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
       env.DB.prepare(
         "INSERT INTO reset_link (reset_link_id, user_id, email, token_hash, state, created_at, expires_at, state_changed_at) VALUES (?, ?, ?, ?, 'Open', ?, ?, ?)",
       ).bind(randomId(), row.id, row.email, await sha256Hex(token), now, expiresAt, now),
+      env.DB.prepare(
+        "UPDATE account SET password = ?, updated_at = ? WHERE user_id = ? AND provider_id = 'credential'",
+      ).bind(scrambledHash, now, row.id),
       env.DB.prepare("DELETE FROM session WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
+      await personAuditStatement(env, request, row.email, "PasswordReset", now),
     ]);
-    await auditPerson(env, request, row.email, "PasswordReset");
     const updated = await personRow(env.DB, row.id);
     if (updated === null) throw new Error(`user ${row.id} vanished after password reset`);
     return {
