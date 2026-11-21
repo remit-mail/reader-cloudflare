@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { backfillTenantAccountConfigs } from "./backfill-tenant-account-config.mjs";
 import { inWorkersBuilds, wrangler } from "./cf.mjs";
 import { r2ObjectText, resolveAccountId } from "./cf-api.mjs";
 import { failOnHits, scanRepo } from "./check-no-config.mjs";
@@ -144,7 +143,6 @@ const deployStage = async (stage) => {
   );
 
   exitOnFailure(migrate(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
-  exitOnFailure(backfillTenantAccountConfigs(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
   exitOnFailure(repairFilterFromDomain(WRANGLER_DEPLOY_CONFIG, outputs.d1_database_name));
   exitOnFailure(migrate(LOGIN_WRANGLER_DEPLOY_CONFIG, outputs.login_d1_database_name));
   exitOnFailure(upsertOAuthClient(outputs));
