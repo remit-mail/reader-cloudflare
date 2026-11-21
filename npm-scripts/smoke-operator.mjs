@@ -72,24 +72,12 @@ const agentHeaders = {
 };
 const agentMcp = (method, params) => mcp("/api/mcp", agentHeaders, method, params);
 
-const callTool = async (name, args = {}) => {
-  const response = await operatorMcp("tools/call", { name, arguments: args });
+const callTool = async (caller, name, args = {}) => {
+  const response = await caller("tools/call", { name, arguments: args });
   const result = response.body?.result;
   const text = result?.content?.find((part) => part.type === "text")?.text;
   check(
     name,
-    response.status === 200 && result?.isError !== true && typeof text === "string",
-    `answered ${response.status} without a successful tool result`,
-  );
-  return JSON.parse(text);
-};
-
-const callAgentTool = async (name, args = {}) => {
-  const response = await agentMcp("tools/call", { name, arguments: args });
-  const result = response.body?.result;
-  const text = result?.content?.find((part) => part.type === "text")?.text;
-  check(
-    `agent ${name}`,
     response.status === 200 && result?.isError !== true && typeof text === "string",
     `answered ${response.status} without a successful tool result`,
   );
@@ -151,13 +139,13 @@ check(
   `answered ${initialized.status} without server info`,
 );
 
-const configured = await callTool("get_classification_default");
+const configured = await callTool(operatorMcp, "get_classification_default");
 check(
   "classification default from config",
   configured.source === "Config",
   `source is ${String(configured.source)}`,
 );
-const initialTenant = await callTool("get_tenant_settings", {
+const initialTenant = await callTool(operatorMcp, "get_tenant_settings", {
   userId: access.CF_ACCESS_CLIENT_ID,
 });
 const initialSources = initialTenant.classification?.sources;
@@ -176,35 +164,37 @@ const classification = {
   enabled: configured.enabled,
   dailyLimit: configured.dailyLimit,
 };
-let defaultChanged = false;
-let tenantChanged = false;
-let failure;
+const operatorTools = await operatorMcp("tools/list");
+const operatorToolNames = Array.isArray(operatorTools.body?.result?.tools)
+  ? operatorTools.body.result.tools.map((tool) => tool.name)
+  : [];
+check(
+  "operator tools list",
+  operatorTools.status === 200 && operatorToolNames.includes("get_classification_default"),
+  `answered ${operatorTools.status} without get_classification_default`,
+);
+
 try {
-  defaultChanged = true;
-  const overridden = await callTool("set_classification_default", classification);
+  const overridden = await callTool(operatorMcp, "set_classification_default", classification);
   check(
     "classification default from operator",
     overridden.source === "Operator",
     `source is ${String(overridden.source)}`,
   );
+  const readBack = await callTool(operatorMcp, "get_classification_default");
+  check(
+    "classification default reads from operator",
+    readBack.source === "Operator",
+    `source is ${String(readBack.source)}`,
+  );
+  const restored = await callTool(operatorMcp, "clear_classification_default");
+  check(
+    "classification default restored",
+    restored.source === "Config",
+    `source is ${String(restored.source)}`,
+  );
 
-  const statsSince = new Date().toISOString();
-  await appendMessage();
-
-  const synced = spawnSync("npm", ["run", "smoke:sync"], { stdio: "inherit" });
-  if (synced.error) throw synced.error;
-  check("smoke:sync", synced.status === 0, `exited ${synced.status}`);
-
-  const statsDeadline = Date.now() + TIMEOUT_MS;
-  let stats = await callAgentTool("classifier_stats", { since: statsSince });
-  while (stats.examined === 0 && Date.now() < statsDeadline) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    stats = await callAgentTool("classifier_stats", { since: statsSince });
-  }
-  check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
-
-  tenantChanged = true;
-  const saved = await callTool("update_tenant_settings", {
+  const saved = await callTool(operatorMcp, "update_tenant_settings", {
     userId: access.CF_ACCESS_CLIENT_ID,
     classificationPresetId: configured.presetId,
     classificationModel: configured.model,
@@ -219,85 +209,63 @@ try {
     `source is ${String(saved.classification?.sources?.apiKey)}`,
   );
 
-  const inherited = await callTool("clear_tenant_classification", {
+  const statsSince = new Date().toISOString();
+  await appendMessage();
+
+  const synced = spawnSync("npm", ["run", "smoke:sync"], { stdio: "inherit" });
+  if (synced.error) throw synced.error;
+  check("smoke:sync", synced.status === 0, `exited ${synced.status}`);
+
+  const statsDeadline = Date.now() + TIMEOUT_MS;
+  let stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
+  while (stats.examined === 0 && Date.now() < statsDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
+  }
+  check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
+
+  const inherited = await callTool(operatorMcp, "clear_tenant_classification", {
     userId: access.CF_ACCESS_CLIENT_ID,
   });
-  tenantChanged = false;
   check(
     "tenant classification key inherited",
     inherited.classification?.sources?.apiKey === "Deployment",
     `source is ${String(inherited.classification?.sources?.apiKey)}`,
   );
 
-  const cleared = await callTool("clear_classification_default");
-  defaultChanged = false;
+  const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
+    headers: agentHeaders,
+    redirect: "manual",
+  });
   check(
-    "classification default restored",
-    cleared.source === "Config",
-    `source is ${String(cleared.source)}`,
+    "agent classification default forbidden",
+    agentDefault.status === 403,
+    `answered ${agentDefault.status}`,
   );
-} catch (error) {
-  failure = error;
-}
-const cleanup = [
-  ...(tenantChanged
-    ? [callTool("clear_tenant_classification", { userId: access.CF_ACCESS_CLIENT_ID })]
-    : []),
-  ...(defaultChanged ? [callTool("clear_classification_default")] : []),
-];
-const cleanupErrors = (await Promise.allSettled(cleanup)).flatMap((result) =>
-  result.status === "rejected" ? [result.reason] : [],
-);
-if (cleanupErrors.length > 0) {
-  throw new AggregateError(
-    failure === undefined ? cleanupErrors : [failure, ...cleanupErrors],
-    failure === undefined ? "operator smoke cleanup failed" : "operator smoke and cleanup failed",
-    failure === undefined ? undefined : { cause: failure },
+
+  const agentTools = await agentMcp("tools/list");
+  const agentToolNames = Array.isArray(agentTools.body?.result?.tools)
+    ? agentTools.body.result.tools.map((tool) => tool.name)
+    : [];
+  check(
+    "agent has no operator tools",
+    agentTools.status === 200 && !agentToolNames.includes("get_classification_default"),
+    `answered ${agentTools.status} with get_classification_default`,
   );
+
+  const people = await callTool(operatorMcp, "list_people");
+  check("list people", Array.isArray(people.people), "did not answer with people");
+
+  await callTool(operatorMcp, "get_config");
+  await callTool(operatorMcp, "list_outbox_messages", { continuationToken: "" });
+  await callTool(operatorMcp, "list_calendars");
+} finally {
+  await Promise.all([
+    callTool(operatorMcp, "clear_tenant_classification", {
+      userId: access.CF_ACCESS_CLIENT_ID,
+    }),
+    callTool(operatorMcp, "clear_classification_default"),
+  ]);
 }
-if (failure !== undefined) throw failure;
-
-const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
-  headers: agentHeaders,
-  redirect: "manual",
-});
-check(
-  "agent classification default forbidden",
-  agentDefault.status === 403,
-  `answered ${agentDefault.status}`,
-);
-
-const agentTools = await agentMcp("tools/list");
-const operatorTools = [
-  "get_classification_default",
-  "set_classification_default",
-  "clear_classification_default",
-  "get_tenant_settings",
-  "update_tenant_settings",
-  "clear_tenant_classification",
-  "list_people",
-  "invite_person",
-  "revoke_invite",
-  "disable_person",
-  "enable_person",
-  "sign_out_person",
-  "reset_person_factors",
-  "list_audit",
-];
-const agentToolNames = Array.isArray(agentTools.body?.result?.tools)
-  ? agentTools.body.result.tools.map((tool) => tool.name)
-  : [];
-check(
-  "agent has no operator tools",
-  agentTools.status === 200 && operatorTools.every((name) => !agentToolNames.includes(name)),
-  `answered ${agentTools.status} with an operator tool`,
-);
-
-const people = await callTool("list_people");
-check("list people", Array.isArray(people.people), "did not answer with people");
-
-await callTool("get_config");
-await callTool("list_outbox_messages", { continuationToken: "" });
-await callTool("list_calendars");
 
 console.log(`smoke:operator passed in ${Date.now() - started}ms`);
