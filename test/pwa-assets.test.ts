@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import type { Env } from "../src/env";
-import { servePwaAsset } from "../src/pwa-assets";
+import { isPwaAssetPath, PWA_ASSETS, servePwaAsset } from "../src/pwa-assets";
 
 const assets = [
   ["/manifest.webmanifest", "application/manifest+json"],
@@ -20,6 +20,14 @@ const serve = (path: string, asset: Response): Promise<Response> =>
   });
 
 describe("installation asset responses", () => {
+  it("routes only the seven installation assets", () => {
+    assert.deepEqual(PWA_ASSETS, Object.fromEntries(assets));
+    for (const [path] of assets) assert.ok(isPwaAssetPath(path));
+    for (const path of ["/icons/missing.png", "/icons/future.png", "/assets/app.js", "/toString"]) {
+      assert.equal(isPwaAssetPath(path), false);
+    }
+  });
+
   it("sets MIME, security and revalidation headers and preserves bytes and ETag", async () => {
     for (const [path, mime] of assets) {
       const response = await serve(
@@ -59,7 +67,7 @@ describe("installation asset responses", () => {
 
   it("allows exactly the existing public routes and seven installation assets", () => {
     const infra = readFileSync("infra/access-public.tf", "utf8");
-    const block = /public_paths\s*=\s*\[([^\]]+)\]/.exec(infra)?.[1];
+    const block = /public_paths\s*=\s*concat\(\[([^\]]+)\]/.exec(infra)?.[1];
     assert.ok(block);
     const paths = [...block.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
     const expected = [
@@ -74,8 +82,12 @@ describe("installation asset responses", () => {
       "/auth/device/code",
       "/auth/jwks",
       "/mcp",
-      ...assets.map(([path]) => path),
     ].map((path) => `\${var.app_hostname}${path}`);
     assert.deepEqual(paths.sort(), expected.sort());
+    assert.ok(
+      infra.includes(
+        `[for path in keys(jsondecode(file("\${path.module}/../src/pwa-assets.json"))) : "\${var.app_hostname}\${path}"])`,
+      ),
+    );
   });
 });

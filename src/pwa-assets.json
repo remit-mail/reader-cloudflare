@@ -1,0 +1,9 @@
+{
+  "/manifest.webmanifest": "application/manifest+json",
+  "/sw.js": "application/javascript",
+  "/apple-touch-icon.png": "image/png",
+  "/favicon.ico": "image/x-icon",
+  "/icons/icon-192.png": "image/png",
+  "/icons/icon-512.png": "image/png",
+  "/icons/icon-maskable-512.png": "image/png"
+}

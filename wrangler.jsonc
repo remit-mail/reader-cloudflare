@@ -28,6 +28,7 @@
       "/sw.js",
       "/apple-touch-icon.png",
       "/favicon.ico",
+      // Reject unknown icons before Assets can serve the SPA shell.
       "/icons/*"
     ]
   },
@@ -252,6 +253,7 @@
           "/sw.js",
           "/apple-touch-icon.png",
           "/favicon.ico",
+          // Reject unknown icons before Assets can serve the SPA shell.
           "/icons/*",
           "/__scheduled"
         ]

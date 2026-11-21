@@ -6,6 +6,7 @@ import {
   outboxOperationsListOutboxMessages,
   unifiedThreadOperationsListAllThreads,
 } from "@remit/api-http-client";
+import PWA_ASSETS from "../src/pwa-assets.json";
 import { accessHeaders, connect, must, succeeds } from "./dev-api.ts";
 import { CALENDAR, DRAFTS, WEEKLY_SUMMARY } from "./dev-fixtures.ts";
 import { fetchOnceServed } from "./host-ready.ts";
@@ -59,16 +60,7 @@ check(
   `GET /api/config without a service token answered ${anonymous.status}`,
 );
 
-const installationAssets = [
-  ["/manifest.webmanifest", "application/manifest+json"],
-  ["/sw.js", "application/javascript"],
-  ["/apple-touch-icon.png", "image/png"],
-  ["/favicon.ico", "image/x-icon"],
-  ["/icons/icon-192.png", "image/png"],
-  ["/icons/icon-512.png", "image/png"],
-  ["/icons/icon-maskable-512.png", "image/png"],
-] as const;
-for (const [path, mime] of installationAssets) {
+for (const [path, mime] of Object.entries(PWA_ASSETS)) {
   const response = await fetch(new URL(path, target.appUrl), { redirect: "manual" });
   check(
     `anonymous installation asset ${path}`,

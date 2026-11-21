@@ -29,21 +29,27 @@ for (const path of ["/consent", "/device", "/apps"]) {
     page,
     request,
   }) => {
-    const server = await request.get(path);
+    const server = await request.get(path, { headers: { "Sec-Fetch-Mode": "navigate" } });
     expect(server.status()).toBeLessThan(500);
     expect(await server.text()).not.toContain('<div id="root">');
     const response = await page.goto(path);
     expect(response?.fromServiceWorker()).toBe(false);
     expect(response?.status()).toBe(server.status());
+    expect(response?.headers()["x-correlation-id"]).toBeTruthy();
     await expect(page.locator("#root")).toHaveCount(0);
   });
 }
 
 test("an active SW leaves missing icon navigations as 404", async ({ page, request }) => {
-  expect((await request.get("/icons/missing.png")).status()).toBe(404);
+  const server = await request.get("/icons/missing.png", {
+    headers: { "Sec-Fetch-Mode": "navigate" },
+  });
+  expect(server.status()).toBe(404);
   const response = await page.goto("/icons/missing.png");
   expect(response?.status()).toBe(404);
   expect(response?.fromServiceWorker()).toBe(false);
+  expect(response?.headers()["x-correlation-id"]).toBeTruthy();
+  expect(response?.headers()["content-type"] ?? "").not.toContain("text/html");
   await expect(page.locator("#root")).toHaveCount(0);
 });
 
