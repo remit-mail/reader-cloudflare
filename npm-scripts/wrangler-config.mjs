@@ -174,7 +174,13 @@ export const loginAuthSecretName = (stage) =>
 
 export const renderLoginWrangler = (base, outputs, config, stage) => {
   const captureLoginMail = capturesLoginMail(stage);
-  const { env: _environments, routes: _routes, send_email: _sendEmail, ...portable } = base;
+  const {
+    env: _environments,
+    routes: _routes,
+    send_email: _sendEmail,
+    services: _services,
+    ...portable
+  } = base;
   const database = only(base.d1_databases, "DB", "D1 database");
   const email = only(
     (base.send_email ?? []).map((binding) => ({ ...binding, binding: binding.name })),
@@ -204,6 +210,13 @@ export const renderLoginWrangler = (base, outputs, config, stage) => {
     ...(!captureLoginMail && {
       send_email: [{ name: email.name, allowed_sender_addresses: [outputs.email_sender] }],
     }),
+    services: [
+      {
+        binding: "OPERATOR_SETTINGS",
+        service: outputs.worker_name,
+        entrypoint: "OperatorSettings",
+      },
+    ],
     secrets_store_secrets: [
       {
         binding: "LOGIN_AUTH_SECRET",
