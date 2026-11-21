@@ -12,6 +12,13 @@ locals {
     "${var.app_hostname}/auth/device/code",
     "${var.app_hostname}/auth/jwks",
     "${var.app_hostname}/mcp",
+    "${var.app_hostname}/manifest.webmanifest",
+    "${var.app_hostname}/sw.js",
+    "${var.app_hostname}/apple-touch-icon.png",
+    "${var.app_hostname}/favicon.ico",
+    "${var.app_hostname}/icons/icon-192.png",
+    "${var.app_hostname}/icons/icon-512.png",
+    "${var.app_hostname}/icons/icon-maskable-512.png",
   ]
 }
 
