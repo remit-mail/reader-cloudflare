@@ -1,13 +1,23 @@
 import { SELF } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+
+const OPERATOR_SUBJECT = "access-subject-of-the-operator";
 
 describe("operator classifier default", () => {
   it("makes a PUT visible to a second tenant", async () => {
+    await (env as unknown as { DB: D1Database }).DB.prepare(
+      "INSERT OR REPLACE INTO tenant_email (tenant_id, email) VALUES (?, ?)",
+    )
+      .bind(OPERATOR_SUBJECT, "operator@remit.test")
+      .run();
+
     const saved = await SELF.fetch("http://example.test/api/system/classification-default", {
       method: "PUT",
       headers: {
         "content-type": "application/json",
         "x-operator": "operator@remit.test",
+        "x-subject": OPERATOR_SUBJECT,
         "x-tenant": "one",
       },
       body: JSON.stringify({

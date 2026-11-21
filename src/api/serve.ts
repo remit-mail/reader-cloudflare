@@ -10,6 +10,7 @@ import type {
 } from "../operator-audit-contract";
 import type { QueueName } from "../queue/routing";
 import { tenantOfUser } from "../tenant-directory";
+import { emailOfTenant } from "../tenant-email";
 import { apiConfig } from "./config";
 import { API_ROOT } from "./paths";
 
@@ -38,11 +39,35 @@ const servedApi = (): ReturnType<typeof serveApi<QueueName>> => {
 
 export const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
+export interface OperatorAuditEntry
+  extends Omit<OperatorAuditRecord, "actorEmail" | "targetEmail"> {
+  readonly actorId: string;
+  readonly targetId: string;
+}
+
+export type OperatorAudit = (entry: OperatorAuditEntry) => Promise<void>;
+
+const recordedEmailOf = async (db: D1Database, tenantId: string): Promise<string> => {
+  const email = await emailOfTenant(db, tenantId);
+  if (email === undefined) throw new Error(`tenant ${tenantId} has no recorded email`);
+  return email;
+};
+
+export const operatorAuditVia =
+  (db: D1Database, login: Pick<LoginOperatorService, "writeAudit">): OperatorAudit =>
+  async ({ actorId, targetId, ...entry }) => {
+    const [actorEmail, targetEmail] = await Promise.all([
+      recordedEmailOf(db, actorId),
+      recordedEmailOf(db, targetId),
+    ]);
+    await login.writeAudit({ ...entry, actorEmail, targetEmail });
+  };
+
 const operatorAudit = (
   request: Request,
   identity: HandlerIdentity,
   outcome: OperatorAuditRecord["outcome"],
-): OperatorAuditRecord | undefined => {
+): OperatorAuditEntry | undefined => {
   if (identity.kind !== "user") return undefined;
   const path = new URL(request.url).pathname.slice(API_ROOT.length);
   let event: OperatorAuditEvent | undefined;
@@ -78,7 +103,7 @@ export const serveRequest = async (
   operator: boolean,
   client: RemitClient,
   correlationId: string,
-  operators: LoginOperatorService,
+  audit: OperatorAudit,
   people: PeopleDirectory | null,
 ): Promise<Response> => {
   const url = new URL(request.url);
@@ -97,7 +122,7 @@ export const serveRequest = async (
   );
   if (operator) {
     const record = operatorAudit(request, identity, response.ok ? "Succeeded" : "Refused");
-    if (record !== undefined) await operators.writeAudit(record);
+    if (record !== undefined) await audit(record);
   }
   return response;
 };

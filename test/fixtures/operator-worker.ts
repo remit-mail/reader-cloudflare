@@ -1,8 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import type { RemitClient } from "@remit/backend/client";
 import type { UserIdentity } from "@remit/backend/serve";
-import { serveRequest } from "../../src/api/serve";
+import { operatorAuditVia, serveRequest } from "../../src/api/serve";
 import type { Env } from "../../src/env";
+import type { OperatorAuditRecord } from "../../src/operator-audit-contract";
 import { classificationDefaultStore } from "../../src/operator-settings";
 
 interface TestEnv {
@@ -17,10 +18,14 @@ const workerEnv = (env: TestEnv): Env =>
     MASTER_KEY: { get: async () => env.MASTER_KEY },
   }) as Env;
 
-const operators = {
-  isDisabled: async () => false,
-  isOperator: async () => true,
-  writeAudit: async () => undefined,
+const LOGIN_PEOPLE = new Set(["operator@remit.test"]);
+
+const login = {
+  writeAudit: async ({ actorEmail, targetEmail }: OperatorAuditRecord): Promise<void> => {
+    if (!LOGIN_PEOPLE.has(actorEmail) || !LOGIN_PEOPLE.has(targetEmail)) {
+      throw new Error("Operator audit user does not exist");
+    }
+  },
 };
 
 export class DefaultTenant extends DurableObject<TestEnv> {
@@ -29,13 +34,14 @@ export class DefaultTenant extends DurableObject<TestEnv> {
     const identity: UserIdentity = {
       kind: "user",
       accountConfigId: "test-account-config",
-      sub: email,
+      sub: request.headers.get("x-subject") ?? email,
       email,
     };
     const client = {
       classificationDefault: classificationDefaultStore(workerEnv(this.env), email),
     } as unknown as RemitClient;
-    return serveRequest(request, identity, true, client, "miniflare-test", operators, null);
+    const audit = operatorAuditVia(this.env.DB, login);
+    return serveRequest(request, identity, true, client, "miniflare-test", audit, null);
   }
 }
 

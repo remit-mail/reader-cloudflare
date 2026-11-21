@@ -37,7 +37,7 @@ export interface ClassificationWriteCall {
 export const classificationWrites: ClassificationWriteCall[] = [];
 export const classificationClears: string[] = [];
 export const tenantClassificationWrites: Array<{
-  readonly userId: string;
+  readonly email: string;
   readonly input: ClassificationInput;
 }> = [];
 export const tenantClassificationClears: string[] = [];
@@ -54,19 +54,19 @@ const operatorSettings: OperatorSettingsService = {
   clearClassification: async () => {
     classificationClears.push("cleared");
   },
-  listTenantIds: async () => tenantClassifications.map(({ userId }) => userId),
-  hasTenant: async (userId) => tenantClassifications.some((tenant) => tenant.userId === userId),
-  readTenantClassification: async (userId) => {
-    const tenant = tenantClassifications.find((candidate) => candidate.userId === userId);
-    if (tenant === undefined) throw new Error(`tenant ${userId} was not found`);
+  listTenantEmails: async () => tenantClassifications.map(({ email }) => email),
+  hasTenant: async (email) => tenantClassifications.some((tenant) => tenant.email === email),
+  readTenantClassification: async (email) => {
+    const tenant = tenantClassifications.find((candidate) => candidate.email === email);
+    if (tenant === undefined) throw new Error(`tenant ${email} was not found`);
     return tenant;
   },
-  writeTenantClassification: async (userId, input) => {
-    tenantClassificationWrites.push({ userId, input });
+  writeTenantClassification: async (email, input) => {
+    tenantClassificationWrites.push({ email, input });
     return { ok: true };
   },
-  clearTenantClassification: async (userId) => {
-    tenantClassificationClears.push(userId);
+  clearTenantClassification: async (email) => {
+    tenantClassificationClears.push(email);
   },
   revokePersonCredentials: async () => {},
 };

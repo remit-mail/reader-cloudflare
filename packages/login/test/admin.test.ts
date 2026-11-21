@@ -349,7 +349,7 @@ describe("admin step-up", () => {
     expect(target).not.toBeNull();
     if (target === null) return;
     tenantClassifications.push({
-      userId: target.id,
+      email: alice,
       settings: {
         defaultInvitationSenderChosen: false,
         classificationPresets: [
@@ -408,7 +408,7 @@ describe("admin step-up", () => {
       expect(saved.status).toBe(200);
       expect(tenantClassificationWrites.slice(writes)).toEqual([
         {
-          userId: target.id,
+          email: alice,
           input: settings,
         },
       ]);
@@ -432,7 +432,7 @@ describe("admin step-up", () => {
         await totpCode(step + 1),
       );
       expect(cleared.status).toBe(200);
-      expect(tenantClassificationClears.slice(clears)).toEqual([target.id]);
+      expect(tenantClassificationClears.slice(clears)).toEqual([alice]);
     } finally {
       tenantClassifications.splice(0);
     }

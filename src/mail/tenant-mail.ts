@@ -42,7 +42,7 @@ import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlit
 import migrations from "../../migrations/mail/migrations";
 import { apiConfig } from "../api/config";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
-import { ANONYMOUS, personSettingsTarget, serveRequest } from "../api/serve";
+import { ANONYMOUS, operatorAuditVia, personSettingsTarget, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
 import { d1Queries, openAppStore, withD1Meter } from "../db/client";
@@ -260,7 +260,7 @@ export class TenantMail extends DurableObject<Env> {
           operator,
           this.clientFor((await this.compose(mailTenantId)).client, identity.email),
           correlationId,
-          this.env.LOGIN_OPERATOR,
+          operatorAuditVia(this.env.DB, this.env.LOGIN_OPERATOR),
           this.env.PEOPLE_DIRECTORY,
         );
       }),
@@ -336,7 +336,7 @@ export class TenantMail extends DurableObject<Env> {
           false,
           (await this.compose(tenantId)).client,
           correlationId,
-          this.env.LOGIN_OPERATOR,
+          operatorAuditVia(this.env.DB, this.env.LOGIN_OPERATOR),
           this.env.PEOPLE_DIRECTORY,
         ),
       ),
