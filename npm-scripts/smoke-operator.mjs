@@ -185,11 +185,7 @@ check(
   "agent lists an operator-only tool",
 );
 
-let smokeError;
-let tenantCleanupError;
 try {
-  let defaultError;
-  let defaultCleanupError;
   try {
     const overridden = await callTool(operatorMcp, "set_classification_default", classification);
     check(
@@ -203,23 +199,14 @@ try {
       readBack.source === "Operator",
       `source is ${String(readBack.source)}`,
     );
+  } finally {
     const restored = await callTool(operatorMcp, "clear_classification_default");
     check(
       "classification default restored",
       restored.source === "Config",
       `source is ${String(restored.source)}`,
     );
-  } catch (error) {
-    defaultError = error;
-  } finally {
-    try {
-      await callTool(operatorMcp, "clear_classification_default");
-    } catch (error) {
-      defaultCleanupError = error;
-    }
   }
-  if (defaultError !== undefined) throw defaultError;
-  if (defaultCleanupError !== undefined) throw defaultCleanupError;
 
   const saved = await callTool(operatorMcp, "update_tenant_settings", {
     userId: access.CF_ACCESS_CLIENT_ID,
@@ -250,7 +237,7 @@ try {
     stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
   }
   check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
-
+} finally {
   const inherited = await callTool(operatorMcp, "clear_tenant_classification", {
     userId: access.CF_ACCESS_CLIENT_ID,
   });
@@ -259,35 +246,23 @@ try {
     inherited.classification?.sources?.apiKey === "Deployment",
     `source is ${String(inherited.classification?.sources?.apiKey)}`,
   );
-
-  const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
-    headers: agentHeaders,
-    redirect: "manual",
-  });
-  check(
-    "agent classification default forbidden",
-    agentDefault.status === 403,
-    `answered ${agentDefault.status}`,
-  );
-
-  const people = await callTool(operatorMcp, "list_people");
-  check("list people", Array.isArray(people.people), "did not answer with people");
-
-  await callTool(operatorMcp, "get_config");
-  await callTool(operatorMcp, "list_outbox_messages", { continuationToken: "" });
-  await callTool(operatorMcp, "list_calendars");
-} catch (error) {
-  smokeError = error;
-} finally {
-  try {
-    await callTool(operatorMcp, "clear_tenant_classification", {
-      userId: access.CF_ACCESS_CLIENT_ID,
-    });
-  } catch (error) {
-    tenantCleanupError = error;
-  }
 }
-if (smokeError !== undefined) throw smokeError;
-if (tenantCleanupError !== undefined) throw tenantCleanupError;
+
+const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
+  headers: agentHeaders,
+  redirect: "manual",
+});
+check(
+  "agent classification default forbidden",
+  agentDefault.status === 403,
+  `answered ${agentDefault.status}`,
+);
+
+const people = await callTool(operatorMcp, "list_people");
+check("list people", Array.isArray(people.people), "did not answer with people");
+
+await callTool(operatorMcp, "get_config");
+await callTool(operatorMcp, "list_outbox_messages", { continuationToken: "" });
+await callTool(operatorMcp, "list_calendars");
 
 console.log(`smoke:operator passed in ${Date.now() - started}ms`);
