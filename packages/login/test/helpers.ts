@@ -67,6 +67,7 @@ const operatorSettings: OperatorSettingsService = {
   clearTenantClassification: async (userId) => {
     tenantClassificationClears.push(userId);
   },
+  revokePersonCredentials: async () => {},
 };
 
 export const testEnv: Env = {

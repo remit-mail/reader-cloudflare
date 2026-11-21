@@ -203,6 +203,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     if (!found.ok) return found;
     const row = found.value;
     const now = Date.now();
+    await env.OPERATOR_SETTINGS.revokePersonCredentials(row.id, false);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM two_factor WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM passkey WHERE user_id = ?").bind(row.id),
@@ -226,6 +227,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     if (!found.ok) return found;
     const row = found.value;
     const now = Date.now();
+    await env.OPERATOR_SETTINGS.revokePersonCredentials(row.id, false);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM session WHERE user_id = ?").bind(row.id),
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
@@ -242,6 +244,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const row = found.value;
     const disabled = request.status === "Disabled";
     const now = Date.now();
+    if (disabled) await env.OPERATOR_SETTINGS.revokePersonCredentials(row.id, true);
     await env.DB.batch([
       env.DB.prepare("UPDATE user SET banned = ?, updated_at = ? WHERE id = ?").bind(
         disabled ? 1 : 0,
@@ -270,6 +273,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const token = randomToken();
     const context = await (await createAuth(env, waitUntil)).$context;
     const scrambledHash = await context.password.hash(randomToken());
+    await env.OPERATOR_SETTINGS.revokePersonCredentials(row.id, false);
     await env.DB.batch([
       env.DB.prepare(
         "UPDATE reset_link SET state = 'Replaced', state_changed_at = ? WHERE user_id = ? AND state = 'Open'",

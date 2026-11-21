@@ -5,6 +5,7 @@ import {
   CLASSIFICATION_PRESETS,
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { eq, sql } from "drizzle-orm";
 import {
   classificationDefaultFromDeployment,
@@ -218,5 +219,22 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
 
   async clearTenantClassification(userId: string): Promise<void> {
     await tenantMail(this.env, userId).clearClassificationProvider(userId);
+  }
+
+  async revokePersonCredentials(userId: string, disabled: boolean): Promise<void> {
+    await this.env.DB.batch([
+      this.env.DB.prepare("DELETE FROM mcp_oauth_access_token WHERE user_id = ?").bind(userId),
+      this.env.DB.prepare("DELETE FROM mcp_oauth_refresh_token WHERE user_id = ?").bind(userId),
+      this.env.DB.prepare("DELETE FROM mcp_session WHERE user_id = ?").bind(userId),
+      ...(disabled
+        ? [
+            this.env.DB.prepare("DELETE FROM mcp_oauth_consent WHERE user_id = ?").bind(userId),
+            this.env.DB.prepare("DELETE FROM mcp_device_code WHERE user_id = ?").bind(userId),
+            this.env.DB.prepare("DELETE FROM calendar_feed_token WHERE account_config_id = ?").bind(
+              deriveAccountConfigId(userId),
+            ),
+          ]
+        : []),
+    ]);
   }
 }

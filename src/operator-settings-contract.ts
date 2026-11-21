@@ -46,6 +46,7 @@ export interface OperatorSettingsService {
     input: ClassificationInput,
   ): Promise<ClassificationWrite>;
   clearTenantClassification(userId: string): Promise<void>;
+  revokePersonCredentials(userId: string, disabled: boolean): Promise<void>;
 }
 
 import type { ClassificationPresetId, UserSettingsResponse } from "@remit/api-openapi-types";
