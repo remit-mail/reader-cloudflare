@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { oauthClientUpsertSql } from "../../../npm-scripts/oauth-client.mjs";
 import { sha256Base64Url } from "../src/crypto";
 import worker from "../src/index";
 import { call, createUser, ORIGIN, signIn, testEnv, uniqueEmail } from "./helpers";
@@ -31,6 +32,7 @@ const redeem = (code: string): Promise<Response> =>
     new Request(`${ORIGIN}/api/auth/oauth2/token`, {
       method: "POST",
       headers: {
+        authorization: `Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`,
         "content-type": "application/x-www-form-urlencoded",
         "cf-connecting-ip": "192.0.2.10",
       },
@@ -38,8 +40,6 @@ const redeem = (code: string): Promise<Response> =>
         grant_type: "authorization_code",
         code,
         redirect_uri: REDIRECT,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
         code_verifier: VERIFIER,
       }),
     }),
@@ -48,11 +48,13 @@ const redeem = (code: string): Promise<Response> =>
 
 describe("authorization code after the sign-in ended", () => {
   beforeAll(async () => {
-    await testEnv.DB.prepare(
-      `INSERT OR REPLACE INTO oauth_client (id, client_id, client_secret, disabled, skip_consent, scopes, redirect_uris, token_endpoint_auth_method, grant_types, response_types, require_pkce, application_type, created_at, updated_at, name) VALUES (?1, ?1, ?2, 0, 1, '["openid","email","profile"]', ?3, 'client_secret_post', '["authorization_code"]', '["code"]', 1, 'web', 1, 1, 'Access')`,
-    )
-      .bind(CLIENT_ID, await sha256Base64Url(CLIENT_SECRET), JSON.stringify([REDIRECT]))
-      .run();
+    const sql = oauthClientUpsertSql({
+      clientId: CLIENT_ID,
+      secretHash: await sha256Base64Url(CLIENT_SECRET),
+      redirectUri: REDIRECT,
+      now: Date.now(),
+    });
+    await testEnv.DB.prepare(sql).run();
   });
 
   it("issues tokens for a live sign-in and records who got them", async () => {

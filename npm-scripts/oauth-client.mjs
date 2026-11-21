@@ -9,7 +9,7 @@ export const oauthClientUpsertSql = ({ clientId, secretHash, redirectUri, now })
     skip_consent: 1,
     scopes: JSON.stringify(["openid", "email", "profile"]),
     redirect_uris: JSON.stringify([redirectUri]),
-    token_endpoint_auth_method: "client_secret_post",
+    token_endpoint_auth_method: "client_secret_basic",
     grant_types: JSON.stringify(["authorization_code"]),
     response_types: JSON.stringify(["code"]),
     require_pkce: 1,
