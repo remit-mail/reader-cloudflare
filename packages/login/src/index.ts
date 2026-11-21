@@ -257,6 +257,13 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     return email !== null && isOperator(configOf(this.env), email);
   }
 
+  async isDisabled(userId: string): Promise<boolean> {
+    const row = await this.env.DB.prepare("SELECT banned FROM user WHERE id = ?")
+      .bind(userId)
+      .first<{ banned: number | null }>();
+    return row === null || Boolean(row.banned);
+  }
+
   async writeAudit(record: OperatorAuditRecord): Promise<void> {
     const [actor, email] = await Promise.all([
       this.emailOf(record.actorId),

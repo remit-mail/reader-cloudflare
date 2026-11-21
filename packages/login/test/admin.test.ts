@@ -257,6 +257,16 @@ describe("admin step-up", () => {
     expect(await isBanned(OTHER_OPERATOR)).toBe(false);
     expect(await sessionsOf(OTHER_OPERATOR)).toBe(1);
     expect(
+      await peopleAdmin(testEnv).updatePerson({
+        callerId: operator.userId,
+        clientIp: "192.0.2.1",
+        targetId: other.id,
+        operatorGrant: true,
+        stepUpToken: null,
+        status: "Disabled",
+      }),
+    ).toEqual({ ok: false, refusal: "not_found" });
+    expect(
       await count(
         "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND outcome = 'Refused'",
         OPERATOR,
@@ -428,54 +438,6 @@ describe("admin step-up", () => {
     } finally {
       tenantClassifications.splice(0);
     }
-  });
-
-  it("uses the same people paths for the API entrypoint and admin actions", async () => {
-    const people = peopleAdmin(testEnv);
-    const otherOperator = await createUser(OTHER_OPERATOR, { totp: true });
-    const refusedOperator = await people.updatePerson({
-      callerId: operator.userId,
-      clientIp: "192.0.2.1",
-      targetId: otherOperator.id,
-      operatorGrant: true,
-      stepUpToken: null,
-      status: "Disabled",
-    });
-    expect(refusedOperator).toEqual({ ok: false, refusal: "not_found" });
-    expect(await isBanned(OTHER_OPERATOR)).toBe(false);
-
-    const invitee = uniqueEmail("shared-invite");
-    const invited = await people.invitePerson({
-      callerId: operator.userId,
-      clientIp: "192.0.2.1",
-      email: invitee,
-    });
-    expect(invited).toEqual({ ok: true, value: { email: invitee } });
-    const revoke = await openTotpChallenge(operator, "RevokeInvite", invitee);
-    expect(
-      (await act(operator, revoke, "RevokeInvite", invitee, await totpCode(step))).status,
-    ).toBe(200);
-
-    const target = await testEnv.DB.prepare("SELECT id FROM user WHERE email = ?")
-      .bind(alice)
-      .first<{ id: string }>();
-    expect(target).not.toBeNull();
-    if (target === null) return;
-    const disabled = await people.updatePerson({
-      callerId: operator.userId,
-      clientIp: "192.0.2.1",
-      targetId: target.id,
-      operatorGrant: true,
-      stepUpToken: null,
-      status: "Disabled",
-    });
-    expect(disabled.ok && disabled.value.status).toBe("Disabled");
-    vi.setSystemTime((step + 1) * STEP_MS + 10_000);
-    const enable = await openTotpChallenge(operator, "Enable", alice);
-    expect((await act(operator, enable, "Enable", alice, await totpCode(step + 1))).status).toBe(
-      200,
-    );
-    expect(await isBanned(alice)).toBe(false);
   });
 
   it("revokes a pending invite so it neither redeems nor renews", async () => {

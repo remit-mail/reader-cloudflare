@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, type Page, test } from "@playwright/test";
 import {
+  calendarDetailOperationsPutCalendarFeed,
+  calendarOperationsCreateCalendar,
   peopleOperationsInvitePerson,
   peopleOperationsListPeople,
   peopleOperationsUpdatePerson,
@@ -116,16 +118,19 @@ const CRON = "*/5 * * * *";
 const imapUser = mintImapUser();
 const api = new ApiClient({ email: DEV_IDENTITY, password: "", token: "dev-identity" });
 
-const operatorClient = createClient({
-  baseUrl: `${process.env.E2E_BASE_URL}/api`,
-  fetch: (input, init) => {
-    const request = input instanceof Request ? input : new Request(input, init);
-    const headers = new Headers(request.headers);
-    headers.set("x-dev-identity", DEV_IDENTITY);
-    headers.set("origin", process.env.E2E_BASE_URL ?? "");
-    return fetch(new Request(request, { headers }));
-  },
-});
+const clientFor = (identity: string) =>
+  createClient({
+    baseUrl: `${process.env.E2E_BASE_URL}/api`,
+    fetch: (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const headers = new Headers(request.headers);
+      headers.set("x-dev-identity", identity);
+      headers.set("origin", process.env.E2E_BASE_URL ?? "");
+      return fetch(new Request(request, { headers }));
+    },
+  });
+
+const operatorClient = clientFor(DEV_IDENTITY);
 
 test("operator operations admit the operator and refuse the agent identity", async () => {
   const operator = await tenantRequest(DEV_IDENTITY)("GET", "/system/classification-default");
@@ -143,6 +148,27 @@ test("an operator invites and disables a hosted person through the API", async (
   });
   expect(invited.data).toEqual({ email });
 
+  const personClient = clientFor("e2e-person");
+  const calendar = await calendarOperationsCreateCalendar({
+    client: personClient,
+    body: {
+      displayName: "Disabled person's calendar",
+      urlSegment: "disabled-person",
+      color: "Cal2",
+      timezone: "Etc/UTC",
+    },
+  });
+  expect(calendar.data).toBeDefined();
+  if (calendar.data === undefined) return;
+  const feed = await calendarDetailOperationsPutCalendarFeed({
+    client: personClient,
+    path: { calendarId: calendar.data.calendarId },
+  });
+  expect(feed.data).toBeDefined();
+  if (feed.data === undefined) return;
+  const feedUrl = `${process.env.E2E_BASE_URL}/api/feeds/calendar/${feed.data.feedToken}.ics`;
+  expect((await fetch(feedUrl)).status).toBe(200);
+
   const disabled = await peopleOperationsUpdatePerson({
     client: operatorClient,
     path: { userId: "e2e-person" },
@@ -153,6 +179,7 @@ test("an operator invites and disables a hosted person through the API", async (
     email: "person@remit.test",
     status: "Disabled",
   });
+  expect((await fetch(feedUrl)).status).toBe(404);
 
   const listed = await peopleOperationsListPeople({ client: operatorClient });
   expect(listed.data?.people).toContainEqual(

@@ -18,6 +18,7 @@ const workerEnv = (env: TestEnv): Env =>
   }) as Env;
 
 const operators = {
+  isDisabled: async () => false,
   isOperator: async () => true,
   writeAudit: async () => undefined,
 };
