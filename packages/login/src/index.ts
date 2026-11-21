@@ -7,7 +7,7 @@ import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
 import { configOf, type LoginConfig } from "./config";
 import type { Env } from "./env";
-import { isRecord, json, notFound, text } from "./http";
+import { json, notFound, text } from "./http";
 import { log } from "./log";
 import {
   type AdminContext,
@@ -16,7 +16,7 @@ import {
   renderAudit,
   runAdminAction,
 } from "./routes/admin";
-import { lookupInvite, redeemInvite } from "./routes/app";
+import { accessLogoutUrl, lookupInvite, redeemInvite } from "./routes/app";
 import { lookupResetLink, type MailDeps, requestFreshLink, requestReset } from "./routes/reset";
 
 const SPA_PAGES: ReadonlySet<string> = new Set([
@@ -116,18 +116,11 @@ const answered = (pending: Promise<Response>): Promise<Response> =>
     return json(error.statusCode, error.body ?? { message: error.message });
   });
 
-const signOut = async (auth: Auth, request: Request): Promise<Response> => {
-  const answer = await auth.api.appSignOut({ headers: request.headers, asResponse: true });
-  const body: unknown = await answer.json();
-  if (!isRecord(body) || typeof body.url !== "string") {
-    throw new Error(`sign-out answered ${answer.status} without a logout url`);
-  }
-  const response = new Response(null, {
-    status: 302,
-    headers: { location: body.url, "cache-control": "no-store" },
-  });
-  for (const cookie of answer.headers.getSetCookie()) response.headers.append("set-cookie", cookie);
-  return response;
+const signOut = async (auth: Auth, config: LoginConfig, request: Request): Promise<Response> => {
+  const { headers } = await auth.api.appSignOut({ headers: request.headers, returnHeaders: true });
+  headers.set("location", accessLogoutUrl(config));
+  headers.set("cache-control", "no-store");
+  return new Response(null, { status: 302, headers });
 };
 
 const serveApp = async (
@@ -216,7 +209,7 @@ const route = async (request: Request, env: Env): Promise<Response> => {
   const auth = await createAuth(env, waitUntil);
   if (path.startsWith(`${API_BASE_PATH}/`)) return serveAuth(auth, env, config, request, url);
   const admin: AdminContext = { auth, config, db: env.DB, email: mailerOf(env) };
-  if (request.method === "GET" && path === "/sign-out") return signOut(auth, request);
+  if (request.method === "GET" && path === "/sign-out") return signOut(auth, config, request);
   if (request.method === "GET" && path === "/admin") return renderAdmin(admin, request);
   if (request.method === "GET" && path === "/admin/audit") return renderAudit(admin, request);
   if (path.startsWith("/app/")) return serveApp(auth, env, config, request, path);
