@@ -5,12 +5,10 @@ import {
   processAccountFanoutEvent,
   processAccountPurgeEvent,
 } from "@remit/account-worker/process";
-import { classificationDefaultFromEnv } from "@remit/backend/classification-default";
 import type { RemitClient } from "@remit/backend/client";
 import { createRemitClient } from "@remit/backend/create-remit-client";
 import type { UserIdentity } from "@remit/backend/serve";
 import { type SpamPipeline, spamPipelineFromEnv } from "@remit/data-ports";
-import type { ClassificationDeploymentDefault } from "@remit/data-ports/classification-presets";
 import { composeSqliteRepositories, type SqliteStores, syncStore } from "@remit/drizzle-service";
 import { type ConnectionPool, type ProcessContext, processEvent } from "@remit/imap-worker/process";
 import type { SchedulerTickResult } from "@remit/imap-worker/scheduler-tick";
@@ -35,12 +33,17 @@ import migrations from "../../migrations/mail/migrations";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
 import { ANONYMOUS, serveRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
+import {
+  classificationDefaultFromDeployment,
+  classificationDefaultSnapshot,
+} from "../classification-default";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
 import { d1Queries, openAppStore, withD1Meter } from "../db/client";
 import { migrateDurableObject } from "../db/durable-migrate";
 import type { Env } from "../env";
 import { errorKindOf, messageOf } from "../error-kind";
 import { type ConsumeReport, log, withLogContext } from "../log";
+import { classificationDefaultOf } from "../operator-settings";
 import { queueProducer } from "../queue/producer";
 import type { EventOn, QueueEnvelope, QueueFamily, ReaderEvent } from "../queue/routing";
 import { purgeContext } from "./account-purge";
@@ -75,18 +78,6 @@ interface Composed {
   readonly send: SendMessageContext;
   readonly purge: AccountPurgeContext;
 }
-
-const classificationDefaultOf = async (
-  env: Pick<Env, "CLASSIFICATION_DEFAULT_PRESET" | "CLASSIFICATION_DEFAULT_API_KEY">,
-): Promise<ClassificationDeploymentDefault> => {
-  if (env.CLASSIFICATION_DEFAULT_PRESET === undefined) return { state: "None" };
-  if (env.CLASSIFICATION_DEFAULT_API_KEY === undefined) return { state: "None" };
-  return classificationDefaultFromEnv({
-    CLASSIFICATION_DEFAULT_PRESET: env.CLASSIFICATION_DEFAULT_PRESET,
-    CLASSIFICATION_DEFAULT_API_KEY: await env.CLASSIFICATION_DEFAULT_API_KEY.get(),
-    CLASSIFICATION_DEFAULT_ENABLED: "true",
-  });
-};
 
 const accountOf = (event: ReaderEvent): Record<string, string> =>
   "accountId" in event && typeof event.accountId === "string" ? { accountId: event.accountId } : {};
@@ -203,7 +194,6 @@ export class TenantMail extends DurableObject<Env> {
   private readonly spamPipeline: SpamPipeline;
   private composed: Composed | null = null;
   private bootstrapped: Promise<void> | null = null;
-  private classificationDefault: Promise<ClassificationDeploymentDefault> | null = null;
   private workersTransport: Promise<WorkersTransport> | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -339,16 +329,6 @@ export class TenantMail extends DurableObject<Env> {
     });
   }
 
-  private deploymentClassification(): Promise<ClassificationDeploymentDefault> {
-    if (this.classificationDefault === null) {
-      this.classificationDefault = classificationDefaultOf(this.env).catch((error: unknown) => {
-        this.classificationDefault = null;
-        throw error;
-      });
-    }
-    return this.classificationDefault;
-  }
-
   private imapTransport(): Promise<WorkersTransport> {
     if (this.workersTransport === null) {
       this.workersTransport = loadWorkersTransport().catch((error: unknown) => {
@@ -360,10 +340,7 @@ export class TenantMail extends DurableObject<Env> {
   }
 
   private async compose(tenantId: string): Promise<Composed> {
-    const [classificationDefault, transport] = await Promise.all([
-      this.deploymentClassification(),
-      this.imapTransport(),
-    ]);
+    const transport = await this.imapTransport();
     if (this.composed !== null) {
       if (this.composed.tenantId !== tenantId) {
         throw new Error(`mail object of ${this.composed.tenantId} refused tenant ${tenantId}`);
@@ -371,7 +348,7 @@ export class TenantMail extends DurableObject<Env> {
       return this.composed;
     }
     const pool = meteredPool({ size: 1, overflow: "Wait" }, connectImap(transport));
-    const client = this.clientOf(tenantId, classificationDefault, transport, pool);
+    const client = this.clientOf(tenantId, transport, pool);
     this.composed = {
       tenantId,
       client,
@@ -384,7 +361,6 @@ export class TenantMail extends DurableObject<Env> {
 
   private clientOf(
     tenantId: string,
-    classificationDefault: ClassificationDeploymentDefault,
     transport: WorkersTransport,
     pool: ConnectionPool,
   ): RemitClient {
@@ -394,7 +370,10 @@ export class TenantMail extends DurableObject<Env> {
       secrets: tenantSecrets(this.env, tenantId),
       connectionScope: pooledConnectionScope(pool),
       mailTransports: { imap: transport, smtp: workersSmtpSocket },
-      getClassificationDefault: async () => classificationDefault,
+      getClassificationDefault: classificationDefaultSnapshot(
+        () => classificationDefaultOf(this.env),
+        () => classificationDefaultFromDeployment(this.env),
+      ),
       spamPipeline: this.spamPipeline,
       queues: {
         sync: queueProducer<"Fifo", EventOn<"sync">>("Fifo", this.env, tenantId),

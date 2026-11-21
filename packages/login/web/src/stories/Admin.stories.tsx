@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { ClassificationView } from "../../../../../src/operator-settings-contract";
 import {
   type AdminUser,
   adminPage,
@@ -56,6 +57,25 @@ const USERS: readonly AdminUser[] = [
   },
 ];
 
+const CLASSIFIER: ClassificationView = {
+  state: "Configured",
+  presets: [
+    {
+      presetId: "Mistral",
+      label: "Mistral",
+    },
+  ],
+  presetId: "Mistral",
+  model: "ministral-8b-latest",
+  baseUrl: "https://api.eu.mistral.ai/v1",
+  dailyLimit: 500,
+  enabled: true,
+  hasKey: true,
+  version: 3,
+  updatedAt: 1793990000000,
+  updatedBy: OPERATOR,
+};
+
 const load = (page: Html) => async () => {
   const parsed = new DOMParser().parseFromString(await toResponse(page).text(), "text/html");
   for (const link of parsed.querySelectorAll<HTMLLinkElement>("link[rel=stylesheet]")) {
@@ -66,7 +86,9 @@ const load = (page: Html) => async () => {
 };
 
 export const People: Story = {
-  loaders: [load(adminPage(OPERATOR, USERS, (email) => email === OPERATOR))],
+  loaders: [
+    load(adminPage(OPERATOR, USERS, { ok: true, view: CLASSIFIER }, (email) => email === OPERATOR)),
+  ],
 };
 
 export const Enroll: Story = {
