@@ -79,14 +79,14 @@ const listUsers = async (db: D1Database, now: number): Promise<AdminUser[]> => {
       `SELECT user.id AS id, user.email AS email, user.banned AS banned, user.two_factor_enabled AS two_factor_enabled,
         (SELECT COUNT(*) FROM passkey WHERE passkey.user_id = user.id) AS passkeys,
         (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?1) AS sessions,
-        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = lower(user.email) AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
+        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = user.email AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
       FROM user ORDER BY user.email`,
     )
     .bind(now)
     .all<UserListRow>();
   const invited = await db
     .prepare(
-      "SELECT email, MAX(expires_at) AS expires_at FROM invite WHERE state = 'Open' AND email NOT IN (SELECT lower(email) FROM user) GROUP BY email ORDER BY email",
+      "SELECT email, MAX(expires_at) AS expires_at FROM invite WHERE state = 'Open' AND email NOT IN (SELECT email FROM user) GROUP BY email ORDER BY email",
     )
     .all<{ email: string; expires_at: number }>();
   const stateOf = (row: UserListRow): UserState => (row.banned ? "disabled" : "active");
@@ -297,7 +297,7 @@ type Outcome =
 
 const userIdOf = (db: D1Database, email: string) =>
   db
-    .prepare("SELECT id, banned FROM user WHERE lower(email) = ?")
+    .prepare("SELECT id, banned FROM user WHERE email = ?")
     .bind(email)
     .first<{ id: string; banned: number | null }>();
 

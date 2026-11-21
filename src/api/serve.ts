@@ -163,20 +163,15 @@ export const personSettingsRoute = async (
   identity: UserIdentity,
   operator: boolean,
   db: D1Database,
-  people: PeopleDirectory,
+  login: Pick<LoginOperatorService, "personEmail">,
 ): Promise<PersonSettingsRoute> => {
   const url = new URL(request.url);
   const match = PERSON_SETTINGS.exec(url.pathname.slice(API_ROOT.length));
   if (match === null || !operator) return { kind: "Own" };
   const userId = decodeURIComponent(match[1] ?? "");
-  const listed = await people.listPeople({
-    callerId: identity.email,
-    clientIp: clientIpOf(request),
-  });
-  const email = listed.ok
-    ? listed.value.find((person) => person.userId === userId)?.email
-    : undefined;
-  if (email === undefined) return { kind: "NotFound" };
+  const person = await login.personEmail(identity.email, userId);
+  if (!person.ok) return { kind: "NotFound" };
+  const { email } = person;
   const tenantId = await mailTenantOfEmail(db, email);
   if (tenantId === undefined) return { kind: "NotFound" };
   const rest = match[2] === undefined ? "" : `/${match[2]}`;

@@ -1,15 +1,19 @@
 import { createExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { LoginOperator, PeopleAdmin } from "../src/index";
-import { createUser, OPERATOR, testEnv, uniqueEmail } from "./helpers";
+import { createUser, OPERATOR, OTHER_OPERATOR, testEnv, uniqueEmail } from "./helpers";
 
 const loginOperator = (): LoginOperator => new LoginOperator(createExecutionContext(), testEnv);
 
-const ensureOperator = async (): Promise<void> => {
+const ensureUser = async (email: string): Promise<string> => {
   const row = await testEnv.DB.prepare("SELECT id FROM user WHERE email = ?")
-    .bind(OPERATOR)
-    .first();
-  if (row === null) await createUser(OPERATOR);
+    .bind(email)
+    .first<{ id: string }>();
+  return row?.id ?? (await createUser(email)).id;
+};
+
+const ensureOperator = async (): Promise<void> => {
+  await ensureUser(OPERATOR);
 };
 
 describe("LoginOperator", () => {
@@ -26,6 +30,20 @@ describe("LoginOperator", () => {
 
     await testEnv.DB.prepare("UPDATE user SET banned = 1 WHERE email = ?").bind(email).run();
     expect(await login.isDisabled(email)).toBe(true);
+  });
+
+  it("names a person by login id to an operator but hides another operator", async () => {
+    const person = await createUser(uniqueEmail("named"));
+    const operatorId = await ensureUser(OPERATOR);
+    const otherOperatorId = await ensureUser(OTHER_OPERATOR);
+    const login = loginOperator();
+
+    expect(await login.personEmail(OPERATOR, person.id)).toEqual({ ok: true, email: person.email });
+    expect(await login.personEmail(OPERATOR, operatorId)).toEqual({ ok: true, email: OPERATOR });
+    expect(await login.personEmail(OPERATOR, otherOperatorId)).toEqual({
+      ok: false,
+      refusal: "not_found",
+    });
   });
 
   it("writes an operator audit event for the actor and target emails", async () => {

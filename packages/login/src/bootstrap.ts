@@ -16,7 +16,7 @@ export const bootstrapOperators = async (
   if (operators.length === 0) return 0;
   const placeholders = operators.map(() => "?").join(",");
   const existing = await db
-    .prepare(`SELECT COUNT(*) AS count FROM user WHERE lower(email) IN (${placeholders})`)
+    .prepare(`SELECT COUNT(*) AS count FROM user WHERE email IN (${placeholders})`)
     .bind(...operators)
     .first<{ count: number }>();
   if ((existing?.count ?? 0) > 0) return 0;

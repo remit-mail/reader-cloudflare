@@ -8,6 +8,7 @@ import type {
   TargetedRequest,
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
+import type { PersonEmail } from "../../../src/operator-audit-contract";
 import { audit, auditRows, auditStatement } from "./audit";
 import { createAuth } from "./auth";
 import { mailerOf } from "./capture";
@@ -53,7 +54,7 @@ const personRow = (db: D1Database, userId: string): Promise<PersonRow | null> =>
     .prepare(
       `SELECT user.id, user.email, user.created_at, user.banned,
         (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?2) AS sessions,
-        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = lower(user.email) AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
+        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = user.email AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
       FROM user WHERE user.id = ?1`,
     )
     .bind(userId, Date.now())
@@ -61,7 +62,10 @@ const personRow = (db: D1Database, userId: string): Promise<PersonRow | null> =>
 
 // callerId carries the caller's email, the one identity the app Worker and the
 // login Worker share.
-const activeCaller = (db: D1Database, request: PeopleRequest): Promise<Caller | null> =>
+const activeCaller = (
+  db: D1Database,
+  request: Pick<PeopleRequest, "callerId">,
+): Promise<Caller | null> =>
   db
     .prepare("SELECT id, email FROM user WHERE email = ? AND COALESCE(banned, 0) = 0")
     .bind(normalizeEmail(request.callerId))
@@ -72,7 +76,10 @@ interface Target {
   readonly row: PersonRow;
 }
 
-const target = async (env: Env, request: PersonRequest): Promise<PeopleOutcome<Target>> => {
+const target = async (
+  env: Env,
+  request: Pick<PersonRequest, "callerId" | "targetId">,
+): Promise<PeopleOutcome<Target>> => {
   const caller = await activeCaller(env.DB, request);
   if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
   const row = await personRow(env.DB, request.targetId);
@@ -80,6 +87,16 @@ const target = async (env: Env, request: PersonRequest): Promise<PeopleOutcome<T
     return refused("not_found");
   }
   return { ok: true, value: { caller, row } };
+};
+
+export const personEmail = async (
+  env: Env,
+  callerEmail: string,
+  userId: string,
+): Promise<PersonEmail> => {
+  const found = await target(env, { callerId: callerEmail, targetId: userId });
+  if (!found.ok) return { ok: false, refusal: "not_found" };
+  return { ok: true, email: found.value.row.email };
 };
 
 const personAuditStatement = (
@@ -123,7 +140,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const rows = await env.DB.prepare(
       `SELECT user.id, user.email, user.created_at, user.banned,
         (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?1) AS sessions,
-        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = lower(user.email) AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
+        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = user.email AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
       FROM user ORDER BY user.email`,
     )
       .bind(Date.now())
@@ -156,7 +173,7 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     const caller = await activeCaller(env.DB, request);
     if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
     const email = normalizeEmail(request.email);
-    const existing = await env.DB.prepare("SELECT id FROM user WHERE lower(email) = ?")
+    const existing = await env.DB.prepare("SELECT id FROM user WHERE email = ?")
       .bind(email)
       .first();
     if (existing !== null) return refused("not_found");

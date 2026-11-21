@@ -240,7 +240,7 @@ export class TenantMail extends DurableObject<Env> {
           identity,
           operator,
           this.env.DB,
-          this.env.PEOPLE_DIRECTORY,
+          this.env.LOGIN_OPERATOR,
         );
         if (route.kind === "NotFound") {
           return Response.json({ code: "not_found", message: "Person not found" }, { status: 404 });
