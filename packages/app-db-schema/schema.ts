@@ -23,3 +23,18 @@ export const deadLetters = sqliteTable("dead_letter", {
   attempts: integer("attempts").notNull(),
   body: text("body").notNull(),
 });
+
+export const classificationDefaults = sqliteTable("classification_default", {
+  classificationDefaultId: text("classification_default_id").primaryKey(),
+  presetId: text("preset_id").notNull(),
+  model: text("model").notNull(),
+  baseUrl: text("base_url").notNull(),
+  apiKeySealed: blob("api_key_sealed", { mode: "buffer" }).$type<Uint8Array>().notNull(),
+  iv: blob("iv", { mode: "buffer" }).$type<Uint8Array>().notNull(),
+  keyVersion: integer("key_version").notNull(),
+  dailyLimit: integer("daily_limit").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull(),
+  version: integer("version").notNull(),
+  updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  updatedBy: text("updated_by").notNull(),
+});

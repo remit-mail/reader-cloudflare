@@ -48,6 +48,13 @@
       "allowed_sender_addresses": ["login@remit.test"]
     }
   ],
+  "services": [
+    {
+      "binding": "OPERATOR_SETTINGS",
+      "service": "reader-cloudflare",
+      "entrypoint": "OperatorSettings"
+    }
+  ],
   "secrets_store_secrets": [
     {
       "binding": "LOGIN_AUTH_SECRET",
@@ -81,6 +88,13 @@
         {
           "name": "EMAIL",
           "allowed_sender_addresses": ["login@remit.test"]
+        }
+      ],
+      "services": [
+        {
+          "binding": "OPERATOR_SETTINGS",
+          "service": "reader-cloudflare",
+          "entrypoint": "OperatorSettings"
         }
       ],
       "secrets_store_secrets": [

@@ -19,9 +19,14 @@ export const ADMIN_ACTIONS: readonly AdminAction[] = [
   "RotateKeys",
   "RevokeKeys",
   "RevokeInvite",
+  "SetClassification",
 ];
 
-export const KEY_ACTIONS: ReadonlySet<AdminAction> = new Set(["RotateKeys", "RevokeKeys"]);
+export const SELF_ACTIONS: ReadonlySet<AdminAction> = new Set([
+  "RotateKeys",
+  "RevokeKeys",
+  "SetClassification",
+]);
 
 export const isAdminAction = (value: unknown): value is AdminAction =>
   typeof value === "string" && (ADMIN_ACTIONS as readonly string[]).includes(value);

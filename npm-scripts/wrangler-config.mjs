@@ -50,6 +50,7 @@ const only = (entries, binding, what) => {
 };
 
 export const CAPTURED_MAIL_ENTRYPOINT = "CapturedMailReader";
+export const OPERATOR_SETTINGS_ENTRYPOINT = "OperatorSettings";
 
 const capturesLoginMail = (stage) => {
   const { captureLoginMail } = STAGES[stage];
@@ -78,7 +79,6 @@ export const renderWrangler = (base, outputs, config, stage) => {
     throw new Error("wrangler.jsonc must carry a Secrets Store secret bound as MASTER_KEY");
   }
   const microsoft = outputs.microsoft_oauth;
-  const classification = outputs.classification_default;
   const consumed = (consumer) =>
     mailSync || !MAIL_SERVER_FAMILIES.includes(queueFamilyOf(consumer.queue));
   return {
@@ -93,7 +93,6 @@ export const renderWrangler = (base, outputs, config, stage) => {
       ACCESS_AUD: outputs.access_aud,
       PUBLIC_ORIGIN: `https://${outputs.app_hostname}`,
       ...(microsoft && { MSOAUTH_CLIENT_ID: microsoft.client_id }),
-      ...(classification && { CLASSIFICATION_DEFAULT_PRESET: classification.preset }),
       ...(captureLoginMail && { LOGIN_MAIL_READER: outputs.agent_client_id }),
     },
     ...(captureLoginMail && {
@@ -139,15 +138,6 @@ export const renderWrangler = (base, outputs, config, stage) => {
               binding: "MSOAUTH_CLIENT_SECRET",
               store_id: outputs.secrets_store_id,
               secret_name: microsoft.secret_name,
-            },
-          ]
-        : []),
-      ...(classification
-        ? [
-            {
-              binding: "CLASSIFICATION_DEFAULT_API_KEY",
-              store_id: outputs.secrets_store_id,
-              secret_name: classification.secret_name,
             },
           ]
         : []),
@@ -199,6 +189,13 @@ export const renderLoginWrangler = (base, outputs, config, stage) => {
         ...database,
         database_name: outputs.login_d1_database_name,
         database_id: outputs.login_d1_database_id,
+      },
+    ],
+    services: [
+      {
+        binding: "OPERATOR_SETTINGS",
+        service: outputs.worker_name,
+        entrypoint: OPERATOR_SETTINGS_ENTRYPOINT,
       },
     ],
     ...(!captureLoginMail && {

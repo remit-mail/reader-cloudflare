@@ -1,3 +1,5 @@
+import type { OperatorSettingsService } from "../../../src/operator-settings-contract";
+
 export interface Env {
   readonly ASSETS: Fetcher;
   readonly DB: D1Database;
@@ -9,6 +11,7 @@ export interface Env {
   readonly LOGIN_OIDC_CLIENT_ID: string;
   readonly EMAIL_SENDER: string;
   readonly OPERATOR_EMAILS: string;
+  readonly OPERATOR_SETTINGS: OperatorSettingsService;
 }
 
 type LoginEnv = Env;

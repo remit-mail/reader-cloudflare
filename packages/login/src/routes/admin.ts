@@ -1,8 +1,13 @@
 import { z } from "zod";
+import type {
+  ClassificationInput,
+  OperatorSettingsService,
+} from "../../../../src/operator-settings-contract";
 import {
   type AdminUser,
   adminPage,
   auditPage,
+  type ClassificationRead,
   enrollPage,
   toResponse,
   type UserState,
@@ -19,11 +24,11 @@ import {
   type Binding,
   consumeChallenge,
   isAdminAction,
-  KEY_ACTIONS,
   loadOperatorFactors,
   type Operator,
   openChallenge,
   type Proof,
+  SELF_ACTIONS,
   stepUpMethodOf,
   verifyProof,
 } from "../step-up";
@@ -34,6 +39,7 @@ export interface AdminContext {
   readonly config: LoginConfig;
   readonly db: D1Database;
   readonly email: SendEmail;
+  readonly settings: OperatorSettingsService;
 }
 
 interface OperatorSession {
@@ -106,8 +112,18 @@ export const renderAdmin = async (context: AdminContext, request: Request): Prom
   const session = await operatorSession(context, request);
   if (session === null) return notFound();
   if (stepUpMethodOf(session.operator) === null) return toResponse(enrollPage());
+  const [users, classification] = await Promise.all([
+    listUsers(context.db, Date.now()),
+    context.settings.readClassification().then(
+      (view): ClassificationRead => ({ ok: true, view }),
+      (error: unknown): ClassificationRead => ({
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    ),
+  ]);
   return toResponse(
-    adminPage(session.operator.email, await listUsers(context.db, Date.now()), (email) =>
+    adminPage(session.operator.email, users, classification, (email) =>
       isOperator(context.config, email),
     ),
   );
@@ -133,6 +149,16 @@ const actionBody = z.object({
   targetEmail: z.string().max(320),
   assertion: z.unknown().optional(),
   totpCode: z.string().max(12).optional(),
+  classification: z
+    .object({
+      presetId: z.string().max(64),
+      model: z.string().max(200),
+      baseUrl: z.string().max(2048),
+      apiKey: z.string().max(4096),
+      dailyLimit: z.number(),
+      enabled: z.boolean(),
+    })
+    .optional(),
 });
 
 type TargetCheck = { readonly ok: true } | { readonly ok: false; readonly message: string };
@@ -143,10 +169,10 @@ const checkTarget = (
   action: AdminAction,
   targetEmail: string,
 ): TargetCheck => {
-  if (KEY_ACTIONS.has(action)) {
+  if (SELF_ACTIONS.has(action)) {
     return targetEmail === operator.email
       ? { ok: true }
-      : { ok: false, message: "Key actions name your own email as their target." };
+      : { ok: false, message: "This action names your own email as its target." };
   }
   if (!z.email().safeParse(targetEmail).success) {
     return { ok: false, message: "Enter a valid email address." };
@@ -170,6 +196,7 @@ const AUDIT_EVENT: Readonly<Record<AdminAction, AuditEntry["event"]>> = {
   RotateKeys: "KeysRotated",
   RevokeKeys: "KeysRevoked",
   RevokeInvite: "InviteRevoked",
+  SetClassification: "ClassificationSet",
 };
 
 const refuse = async (
@@ -247,10 +274,24 @@ const runAction = async (
   action: AdminAction,
   targetEmail: string,
   entry: AuditEntry,
+  classification: ClassificationInput | undefined,
 ): Promise<Outcome> => {
   const { db } = context;
   const now = Date.now();
   const audited = auditStatement(db, entry, now);
+  if (action === "SetClassification") {
+    if (classification === undefined) {
+      await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
+      return { ok: false, status: 400, message: "Send the classifier settings to save." };
+    }
+    const written = await context.settings.writeClassification(classification, operator.email);
+    if (!written.ok) {
+      await auditStatement(db, { ...entry, outcome: "Refused" }, now).run();
+      return { ok: false, status: 400, message: written.message };
+    }
+    await audited.run();
+    return { ok: true, message: "Saved the classifier default." };
+  }
   if (action === "Invite") {
     if ((await userIdOf(db, targetEmail)) !== null) {
       return { ok: false, status: 409, message: `${targetEmail} already has an account.` };
@@ -353,7 +394,7 @@ export const runAdminAction = async (
   if (!parsed.success || !isAdminAction(parsed.data.action)) {
     return json(400, { message: "Unknown admin action." });
   }
-  const { adminChallengeId, assertion, totpCode } = parsed.data;
+  const { adminChallengeId, assertion, totpCode, classification } = parsed.data;
   const action = parsed.data.action;
   const targetEmail = normalizeEmail(parsed.data.targetEmail);
   const address = addressOf(request);
@@ -417,13 +458,20 @@ export const runAdminAction = async (
     return json(403, { message: "The confirmation did not verify. Nothing was changed." });
   }
   await clearKey(context.db, personal);
-  const outcome = await runAction(context, operator, action, targetEmail, {
-    actor: operator.email,
-    email: targetEmail,
-    address,
-    event: AUDIT_EVENT[action],
-    outcome: "Succeeded",
-  });
+  const outcome = await runAction(
+    context,
+    operator,
+    action,
+    targetEmail,
+    {
+      actor: operator.email,
+      email: targetEmail,
+      address,
+      event: AUDIT_EVENT[action],
+      outcome: "Succeeded",
+    },
+    classification,
+  );
   if (!outcome.ok) return json(outcome.status, { message: outcome.message });
   return json(200, { message: outcome.message });
 };

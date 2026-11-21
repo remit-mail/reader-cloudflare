@@ -80,6 +80,7 @@ export const adminChallenges = sqliteTable(
         | "RotateKeys"
         | "RevokeKeys"
         | "RevokeInvite"
+        | "SetClassification"
       >()
       .notNull(),
     targetEmail: text("target_email").notNull(),
@@ -138,6 +139,7 @@ export const auditEvents = sqliteTable(
         | "KeysRotated"
         | "KeysRevoked"
         | "InviteRevoked"
+        | "ClassificationSet"
       >()
       .notNull(),
     outcome: text("outcome").$type<"Succeeded" | "Refused">().notNull(),

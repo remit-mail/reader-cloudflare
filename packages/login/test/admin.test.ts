@@ -7,6 +7,7 @@ import { requestFreshLink } from "../src/routes/reset";
 import {
   addPasskeyRow,
   call,
+  classificationWrites,
   createUser,
   fromAddress,
   mailDeps,
@@ -257,6 +258,51 @@ describe("admin step-up", () => {
         OTHER_OPERATOR,
       ),
     ).toBe(3);
+  });
+
+  it("sets the classifier default only on the operator's own step-up and audits it", async () => {
+    expect((await challenge(operator, "SetClassification", alice)).status).toBe(403);
+    const settings = {
+      presetId: "Mistral",
+      model: "",
+      baseUrl: "",
+      apiKey: "a-classifier-key",
+      dailyLimit: 200,
+      enabled: true,
+    };
+    const writes = classificationWrites.length;
+    const id = await openTotpChallenge(operator, "SetClassification", OPERATOR);
+    const saved = await call("/app/admin/action", {
+      cookie: operator.cookie,
+      body: {
+        adminChallengeId: id,
+        action: "SetClassification",
+        targetEmail: OPERATOR,
+        totpCode: await totpCode(step),
+        classification: settings,
+      },
+    });
+    expect(saved.status).toBe(200);
+    expect(classificationWrites.slice(writes)).toEqual([
+      { input: settings, operatorEmail: OPERATOR },
+    ]);
+
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND event = 'ClassificationSet' AND outcome = ? AND at >= ?",
+        OPERATOR,
+        "Succeeded",
+        step * STEP_MS,
+      ),
+    ).toBe(1);
+    expect(
+      await count(
+        "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND event = 'ClassificationSet' AND outcome = ? AND at >= ?",
+        OPERATOR,
+        "Refused",
+        step * STEP_MS,
+      ),
+    ).toBe(1);
   });
 
   it("revokes a pending invite so it neither redeems nor renews", async () => {
