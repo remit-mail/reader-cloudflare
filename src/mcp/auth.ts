@@ -10,6 +10,7 @@ import { openAppDb } from "../db/client";
 import { mcpAccount, mcpUser } from "../db/schema";
 import type { Env } from "../env";
 import { log } from "../log";
+import { isSubjectDisabled, isSubjectOperator, recordSubjectEmail } from "./subject-email";
 
 const CONNECTING_IP_HEADER = "cf-connecting-ip";
 
@@ -22,13 +23,15 @@ export const withConnectingIp = (request: Request): Request => {
 };
 
 const accessIdentity = (env: Env, origin: string): McpIdentity => ({
-  isDisabled: (userId) => env.LOGIN_OPERATOR.isDisabled(userId),
-  isOperator: (userId) => env.LOGIN_OPERATOR.isOperator(userId),
+  isDisabled: (userId) => isSubjectDisabled(env.DB, env.LOGIN_OPERATOR, userId),
+  isOperator: (userId) => isSubjectOperator(env.DB, env.LOGIN_OPERATOR, userId),
   audit: async (record) => log.info("mcp identity audit", { event: "mcp.audit", ...record }),
   browser: {
     subjectOf: async (headers) => {
       const result = await requireTenant(new Request(origin, { headers }), env);
-      return result.ok ? { id: result.tenant.tenantId } : undefined;
+      if (!result.ok) return undefined;
+      await recordSubjectEmail(env.DB, result.tenant.tenantId, result.tenant.email);
+      return { id: result.tenant.tenantId };
     },
   },
 });

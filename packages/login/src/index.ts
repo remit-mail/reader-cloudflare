@@ -9,7 +9,7 @@ import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
-import { configOf, isOperator, type LoginConfig } from "./config";
+import { configOf, isOperator, type LoginConfig, normalizeEmail } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
@@ -252,15 +252,18 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     return row?.email ?? null;
   }
 
-  async isOperator(userId: string): Promise<boolean> {
-    const email = await this.emailOf(userId);
-    return email !== null && isOperator(configOf(this.env), email);
+  private banOf(email: string): Promise<{ banned: number | null } | null> {
+    return this.env.DB.prepare("SELECT banned FROM user WHERE email = ?")
+      .bind(normalizeEmail(email))
+      .first<{ banned: number | null }>();
   }
 
-  async isDisabled(userId: string): Promise<boolean> {
-    const row = await this.env.DB.prepare("SELECT banned FROM user WHERE id = ?")
-      .bind(userId)
-      .first<{ banned: number | null }>();
+  async isOperator(email: string): Promise<boolean> {
+    return (await this.banOf(email)) !== null && isOperator(configOf(this.env), email);
+  }
+
+  async isDisabled(email: string): Promise<boolean> {
+    const row = await this.banOf(email);
     return row === null || Boolean(row.banned);
   }
 
