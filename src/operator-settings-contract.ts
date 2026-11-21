@@ -40,6 +40,7 @@ export interface OperatorSettingsService {
   ): Promise<ClassificationWrite>;
   clearClassification(): Promise<void>;
   listTenantIds(): Promise<readonly string[]>;
+  hasTenant(userId: string): Promise<boolean>;
   readTenantClassification(userId: string): Promise<TenantClassification>;
   writeTenantClassification(
     userId: string,
