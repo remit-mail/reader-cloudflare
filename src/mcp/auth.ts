@@ -34,18 +34,11 @@ const accessIdentity = (env: Env, origin: string): McpIdentity => ({
   },
 });
 
-const cache = new WeakMap<Env, { readonly key: string; readonly server: McpAuthServer }>();
-
 export const mcpAuth = async (env: Env): Promise<McpAuthServer> => {
-  const secret = await env.MCP_AUTH_SECRET.get();
-  const cached = cache.get(env);
-  if (cached?.key === secret) return cached.server;
   const origin = env.PUBLIC_ORIGIN;
-  const server = createMcpAuth(
-    { origin, secret, signInEnabled: true },
+  return createMcpAuth(
+    { origin, secret: await env.MCP_AUTH_SECRET.get(), signInEnabled: true },
     mcpDatabase(openAppDb(env.DB), { user: mcpUser, account: mcpAccount }),
     accessIdentity(env, origin),
   );
-  cache.set(env, { key: secret, server });
-  return server;
 };
