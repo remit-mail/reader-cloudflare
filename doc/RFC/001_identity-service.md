@@ -175,7 +175,7 @@ sequenceDiagram
   B->>R: request with Access cookie
 ```
 
-The login app registers one client per stage, seeded by the deploy, with the Access callback of that stage as its only redirect URI. Dynamic client registration is off. Consent is skipped for that client. The grant type is authorization code with PKCE, so no refresh token exists. An authorization code lives 60 seconds. ID and access tokens live 15 minutes. Scopes are `openid`, `email` and `profile`.
+The login app registers one client per stage, seeded by the deploy, with the Access callback of that stage as its only redirect URI. Dynamic client registration is off. Consent is skipped for that client. The grant type is authorization code with PKCE, so no refresh token exists. An authorization code, and the signed sign-in link that leads to it, lives 10 minutes. ID and access tokens live 15 minutes. Scopes are `openid`, `email` and `profile`.
 
 Access reads the email claim from the login app's ID token and asserts its own subject for that identity, not the login app's. Reader derives the tenant from the Access subject, so a person whose Access subject changes at cutover gets a new tenant.
 
@@ -188,7 +188,7 @@ The signing keys rotate every 90 days and the old public key stays published for
 | Login session                              | 90 days, rolling on each day of use                                              |
 | Access application session                 | 15 minutes                                                                       |
 | Access organization session                | 15 minutes. Access reissues an app session from it without the identity provider |
-| Authorization code                         | 60 seconds                                                                       |
+| Authorization code                         | 10 minutes                                                                       |
 | ID and access token                        | 15 minutes, no refresh token                                                     |
 | Reauthentication window for factor changes | 5 minutes, per session. Setting the invite password opens it; a reset does not   |
 | Operator challenge                         | 2 minutes, one action                                                            |

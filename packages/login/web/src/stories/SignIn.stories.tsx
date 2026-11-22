@@ -4,9 +4,9 @@ import {
   type SecondStepMethod,
   type SecondStepProblem,
   SecondStepView,
-  type SignInProblem,
   SignInView,
 } from "../pages/SignIn";
+import type { SignInProblem } from "../sign-in-problem";
 import { hold, noop } from "./fixtures";
 
 const meta: Meta = { title: "Playground/Proposed/Identity/Sign in" };
@@ -79,7 +79,29 @@ export const PasskeyFailed: Story = {
 };
 
 export const ServerError: Story = {
-  render: () => <First problem={{ kind: "server", message: "The login site answered 500." }} />,
+  render: () => (
+    <First
+      problem={{
+        kind: "server",
+        message: "The login site refused the request (HTTP 500) without saying why.",
+      }}
+    />
+  ),
+};
+
+export const SignInPageExpired: Story = {
+  render: () => <First problem={{ kind: "link-expired" }} />,
+};
+
+export const Refused: Story = {
+  render: () => (
+    <First
+      problem={{
+        kind: "refused",
+        message: "This request came from a page the login site does not serve.",
+      }}
+    />
+  ),
 };
 
 export const PasskeyStep: Story = {

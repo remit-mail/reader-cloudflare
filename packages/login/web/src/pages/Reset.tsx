@@ -2,12 +2,10 @@ import { type FormEvent, useEffect, useState } from "react";
 import {
   type Answer,
   dropLinkToken,
-  failureOf,
   keepQuery,
   lockedUntil,
   navigate,
   post,
-  type Refused,
   takeLinkToken,
   untilRetry,
 } from "../api";
@@ -19,6 +17,7 @@ import {
   OpeningRemitView,
   useOpenRemit,
 } from "../flow";
+import { failureOf, type Refusal } from "../refusal";
 import {
   Field,
   Form,
@@ -224,7 +223,7 @@ const lookupState = (answer: Answer): ResetPasswordState => {
   return { kind: "expired", failure: null };
 };
 
-const passwordProblem = (answer: Refused): NewPasswordProblem | "expired" => {
+const passwordProblem = (answer: Refusal): NewPasswordProblem | "expired" => {
   if (answer.status === 410) return "expired";
   const failure = failureOf(answer);
   if (failure.kind === "locked") {

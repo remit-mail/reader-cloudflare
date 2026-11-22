@@ -1,31 +1,10 @@
 export const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
 
+import { type Refusal, refusalOf } from "./refusal";
+
 export type Answer =
   | { readonly ok: true; readonly status: number; readonly body: Record<string, unknown> }
-  | {
-      readonly ok: false;
-      readonly status: number;
-      readonly message: string;
-      readonly code: string;
-      readonly retryAt: number | null;
-    };
-
-export type Refused = Extract<Answer, { ok: false }>;
-
-export type Failure =
-  | { readonly kind: "locked"; readonly message: string; readonly retryAt: number | null }
-  | { readonly kind: "server"; readonly message: string }
-  | { readonly kind: "refused"; readonly message: string };
-
-export const failureOf = (answer: Refused): Failure => {
-  if (answer.status === 429) {
-    return { kind: "locked", message: answer.message, retryAt: answer.retryAt };
-  }
-  if (answer.status === 0 || answer.status >= 500) {
-    return { kind: "server", message: answer.message };
-  }
-  return { kind: "refused", message: answer.message };
-};
+  | Refusal;
 
 export const lockedUntil = (problem: { readonly kind: string } | null): number | null =>
   problem?.kind === "locked" && "retryAt" in problem && typeof problem.retryAt === "number"
@@ -44,24 +23,19 @@ export const untilRetry = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const retryText = (retryAt: unknown): string =>
-  typeof retryAt === "string" ? ` Try again after ${new Date(retryAt).toLocaleTimeString()}.` : "";
+const bodyOf = async (response: Response): Promise<unknown> => {
+  const text = await response.text().catch(() => "");
+  try {
+    return JSON.parse(text);
+  } catch {
+    return (response.headers.get("content-type") ?? "").startsWith("text/plain") ? text : {};
+  }
+};
 
 const answerOf = async (response: Response): Promise<Answer> => {
-  const body: unknown = await response.json().catch(() => ({}));
-  const record = isRecord(body) ? body : {};
-  if (response.ok) return { ok: true, status: response.status, body: record };
-  const message =
-    typeof record.message === "string" && record.message
-      ? record.message
-      : `The login site answered ${response.status}.`;
-  return {
-    ok: false,
-    status: response.status,
-    message: `${message}${response.status === 429 ? retryText(record.retryAt) : ""}`,
-    code: typeof record.code === "string" ? record.code : "",
-    retryAt: typeof record.retryAt === "string" ? Date.parse(record.retryAt) || null : null,
-  };
+  const body = await bodyOf(response);
+  if (response.ok) return { ok: true, status: response.status, body: isRecord(body) ? body : {} };
+  return refusalOf(response.status, body);
 };
 
 const unreachable = (path: string, error: unknown): Answer => ({
@@ -131,16 +105,19 @@ export const returnTarget = (requested: string | null, readerOrigin: string): st
   return target?.origin === new URL(readerOrigin).origin ? target.toString() : root;
 };
 
+export const restartAuthorize = (): void => {
+  const params = new URLSearchParams(window.location.search);
+  for (const name of ["sig", "exp", "ba_iat", "ba_pl", "ba_param"]) params.delete(name);
+  window.location.assign(`/api/auth/oauth2/authorize?${params.toString()}`);
+};
+
 export const leave = async (answer: Answer): Promise<string | null> => {
   if (answer.ok && typeof answer.body.url === "string") {
     window.location.assign(answer.body.url);
     return null;
   }
-  const query = oauthQuery();
-  if (query !== undefined) {
-    const params = new URLSearchParams(query);
-    for (const name of ["sig", "exp", "ba_iat", "ba_pl", "ba_param"]) params.delete(name);
-    window.location.assign(`/api/auth/oauth2/authorize?${params.toString()}`);
+  if (oauthQuery() !== undefined) {
+    restartAuthorize();
     return null;
   }
   const origin = await readerOriginOf().then(

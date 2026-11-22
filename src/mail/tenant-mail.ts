@@ -42,7 +42,7 @@ import { type DrizzleSqliteDODatabase, drizzle } from "drizzle-orm/durable-sqlit
 import migrations from "../../migrations/mail/migrations";
 import { apiConfig } from "../api/config";
 import { CLOUDFLARE_SQLITE_LIMITS } from "../api/host-limits";
-import { ANONYMOUS, personSettingsTarget, serveRequest } from "../api/serve";
+import { ANONYMOUS, personSettingsRoute, serveRequest, serveUserRequest } from "../api/serve";
 import { r2Storage } from "../api/storage";
 import { bootstrapTenant, tenantSecrets } from "../crypto/envelope";
 import { d1Queries, openAppStore, withD1Meter } from "../db/client";
@@ -235,35 +235,80 @@ export class TenantMail extends DurableObject<Env> {
   ): Promise<Response> {
     return withLogContext({ correlationId, tenantId: identity.sub }, () =>
       served(async () => {
-        const target = await personSettingsTarget(request, this.env.DB);
-        if (target.targeted) {
-          if (target.tenantId === undefined) {
-            return Response.json(
-              { code: "not_found", message: "Person not found" },
-              { status: 404 },
-            );
-          }
-          if (target.tenantId !== mailTenantId) {
-            return this.env.TENANT_MAIL.get(this.env.TENANT_MAIL.idFromName(target.tenantId)).api(
-              request,
-              identity,
-              operator,
-              target.tenantId,
-              correlationId,
-            );
-          }
-        }
-        await this.bootstrap(mailTenantId);
-        return serveRequest(
+        const route = await personSettingsRoute(
           request,
           identity,
           operator,
-          this.clientFor((await this.compose(mailTenantId)).client, identity.email),
-          correlationId,
+          this.env.DB,
           this.env.LOGIN_OPERATOR,
-          this.env.PEOPLE_DIRECTORY,
+        );
+        if (route.kind === "NotFound") {
+          return Response.json({ code: "not_found", message: "Person not found" }, { status: 404 });
+        }
+        if (route.kind === "Own") {
+          return this.serveTenant(
+            request,
+            identity,
+            operator,
+            mailTenantId,
+            correlationId,
+            identity.email,
+          );
+        }
+        if (route.tenantId === mailTenantId) {
+          return this.serveTenant(
+            route.request,
+            identity,
+            operator,
+            mailTenantId,
+            correlationId,
+            route.email,
+          );
+        }
+        return this.env.TENANT_MAIL.get(this.env.TENANT_MAIL.idFromName(route.tenantId)).personApi(
+          route.request,
+          identity,
+          operator,
+          route.tenantId,
+          correlationId,
+          route.email,
         );
       }),
+    );
+  }
+
+  async personApi(
+    request: Request,
+    identity: UserIdentity,
+    operator: boolean,
+    mailTenantId: string,
+    correlationId: string,
+    personEmail: string,
+  ): Promise<Response> {
+    return withLogContext({ correlationId, tenantId: identity.sub }, () =>
+      served(() =>
+        this.serveTenant(request, identity, operator, mailTenantId, correlationId, personEmail),
+      ),
+    );
+  }
+
+  private async serveTenant(
+    request: Request,
+    identity: UserIdentity,
+    operator: boolean,
+    mailTenantId: string,
+    correlationId: string,
+    targetEmail: string,
+  ): Promise<Response> {
+    await this.bootstrap(mailTenantId);
+    return serveUserRequest(
+      request,
+      identity,
+      operator,
+      this.clientFor((await this.compose(mailTenantId)).client, identity.email),
+      correlationId,
+      this.env.PEOPLE_DIRECTORY,
+      { login: this.env.LOGIN_OPERATOR, targetEmail },
     );
   }
 
@@ -298,6 +343,7 @@ export class TenantMail extends DurableObject<Env> {
   async mcp(
     request: Request,
     principal: McpPrincipal,
+    email: string,
     operator: boolean,
     correlationId: string,
   ): Promise<Response> {
@@ -308,7 +354,9 @@ export class TenantMail extends DurableObject<Env> {
         const { client } = await this.compose(tenantId);
         return createMcpHandler(
           principal,
-          mcpDeps(client, (userId, granted) => this.apiClient(userId, granted, correlationId)),
+          mcpDeps(client, (userId, granted) =>
+            this.apiClient(userId, email, granted, correlationId),
+          ),
           operator,
         )(request);
       }),
@@ -336,8 +384,7 @@ export class TenantMail extends DurableObject<Env> {
           false,
           (await this.compose(tenantId)).client,
           correlationId,
-          this.env.LOGIN_OPERATOR,
-          this.env.PEOPLE_DIRECTORY,
+          null,
         ),
       ),
     );
@@ -484,6 +531,7 @@ export class TenantMail extends DurableObject<Env> {
 
   private apiClient(
     userId: string,
+    email: string,
     operator: boolean,
     correlationId: string,
   ): ReturnType<typeof createClient> {
@@ -491,7 +539,7 @@ export class TenantMail extends DurableObject<Env> {
       kind: "user",
       accountConfigId: deriveAccountConfigId(userId),
       sub: userId,
-      email: userId,
+      email,
     };
     return createClient({
       baseUrl: this.env.PUBLIC_ORIGIN,

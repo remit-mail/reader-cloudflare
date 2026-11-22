@@ -4,16 +4,17 @@ import { isAPIError } from "better-auth/api";
 import type {
   LoginOperatorService,
   OperatorAuditRecord,
+  PersonEmail,
 } from "../../../src/operator-audit-contract";
 import { audit, purgeStatements } from "./audit";
 import { ALLOWED_AUTH_PATHS, API_BASE_PATH, type Auth, createAuth } from "./auth";
 import { bootstrapOperators } from "./bootstrap";
 import { type CapturedMail, capturesMail, latestCapturedMail, mailerOf } from "./capture";
-import { configOf, isOperator, type LoginConfig } from "./config";
+import { configOf, isOperator, type LoginConfig, normalizeEmail } from "./config";
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
-import { PeopleAdmin, peopleAdmin } from "./people-admin";
+import { PeopleAdmin, peopleAdmin, personEmail } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
@@ -245,33 +246,37 @@ export class CapturedMailReader extends WorkerEntrypoint<Env> {
 }
 
 export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperatorService {
-  private async emailOf(userId: string): Promise<string | null> {
-    const row = await this.env.DB.prepare("SELECT email FROM user WHERE id = ?")
-      .bind(userId)
-      .first<{ email: string }>();
-    return row?.email ?? null;
-  }
-
-  async isOperator(userId: string): Promise<boolean> {
-    const email = await this.emailOf(userId);
-    return email !== null && isOperator(configOf(this.env), email);
-  }
-
-  async isDisabled(userId: string): Promise<boolean> {
-    const row = await this.env.DB.prepare("SELECT banned FROM user WHERE id = ?")
-      .bind(userId)
+  private banOf(email: string): Promise<{ banned: number | null } | null> {
+    return this.env.DB.prepare("SELECT banned FROM user WHERE email = ?")
+      .bind(normalizeEmail(email))
       .first<{ banned: number | null }>();
+  }
+
+  async isOperator(email: string): Promise<boolean> {
+    return (await this.banOf(email)) !== null && isOperator(configOf(this.env), email);
+  }
+
+  async isDisabled(email: string): Promise<boolean> {
+    const row = await this.banOf(email);
     return row === null || Boolean(row.banned);
   }
 
+  personEmail(callerEmail: string, userId: string): Promise<PersonEmail> {
+    return personEmail(this.env, callerEmail, userId);
+  }
+
   async writeAudit(record: OperatorAuditRecord): Promise<void> {
-    const [actor, email] = await Promise.all([
-      this.emailOf(record.actorId),
-      this.emailOf(record.targetId),
+    const [actor, target] = await Promise.all([
+      this.banOf(record.actorEmail),
+      this.banOf(record.targetEmail),
     ]);
-    if (actor === null || email === null) throw new Error("Operator audit user does not exist");
-    const { actorId: _, targetId: __, ...entry } = record;
-    await audit(this.env.DB, { ...entry, actor, email });
+    if (actor === null || target === null) throw new Error("Operator audit user does not exist");
+    const { actorEmail, targetEmail, ...entry } = record;
+    await audit(this.env.DB, {
+      ...entry,
+      actor: normalizeEmail(actorEmail),
+      email: normalizeEmail(targetEmail),
+    });
   }
 }
 

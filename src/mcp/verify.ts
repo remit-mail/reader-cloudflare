@@ -6,6 +6,7 @@ import {
 } from "@remit/mcp-server/app";
 import { hasOperatorGrant, type Tenant } from "../access";
 import type { Env } from "../env";
+import { emailOfTenant } from "../tenant-email";
 
 export type McpBearerResult =
   | {
@@ -24,10 +25,12 @@ export const verifyMcpBearer = async (
   const verification = await createBetterAuthTokenVerifier(auth, env.PUBLIC_ORIGIN).verify(bearer);
   if (!verification.ok) return verification;
   const subject = verification.principal.userId;
+  const email = await emailOfTenant(env.DB, subject);
+  if (email === undefined) return { ok: false, reason: "MCP subject has no recorded email" };
   const tenant = {
     tenantId: subject,
     accountConfigId: deriveAccountConfigId(subject),
-    email: subject,
+    email,
     service: false,
   };
   return {
@@ -36,7 +39,7 @@ export const verifyMcpBearer = async (
     principal: verification.principal,
     operator: hasOperatorGrant(
       verification.principal.scopes,
-      await env.LOGIN_OPERATOR.isOperator(subject),
+      await env.LOGIN_OPERATOR.isOperator(email),
     ),
   };
 };
