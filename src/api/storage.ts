@@ -248,6 +248,7 @@ export const r2Storage = (bucket: R2Bucket, origin: string): StorageService => {
     },
     deleteExportArchive: (accountConfigId, exportRequestId) =>
       bucket.delete(buildExportArchiveKey(accountConfigId, exportRequestId)),
-    getPresignedDownloadUrl: async (key) => `${origin}${CONTENT_PREFIX}${key}`,
+    getPresignedDownloadUrl: async (key) =>
+      `${origin}${key.startsWith("exports/") ? "/" : CONTENT_PREFIX}${key}`,
   };
 };

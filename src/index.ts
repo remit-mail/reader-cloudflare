@@ -7,6 +7,7 @@ import {
   LOGIN_MAIL_PATH,
   MICROSOFT_OAUTH_CALLBACK,
 } from "./api/paths";
+import { isExportPath, serveExport } from "./content/export";
 import { isContentPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import { d1Queries, withD1Meter } from "./db/client";
@@ -20,6 +21,7 @@ import {
   quotaExceeded,
   rateLimited,
   unauthorized,
+  withPartition,
 } from "./http";
 import {
   annotateLog,
@@ -194,7 +196,7 @@ const authenticated = async (
   path: string,
   serve: Serve,
 ): Promise<Response> => {
-  const result = await requireTenant(request, env);
+  const result = await requireTenant(request, env, { recordEmail: path !== "/api/session" });
   if (!result.ok) {
     log.warn("access denied", { path, reason: result.reason });
     return unauthorized(result.reason);
@@ -238,11 +240,36 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   if (isMcpPagePath(url.pathname)) {
     return authenticated(request, env, url.pathname, serveMcpPage);
   }
+  if (url.pathname === "/api/session") {
+    const response = await authenticated(
+      request,
+      env,
+      url.pathname,
+      async (_request, _env, tenant) => {
+        if (request.method !== "GET") {
+          return apiError(405, "MethodNotAllowed", "Read the session with GET", {
+            Allow: "GET",
+          });
+        }
+        return withPartition(
+          Response.json({ partitionKey: tenant.accountConfigId }),
+          tenant.accountConfigId,
+        );
+      },
+    );
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
   if (isContentPath(url.pathname)) {
-    return authenticated(request, env, url.pathname, serveContent);
+    return authenticated(request, env, url.pathname, async (request, env, tenant) =>
+      withPartition(await serveContent(request, env, tenant), tenant.accountConfigId),
+    );
+  }
+  if (isExportPath(url.pathname)) {
+    return authenticated(request, env, url.pathname, serveExport);
   }
   if (isUploadPath(url.pathname)) {
     return authenticated(request, env, url.pathname, serveUpload);
@@ -260,12 +287,14 @@ const operationOf = (method: string, url: URL): string => {
 };
 
 const routeOf = (method: string, url: URL): Promise<string> => {
+  if (url.pathname === "/api/session") return Promise.resolve("session");
   if (url.pathname === LOGIN_MAIL_PATH) return Promise.resolve("login-mail");
   if (url.pathname === MCP_API_PATH) return Promise.resolve("mcp-api");
   if (isMcpMachinePath(url.pathname)) return Promise.resolve("mcp");
   if (isMcpPagePath(url.pathname)) return Promise.resolve("mcp-page");
   if (url.pathname.startsWith("/api/")) return Promise.resolve(operationOf(method, url));
   if (isContentPath(url.pathname)) return Promise.resolve("content");
+  if (isExportPath(url.pathname)) return Promise.resolve("export");
   if (isUploadPath(url.pathname)) return Promise.resolve("upload");
   return Promise.resolve("assets");
 };

@@ -8,6 +8,7 @@ import {
   type UserIdentity,
 } from "@remit/backend/serve";
 import { refuseQuota } from "../error-kind";
+import { withPartition } from "../http";
 import type {
   LoginOperatorService,
   OperatorAuditEvent,
@@ -128,14 +129,18 @@ export const serveUserRequest = async (
   correlationId: string,
   people: PeopleDirectory,
   call: OperatorCall,
+  partitionKey: string,
 ): Promise<Response> => {
-  const response = await serveRequest(
-    request,
-    identity,
-    operator,
-    client,
-    correlationId,
-    callingAs(people, identity.email),
+  const response = withPartition(
+    await serveRequest(
+      request,
+      identity,
+      operator,
+      client,
+      correlationId,
+      callingAs(people, identity.email),
+    ),
+    partitionKey,
   );
   if (!operator) return response;
   const record = operatorAudit(

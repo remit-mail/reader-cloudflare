@@ -1,5 +1,5 @@
 import { UnrecoverableBodyError } from "@remit/data-ports/errors";
-import { buildExportArchiveKey, parseOutboxAttachmentKey } from "@remit/storage-service";
+import { parseOutboxAttachmentKey } from "@remit/storage-service";
 import type { Tenant } from "../access";
 import type { Env } from "../env";
 import { apiError, notFound } from "../http";
@@ -13,14 +13,13 @@ const UNTYPED = "application/octet-stream";
 
 export const isContentPath = (path: string): boolean => path.startsWith(CONTENT_PREFIX);
 
-const served = (object: R2ObjectBody, headers: Record<string, string> = {}): Response =>
+const served = (object: R2ObjectBody): Response =>
   new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? UNTYPED,
       "cache-control": "private, max-age=3600",
       "content-security-policy": SANDBOX,
       "x-content-type-options": "nosniff",
-      ...headers,
     },
   });
 
@@ -61,15 +60,6 @@ export const serveContent = async (
   tenant: Tenant,
 ): Promise<Response> => {
   const key = new URL(request.url).pathname.slice(CONTENT_PREFIX.length);
-  const [, , exportRequestId = ""] = key.split("/");
-  if (key === buildExportArchiveKey(tenant.accountConfigId, exportRequestId)) {
-    const archive = await env.MAIL.get(key);
-    if (archive === null) return notFound("Export");
-    return served(archive, {
-      "cache-control": "private, no-store",
-      "content-disposition": `attachment; filename="remit-export-${exportRequestId}.zip"`,
-    });
-  }
   const outboxAttachment = parseOutboxAttachmentKey(key);
   if (outboxAttachment !== null) {
     if (outboxAttachment.accountConfigId !== tenant.accountConfigId) return notFound("Content");

@@ -2,6 +2,13 @@ import type { ApiError } from "@remit/api-openapi-types";
 import { errorKindOfCode, quotaRefusal } from "./error-kind";
 import { annotateLog } from "./log";
 
+export const withPartition = (response: Response, partitionKey: string): Response => {
+  const copy = new Response(response.body, response);
+  copy.headers.delete("X-Remit-Partition");
+  if (response.ok) copy.headers.set("X-Remit-Partition", partitionKey);
+  return copy;
+};
+
 export const apiError = (
   status: number,
   code: string,

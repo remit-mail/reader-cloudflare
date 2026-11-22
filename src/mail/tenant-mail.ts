@@ -309,6 +309,7 @@ export class TenantMail extends DurableObject<Env> {
       correlationId,
       this.env.PEOPLE_DIRECTORY,
       { login: this.env.LOGIN_OPERATOR, targetEmail },
+      deriveAccountConfigId(mailTenantId),
     );
   }
 
