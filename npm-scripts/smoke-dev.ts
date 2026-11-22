@@ -6,6 +6,7 @@ import {
   outboxOperationsListOutboxMessages,
   unifiedThreadOperationsListAllThreads,
 } from "@remit/api-http-client";
+import PWA_ASSETS from "../src/pwa-assets.json";
 import { accessHeaders, connect, must, succeeds } from "./dev-api.ts";
 import { CALENDAR, DRAFTS, WEEKLY_SUMMARY } from "./dev-fixtures.ts";
 import { fetchOnceServed } from "./host-ready.ts";
@@ -57,6 +58,37 @@ check(
   "access refuses an anonymous call",
   anonymous.status === 302 || anonymous.status === 401 || anonymous.status === 403,
   `GET /api/config without a service token answered ${anonymous.status}`,
+);
+
+for (const [path, mime] of Object.entries(PWA_ASSETS)) {
+  const response = await fetch(new URL(path, target.appUrl), { redirect: "manual" });
+  check(
+    `anonymous installation asset ${path}`,
+    response.status === 200 &&
+      response.headers.get("content-type")?.split(";")[0] === mime &&
+      response.headers.get("cache-control") === "no-cache" &&
+      response.headers.get("x-content-type-options") === "nosniff" &&
+      (path !== "/sw.js" || response.headers.get("service-worker-allowed") === "/"),
+    `GET ${path} answered ${response.status}: type=${response.headers.get("content-type")}, cache=${response.headers.get("cache-control")}, nosniff=${response.headers.get("x-content-type-options")}, scope=${response.headers.get("service-worker-allowed")}`,
+  );
+}
+
+for (const path of ["/assets/pages.css", "/icons/missing.png", "/content/missing"]) {
+  const response = await fetch(new URL(path, target.appUrl), { redirect: "manual" });
+  check(
+    `Access still protects ${path}`,
+    response.status === 302 || response.status === 401 || response.status === 403,
+    `GET ${path} without a service token answered ${response.status}`,
+  );
+}
+const missingIcon = await fetch(new URL("/icons/missing.png", target.appUrl), {
+  headers: { ...accessHeaders(target), "Sec-Fetch-Mode": "navigate" },
+  redirect: "manual",
+});
+check(
+  "a missing icon is 404 instead of the web shell",
+  missingIcon.status === 404 && !missingIcon.headers.get("content-type")?.startsWith("text/html"),
+  `GET /icons/missing.png answered ${missingIcon.status} ${missingIcon.headers.get("content-type")}`,
 );
 
 const authServer = await fetch(new URL("/.well-known/oauth-authorization-server", target.appUrl), {

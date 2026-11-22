@@ -47,6 +47,7 @@ import {
   microsoftCallbackTenant,
   oauthRefused,
 } from "./public-api";
+import { isPwaAssetPath, servePwaAsset } from "./pwa-assets";
 import { parkDeadLetter } from "./queue/dead-letter";
 import { FAMILY_OF, parseEnvelope, type QueueFamily, roleOfQueue } from "./queue/routing";
 import { tickEveryTenant } from "./scheduler";
@@ -211,6 +212,9 @@ const servePublic = (request: Request, env: Env, tenantId: string): Promise<Resp
 };
 
 const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  if (isPwaAssetPath(url.pathname)) return servePwaAsset(request, env);
+  // Unknown icons stay behind Access and must not reach Assets' SPA fallback.
+  if (url.pathname.startsWith("/icons/")) return new Response(null, { status: 404 });
   if (url.pathname.startsWith(CALENDAR_FEED_ROOT)) {
     const tokenHash = calendarFeedTokenHash(url);
     if (tokenHash === undefined) return feedNotFound();

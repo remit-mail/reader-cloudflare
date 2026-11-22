@@ -52,8 +52,11 @@ const reportUrl = (detail: string): string => {
   return `${ISSUES_URL}?${params.toString()}`;
 };
 
-const currentLocation = (): string =>
-  `${window.location.pathname}${window.location.search}${window.location.hash}`;
+const renewalUrl = (): string => {
+  const url = new URL(window.location.href);
+  url.searchParams.set("reauth", "1");
+  return `${url.pathname}${url.search}${url.hash}`;
+};
 
 const renewedRecently = (): boolean => {
   try {
@@ -71,7 +74,7 @@ const renewOnce = (): boolean => {
   } catch {
     return false;
   }
-  window.location.replace(currentLocation());
+  window.location.replace(renewalUrl());
   return true;
 };
 
@@ -130,7 +133,7 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
         <Banner tone="warning">
           Your Cloudflare Access session has ended. Sign in again to return to this page.
         </Banner>
-        <ButtonLink href={currentLocation()}>Sign in again</ButtonLink>
+        <ButtonLink href={renewalUrl()}>Sign in again</ButtonLink>
       </Frame>
     );
   }

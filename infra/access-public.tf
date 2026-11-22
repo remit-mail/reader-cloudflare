@@ -1,6 +1,6 @@
 locals {
   microsoft_oauth = nonsensitive(var.msoauth != null)
-  public_paths = [
+  public_paths = concat([
     "${var.app_hostname}/api/feeds/calendar/*",
     "${var.app_hostname}/api/accounts/oauth/microsoft/callback",
     "${var.app_hostname}/.well-known/oauth-authorization-server",
@@ -12,7 +12,7 @@ locals {
     "${var.app_hostname}/auth/device/code",
     "${var.app_hostname}/auth/jwks",
     "${var.app_hostname}/mcp",
-  ]
+  ], [for path in keys(jsondecode(file("${path.module}/../src/pwa-assets.json"))) : "${var.app_hostname}${path}"])
 }
 
 resource "cloudflare_secrets_store_secret" "msoauth_client_secret" {
