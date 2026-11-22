@@ -7,8 +7,7 @@ import {
   LOGIN_MAIL_PATH,
   MICROSOFT_OAUTH_CALLBACK,
 } from "./api/paths";
-import { isExportPath, serveExport } from "./content/export";
-import { isContentPath, serveContent } from "./content/route";
+import { isContentPath, isExportPath, serveContent } from "./content/route";
 import { isUploadPath, serveUpload } from "./content/upload";
 import { d1Queries, withD1Meter } from "./db/client";
 import type { Env } from "./env";
@@ -269,7 +268,7 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     );
   }
   if (isExportPath(url.pathname)) {
-    return authenticated(request, env, url.pathname, serveExport);
+    return authenticated(request, env, url.pathname, serveContent);
   }
   if (isUploadPath(url.pathname)) {
     return authenticated(request, env, url.pathname, serveUpload);

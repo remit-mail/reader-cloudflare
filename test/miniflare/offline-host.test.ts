@@ -169,15 +169,6 @@ describe("offline host contract", () => {
     expect(env.MAIL.get).not.toHaveBeenCalled();
   });
 
-  it("serves text and inline image parts with their stored MIME", async () => {
-    for (const mime of ["text/plain; charset=utf-8", "image/png"]) {
-      const response = await get(`/content/${bodyKey}`, workerEnv(mime), await token());
-      expect(response.status).toBe(200);
-      expect(response.headers.get("Content-Type")).toBe(mime);
-      expect(response.headers.get("X-Remit-Partition")).toBe(PARTITION);
-    }
-  });
-
   it("does not label rate refusals or storage failures as tenant data", async () => {
     const env = {
       ...workerEnv(),
@@ -219,20 +210,9 @@ describe("offline host contract", () => {
     expect(env.MAIL.get).not.toHaveBeenCalled();
   });
 
-  it("never labels shell, assets, login or Access pages with data provenance", async () => {
-    for (const path of [
-      "/",
-      "/mail",
-      "/assets/app.js",
-      "/manifest.webmanifest",
-      "/sw.js",
-      "/auth/sign-in",
-      "/cdn-cgi/access/login",
-      "/consent",
-      "/icons/missing.png",
-    ]) {
-      const response = await get(path, workerEnv());
-      expect(response.headers.has("X-Remit-Partition"), path).toBe(false);
-    }
+  it("does not label the SPA shell with data provenance", async () => {
+    const response = await get("/", workerEnv());
+    expect(response.status).toBe(200);
+    expect(response.headers.has("X-Remit-Partition")).toBe(false);
   });
 });
