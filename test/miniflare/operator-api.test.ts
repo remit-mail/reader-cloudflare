@@ -43,9 +43,12 @@ describe("operator classifier default", () => {
     expect(saved.status).toBe(200);
 
     const resolved = await SELF.fetch("http://example.test/api/system/classification-default", {
-      headers: { "x-tenant": "two" },
+      headers: { "x-tenant": "two", "X-Remit-Partition": "client-forged-partition" },
     });
     expect(resolved.status).toBe(200);
+    expect(resolved.headers.get("X-Remit-Partition")).toBe(
+      deriveAccountConfigId("operator@remit.test"),
+    );
     expect(await resolved.json()).toMatchObject({ presetId: "Mistral", source: "Operator" });
   });
 });
@@ -60,11 +63,13 @@ describe("person settings", () => {
     });
     expect(read.status).toBe(200);
     expect(read.headers.get("x-account-config-read")).toBe(deriveAccountConfigId(tenantId));
+    expect(read.headers.get("X-Remit-Partition")).toBe(deriveAccountConfigId(tenantId));
 
     const unknown = await SELF.fetch("http://example.test/api/people/someone-else/settings", {
       headers: OPERATOR_HEADERS,
     });
     expect(unknown.status).toBe(404);
+    expect(unknown.headers.has("X-Remit-Partition")).toBe(false);
   });
 
   it("hides another operator's settings", async () => {

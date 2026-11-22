@@ -14,7 +14,7 @@ import { requireServiceTenant, type Tenant } from "../access";
 import { RATE_LIMIT_PERIOD_SECONDS } from "../api/host-limits";
 import { API_ROOT } from "../api/paths";
 import type { Env } from "../env";
-import { rateLimited, unauthorized } from "../http";
+import { rateLimited, unauthorized, withPartition } from "../http";
 import { annotateLog, currentCorrelationId, log } from "../log";
 import { tenantMail } from "../stubs";
 import { mcpAuth, withConnectingIp } from "./auth";
@@ -69,15 +69,18 @@ export const serveMcpApi = async (request: Request, env: Env): Promise<Response>
     return unauthorized(result.reason);
   }
   const { tenant } = result;
-  return serveTools(
-    withConnectingIp(request),
-    env,
-    tenant,
-    {
-      userId: tenant.tenantId,
-      scopes: MCP_SCOPES,
-    },
-    false,
+  return withPartition(
+    await serveTools(
+      withConnectingIp(request),
+      env,
+      tenant,
+      {
+        userId: tenant.tenantId,
+        scopes: MCP_SCOPES,
+      },
+      false,
+    ),
+    tenant.accountConfigId,
   );
 };
 

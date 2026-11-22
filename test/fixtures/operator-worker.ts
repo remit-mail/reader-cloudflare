@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { RemitClient } from "@remit/backend/client";
 import type { UserIdentity } from "@remit/backend/serve";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { personSettingsRoute, serveUserRequest } from "../../src/api/serve";
 import type { Env } from "../../src/env";
 import { isMcpMachinePath, serveMcpMachine } from "../../src/mcp/route";
@@ -102,6 +103,7 @@ export class DefaultTenant extends DurableObject<TestEnv> {
         login,
         targetEmail,
       },
+      deriveAccountConfigId(route.kind === "Person" ? route.tenantId : identity.sub),
     );
     const answered = new Response(response.body, response);
     answered.headers.set("x-account-config-read", accountConfigIds.join(","));
