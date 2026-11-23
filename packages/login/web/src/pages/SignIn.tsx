@@ -6,9 +6,10 @@ import {
   keepQuery,
   lockedUntil,
   navigate,
-  postWithOAuth,
+  post,
   restartAuthorize,
   untilRetry,
+  withOAuth,
 } from "../api";
 import { passkeysSupported, signInWithPasskey } from "../passkeys";
 import { type Failure, failureOf, type Refusal } from "../refusal";
@@ -155,10 +156,13 @@ export const SignIn = () => {
     const element = event.currentTarget;
     const form = new FormData(element);
     setBusy(true);
-    const answer = await postWithOAuth("/api/auth/sign-in/email", {
-      email: form.get("email"),
-      password: form.get("password"),
-    });
+    const answer = await post(
+      "/api/auth/sign-in/email",
+      withOAuth({
+        email: form.get("email"),
+        password: form.get("password"),
+      }),
+    );
     if (!answer.ok && answer.status === 401) {
       const password = element.elements.namedItem("password");
       if (password instanceof HTMLInputElement) password.value = "";
@@ -354,11 +358,11 @@ export const SecondStep = () => {
     setProblem(null);
     const code = String(new FormData(event.currentTarget).get("code") ?? "").trim();
     await done(
-      await postWithOAuth(
+      await post(
         method === "backup"
           ? "/api/auth/two-factor/verify-backup-code"
           : "/api/auth/two-factor/verify-totp",
-        { code },
+        withOAuth({ code }),
       ),
     );
   };

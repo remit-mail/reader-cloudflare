@@ -1,9 +1,10 @@
 export const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
 
-import { refusalOf } from "./refusal";
-import { type Answer, signInRequest } from "./sign-in-request";
+import { type Refusal, refusalOf } from "./refusal";
 
-export type { Answer } from "./sign-in-request";
+export type Answer =
+  | { readonly ok: true; readonly status: number; readonly body: Record<string, unknown> }
+  | Refusal;
 
 export const lockedUntil = (problem: { readonly kind: string } | null): number | null =>
   problem?.kind === "locked" && "retryAt" in problem && typeof problem.retryAt === "number"
@@ -69,10 +70,10 @@ export const oauthQuery = (): string | undefined => {
   return new URLSearchParams(query).has("sig") ? query : undefined;
 };
 
-export const postWithOAuth = (path: string, body: Record<string, unknown>): Promise<Answer> =>
-  signInRequest(path, body, oauthQuery(), post, () => {
-    window.history.replaceState(window.history.state, "", window.location.pathname);
-  });
+export const withOAuth = (body: Record<string, unknown>): Record<string, unknown> => {
+  const query = oauthQuery();
+  return query === undefined ? body : { ...body, oauth_query: query };
+};
 
 export const navigate = (path: string, state?: unknown): void => {
   window.history.pushState(state ?? null, "", path);
@@ -113,10 +114,6 @@ export const restartAuthorize = (): void => {
 export const leave = async (answer: Answer): Promise<string | null> => {
   if (answer.ok && typeof answer.body.url === "string") {
     window.location.assign(answer.body.url);
-    return null;
-  }
-  if (oauthQuery() !== undefined) {
-    restartAuthorize();
     return null;
   }
   const origin = await readerOriginOf().then(
