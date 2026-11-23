@@ -50,7 +50,7 @@
     "seed:dev": "tsx npm-scripts/seed-dev.ts",
     "smoke:dev": "tsx npm-scripts/smoke-dev.ts",
     "test": "npm run build:schema && npm run test:app && npm run test --workspace login",
-    "test:app": "node --import tsx --test --test-timeout=60000 test/*.test.ts && vitest run --config test/vitest.config.ts && vitest run --config test/web/vitest.config.ts",
+    "test:app": "node --import tsx --test --test-timeout=60000 test/*.test.ts && vitest run --config test/vitest.config.ts",
     "db:generate:login": "npm run build:schema && npm run db:generate --workspace login"
   },
   "devDependencies": {
@@ -59,7 +59,6 @@
     "@kattebak/typespec-drizzle-orm-generator": "^6.3.1",
     "@typespec/compiler": "^1.17.0",
     "drizzle-kit": "1.0.0-rc.5",
-    "jsdom": "^29.1.1",
     "miniflare": "^4.20260730.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

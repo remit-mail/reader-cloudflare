@@ -6,7 +6,9 @@ const securityPage = "/settings/security?from=mail#security";
 test.beforeEach(async ({ context, page }) => {
   // Keep the expired-session screen stable while installing the real shell SW.
   await context.addInitScript(() => {
-    sessionStorage.setItem("remit-access-renewal-at", String(Date.now()));
+    if (sessionStorage.getItem("remit-access-renewal-at") === null) {
+      sessionStorage.setItem("remit-access-renewal-at", String(Date.now()));
+    }
   });
   await context.route("**/api/session", (route) => route.fulfill({ status: 401, json: {} }));
   await page.goto("/");
@@ -119,6 +121,50 @@ test("Sign in again reaches the network with an active SW", async ({ page }) => 
   const response = await navigation;
   expect(response?.fromServiceWorker()).toBe(false);
   expect(new URL(page.url()).searchParams.get("reauth")).toBe("1");
+});
+
+test("the shared Sign in control renews Access once without signing out", async ({
+  context,
+  page,
+}) => {
+  const session = await page.request.get("/api/session");
+  expect(session.status()).toBe(200);
+  const { partitionKey } = (await session.json()) as { partitionKey: string };
+  await page.route("**/api/session", (route) => route.fulfill({ json: { partitionKey } }));
+  // Settings' People lookup raises the real shared signed-out overlay.
+  await page.route("**/api/people", (route) =>
+    route.fulfill({ status: 403, json: { code: "caller_disabled" } }),
+  );
+  const signOutRequests: string[] = [];
+  const renewals: string[] = [];
+  context.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/sign-out") signOutRequests.push(request.url());
+    if (request.isNavigationRequest() && url.searchParams.get("reauth") === "1") {
+      renewals.push(request.url());
+    }
+  });
+  await page.goto(securityPage);
+  const signIn = page.getByRole("alertdialog").getByRole("button", {
+    name: "Sign in",
+    exact: true,
+  });
+  await expect(signIn).toBeVisible();
+  await page.evaluate((key) => sessionStorage.removeItem(key), RENEWAL_KEY);
+  const navigation = page.waitForNavigation();
+  await signIn.click();
+  const response = await navigation;
+  expect(response?.fromServiceWorker()).toBe(false);
+  const renewedUrl = new URL(response?.url() ?? "");
+  expect(renewedUrl.pathname).toBe("/settings/security");
+  expect(renewedUrl.searchParams.get("reauth")).toBe("1");
+  expect(renewedUrl.searchParams.get("from")).toBe("mail");
+  expect(new URL(page.url()).hash).toBe("#security");
+  await expect(signIn).toBeVisible();
+  await signIn.click();
+  await expect(signIn).toBeHidden();
+  expect(renewals).toHaveLength(1);
+  expect(signOutRequests).toEqual([]);
 });
 
 for (const response of [
