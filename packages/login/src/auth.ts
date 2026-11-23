@@ -327,7 +327,7 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         consentPage: "/sign-in",
         allowDynamicClientRegistration: false,
         grantTypes: ["authorization_code"],
-        // better-auth signs the /sign-in link with the authorization code lifetime, so this is also how long a person has to type their password.
+        // Signed authorize queries and codes stay short-lived; the page renews an expired flow.
         codeExpiresIn: 600,
         accessTokenExpiresIn: 900,
         idTokenExpiresIn: 900,

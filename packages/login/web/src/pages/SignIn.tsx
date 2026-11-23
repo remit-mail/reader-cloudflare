@@ -6,13 +6,12 @@ import {
   keepQuery,
   lockedUntil,
   navigate,
-  post,
+  postWithOAuth,
   restartAuthorize,
   untilRetry,
-  withOAuth,
 } from "../api";
 import { passkeysSupported, signInWithPasskey } from "../passkeys";
-import { type Failure, failureOf, type Refusal, SIGN_IN_LINK_EXPIRED } from "../refusal";
+import { type Failure, failureOf, type Refusal } from "../refusal";
 import { passwordProblem, type SignInProblem, signInNotice } from "../sign-in-problem";
 import {
   Field,
@@ -43,12 +42,6 @@ const ProblemBanner = ({ problem }: { problem: SignInProblem }) => {
         <>
           {" "}
           <TextLink href={keepQuery("/reset")}>Reset your password</TextLink>
-        </>
-      ) : null}
-      {notice.action === "restart" ? (
-        <>
-          {" "}
-          <LinkButton onClick={restartAuthorize}>Start again</LinkButton>
         </>
       ) : null}
     </Notice>
@@ -162,10 +155,10 @@ export const SignIn = () => {
     const element = event.currentTarget;
     const form = new FormData(element);
     setBusy(true);
-    const answer = await post(
-      "/api/auth/sign-in/email",
-      withOAuth({ email: form.get("email"), password: form.get("password") }),
-    );
+    const answer = await postWithOAuth("/api/auth/sign-in/email", {
+      email: form.get("email"),
+      password: form.get("password"),
+    });
     if (!answer.ok && answer.status === 401) {
       const password = element.elements.namedItem("password");
       if (password instanceof HTMLInputElement) password.value = "";
@@ -206,7 +199,7 @@ export type SecondStepProblem =
 const secondStepProblem = (answer: Refusal): SecondStepProblem => {
   if (answer.code === "PASSKEY_PROMPT") return { kind: "passkey-cancelled" };
   if (answer.code === "PASSKEY_OF_ANOTHER_ACCOUNT") return { kind: "passkey-other-account" };
-  if (answer.code === "INVALID_TWO_FACTOR_COOKIE" || answer.code === SIGN_IN_LINK_EXPIRED) {
+  if (answer.code === "INVALID_TWO_FACTOR_COOKIE") {
     return { kind: "expired" };
   }
   if (answer.status === 401) return { kind: "wrong-code" };
@@ -247,10 +240,7 @@ export const SecondStepView = ({
   if (problem?.kind === "expired") {
     return (
       <Page title="Sign in again">
-        <Text>
-          A sign-in page works for 10 minutes from when it opens. Start again and sign in on the
-          fresh page.
-        </Text>
+        <Text>Your password confirmation has expired. Sign in again to confirm it is you.</Text>
         <Button ref={focusOnMount} onClick={restartAuthorize} className="w-full">
           Back to sign-in
         </Button>
@@ -364,11 +354,11 @@ export const SecondStep = () => {
     setProblem(null);
     const code = String(new FormData(event.currentTarget).get("code") ?? "").trim();
     await done(
-      await post(
+      await postWithOAuth(
         method === "backup"
           ? "/api/auth/two-factor/verify-backup-code"
           : "/api/auth/two-factor/verify-totp",
-        withOAuth({ code }),
+        { code },
       ),
     );
   };

@@ -1,10 +1,9 @@
 export const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
 
-import { type Refusal, refusalOf } from "./refusal";
+import { refusalOf } from "./refusal";
+import { type Answer, signInRequest } from "./sign-in-request";
 
-export type Answer =
-  | { readonly ok: true; readonly status: number; readonly body: Record<string, unknown> }
-  | Refusal;
+export type { Answer } from "./sign-in-request";
 
 export const lockedUntil = (problem: { readonly kind: string } | null): number | null =>
   problem?.kind === "locked" && "retryAt" in problem && typeof problem.retryAt === "number"
@@ -70,10 +69,10 @@ export const oauthQuery = (): string | undefined => {
   return new URLSearchParams(query).has("sig") ? query : undefined;
 };
 
-export const withOAuth = (body: Record<string, unknown>): Record<string, unknown> => {
-  const query = oauthQuery();
-  return query === undefined ? body : { ...body, oauth_query: query };
-};
+export const postWithOAuth = (path: string, body: Record<string, unknown>): Promise<Answer> =>
+  signInRequest(path, body, oauthQuery(), post, () => {
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+  });
 
 export const navigate = (path: string, state?: unknown): void => {
   window.history.pushState(state ?? null, "", path);

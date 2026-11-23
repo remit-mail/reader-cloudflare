@@ -1,10 +1,9 @@
-import { type Failure, failureOf, type Refusal, SIGN_IN_LINK_EXPIRED } from "./refusal";
+import { type Failure, failureOf, type Refusal } from "./refusal";
 
 export type SignInProblem =
   | Failure
   | { readonly kind: "wrong" }
   | { readonly kind: "disabled" }
-  | { readonly kind: "link-expired" }
   | { readonly kind: "passkey-cancelled" }
   | { readonly kind: "passkey-refused"; readonly message: string };
 
@@ -13,13 +12,12 @@ export interface SignInNotice {
   readonly title: string;
   readonly body: string;
   readonly report?: string;
-  readonly action?: "reset" | "restart";
+  readonly action?: "reset";
 }
 
 export const passwordProblem = (answer: Refusal): SignInProblem => {
   if (answer.status === 401) return { kind: "wrong" };
   if (answer.code === "BANNED_USER") return { kind: "disabled" };
-  if (answer.code === SIGN_IN_LINK_EXPIRED) return { kind: "link-expired" };
   return failureOf(answer);
 };
 
@@ -43,13 +41,6 @@ export const signInNotice = (problem: SignInProblem): SignInNotice | null => {
         tone: "danger",
         title: "This account is disabled",
         body: "Ask the person who invited you.",
-      };
-    case "link-expired":
-      return {
-        tone: "warning",
-        title: "This sign-in page expired",
-        body: "A sign-in page works for 10 minutes. Your password was not checked. Start again and sign in on the fresh page.",
-        action: "restart",
       };
     case "server":
       return {

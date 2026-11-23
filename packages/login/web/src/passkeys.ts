@@ -5,7 +5,7 @@ import {
   startAuthentication,
   startRegistration,
 } from "@simplewebauthn/browser";
-import { type Answer, get, post, withOAuth } from "./api";
+import { type Answer, get, post, postWithOAuth } from "./api";
 import type { Refusal } from "./refusal";
 
 export const passkeysSupported = (): boolean => browserSupportsWebAuthn();
@@ -34,10 +34,7 @@ export const assertPasskey = async (): Promise<
 export const signInWithPasskey = async (): Promise<Answer> => {
   const asserted = await assertPasskey();
   if (!asserted.ok) return asserted.answer;
-  return post(
-    "/api/auth/passkey/verify-authentication",
-    withOAuth({ response: asserted.assertion }),
-  );
+  return postWithOAuth("/api/auth/passkey/verify-authentication", { response: asserted.assertion });
 };
 
 export const addPasskey = async (): Promise<Answer> => {

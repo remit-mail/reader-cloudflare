@@ -75,6 +75,15 @@ describe("authorization code after the sign-in ended", () => {
     expect(audited?.count).toBe(1);
   });
 
+  it("refuses a replayed authorization code exchange", async () => {
+    const user = await createUser(uniqueEmail("code-replay"));
+    const code = await authorize((await signIn(user.id)).cookie);
+    expect((await redeem(code)).status).toBe(200);
+    const replay = await redeem(code);
+    expect(replay.status).toBe(400);
+    expect(((await replay.json()) as { error: string }).error).toBe("invalid_grant");
+  });
+
   it("refuses a code whose session was deleted after it was issued", async () => {
     const email = uniqueEmail("signed-out");
     const user = await createUser(email);
