@@ -172,6 +172,9 @@ const main = async () => {
       `LOGIN_ORIGIN:${loginOrigin}`,
       "--var",
       `READER_ORIGIN:${callbackOrigin}`,
+      // The browser harness reads Wrangler's local send-email files.
+      "--var",
+      "MAIL_CAPTURE:off",
       "--show-interactive-dev-session=false",
       "--test-scheduled",
     ]);

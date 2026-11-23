@@ -55,7 +55,7 @@ export const LinkExpiredView = ({
   failure: string | null;
   onFresh: () => void;
 }) => (
-  <Page title={kind === "invite" ? "This invite has expired" : "This link has expired"}>
+  <Page title={kind === "invite" ? "This invite no longer works" : "This link no longer works"}>
     {failure === null ? null : (
       <Notice tone="danger" title="No fresh link was sent" report={failure}>
         {failure} Try again in a minute.

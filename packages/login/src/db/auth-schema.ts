@@ -43,7 +43,6 @@ export const session = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
-    reauthenticatedAt: integer("reauthenticated_at").default(0).notNull(),
   },
   (table) => [
     uniqueIndex("session_token_unique").on(table.token),

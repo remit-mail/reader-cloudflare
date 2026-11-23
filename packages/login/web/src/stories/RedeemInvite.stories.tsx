@@ -71,6 +71,7 @@ export const Locked: Story = {
     <InviteView
       state={{
         kind: "locked",
+        retryAt: Date.now() + 30_000,
         message: "Too many attempts. Try again later. Try again after 14:35:00.",
       }}
       busy={false}

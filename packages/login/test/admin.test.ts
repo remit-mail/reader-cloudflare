@@ -6,7 +6,6 @@ import { peopleAdmin } from "../src/people-admin";
 import { issueInvite } from "../src/routes/app";
 import { requestFreshLink } from "../src/routes/reset";
 import {
-  addPasskeyRow,
   call,
   classificationClears,
   classificationWrites,
@@ -16,7 +15,6 @@ import {
   mailsTo,
   OPERATOR,
   OTHER_OPERATOR,
-  PASSWORD,
   type SignedIn,
   settle,
   signIn,
@@ -491,30 +489,6 @@ describe("admin step-up", () => {
         OPERATOR,
       ),
     ).toBe(1);
-  });
-
-  it("refuses a password alone on security confirm for a user with a factor", async () => {
-    const withApp = await createUser(uniqueEmail("app"), { totp: true, password: PASSWORD });
-    const withPasskey = await createUser(uniqueEmail("key"), { password: PASSWORD });
-    await addPasskeyRow(withPasskey.id, crypto.randomUUID());
-    for (const user of [withApp, withPasskey]) {
-      const session = await signIn(user.id);
-      const answer = await call("/app/security/confirm", {
-        cookie: session.cookie,
-        body: { password: PASSWORD },
-      });
-      expect(answer.status).toBe(403);
-    }
-  });
-
-  it("accepts an app code on security confirm once per time step", async () => {
-    const user = await createUser(uniqueEmail("replay"), { totp: true, password: PASSWORD });
-    const session = await signIn(user.id);
-    const code = await totpCode(step);
-    const confirm = () =>
-      call("/app/security/confirm", { cookie: session.cookie, body: { totpCode: code } });
-    expect((await confirm()).status).toBe(200);
-    expect((await confirm()).status).toBe(401);
   });
 
   it("escapes stored values on the admin and audit pages", async () => {

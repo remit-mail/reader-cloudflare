@@ -74,27 +74,32 @@ const readJson = (request: Request): Promise<unknown> =>
     () => null,
   );
 
-const signInLinkNotValid = (): Response =>
+const signInLinkNotValid = (reason: string): Response =>
   new Response(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign-in link not valid</title><link rel="stylesheet" href="/login.css"></head><body><main class="page"><section class="card"><h1>Sign-in link not valid</h1><p>Open remit again to start a new sign-in.</p></section></main></body></html>',
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign-in link not valid</title><link rel="stylesheet" href="/login.css"></head><body><main class="page"><section class="card"><h1>Sign-in link not valid</h1><p>${reason}</p></section></main></body></html>`,
     { status: 400, headers: { "content-type": "text/html; charset=utf-8" } },
   );
 
-const authorizeTargetIsSeeded = async (
+const authorizeTargetProblem = async (
   db: D1Database,
   config: LoginConfig,
   url: URL,
-): Promise<boolean> => {
+): Promise<string | null> => {
   const clientId = url.searchParams.get("client_id");
   const redirectUri = url.searchParams.get("redirect_uri");
-  if (clientId !== config.clientId || redirectUri === null) return false;
+  if (clientId === null) return "The client_id parameter is missing.";
+  if (clientId !== config.clientId)
+    return "The client_id parameter does not identify this deployment's client.";
+  if (redirectUri === null) return "The redirect_uri parameter is missing.";
   const row = await db
     .prepare("SELECT redirect_uris FROM oauth_client WHERE client_id = ?")
     .bind(clientId)
     .first<{ redirect_uris: string }>();
-  if (row === null) return false;
+  if (row === null) return "The sign-in client has not been registered on this deployment.";
   const registered: unknown = JSON.parse(row.redirect_uris);
-  return Array.isArray(registered) && registered.includes(redirectUri);
+  return Array.isArray(registered) && registered.includes(redirectUri)
+    ? null
+    : "The redirect_uri parameter is not registered for this client.";
 };
 
 const serveAuth = async (
@@ -111,8 +116,9 @@ const serveAuth = async (
       ? oauthProviderOpenIdConfigMetadata(auth)(request)
       : notFound();
   }
-  if (path === "/oauth2/authorize" && !(await authorizeTargetIsSeeded(env.DB, config, url))) {
-    return signInLinkNotValid();
+  if (path === "/oauth2/authorize") {
+    const problem = await authorizeTargetProblem(env.DB, config, url);
+    if (problem !== null) return signInLinkNotValid(problem);
   }
   return auth.handler(request);
 };
@@ -182,14 +188,10 @@ const serveApp = async (
           asResponse: true,
         }),
       );
-    case "/app/security/confirm":
-      return answered(
-        auth.api.securityConfirm({
-          body: (await readJson(request)) as { password: string },
-          headers,
-          asResponse: true,
-        }),
-      );
+    case "/app/security/disable-app":
+      return answered(auth.api.disableApp({ headers, asResponse: true }));
+    case "/app/security/backup-codes":
+      return answered(auth.api.regenerateBackupCodes({ headers, asResponse: true }));
     case "/app/sign-out-everywhere":
       return answered(auth.api.appSignOutEverywhere({ headers, asResponse: true }));
     case "/app/admin/challenge":

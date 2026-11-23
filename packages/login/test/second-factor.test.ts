@@ -7,7 +7,6 @@ import {
   createUser,
   mockPwnedPasswords,
   PASSWORD,
-  signIn,
   testEnv,
   totpCode,
   uniqueEmail,
@@ -101,13 +100,13 @@ describe("password path second step", () => {
     }
   });
 
-  it("spends a sign-in app code so it cannot confirm a security change", async () => {
+  it("spends a sign-in app code so it cannot sign in again", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const step = 60_000_000 + Math.floor(Math.random() * 1_000_000);
       vi.setSystemTime(step * 30_000 + 10_000);
       const email = uniqueEmail("app");
-      const user = await createUser(email, { totp: true, password: PASSWORD });
+      await createUser(email, { totp: true, password: PASSWORD });
       const first = await call("/api/auth/sign-in/email", { body: { email, password: PASSWORD } });
       expect(((await first.json()) as { twoFactorRedirect?: boolean }).twoFactorRedirect).toBe(
         true,
@@ -118,10 +117,10 @@ describe("password path second step", () => {
         body: { code },
       });
       expect(verified.status).toBe(200);
-      const session = await signIn(user.id);
-      const replay = await call("/app/security/confirm", {
-        cookie: session.cookie,
-        body: { totpCode: code },
+      const again = await call("/api/auth/sign-in/email", { body: { email, password: PASSWORD } });
+      const replay = await call("/api/auth/two-factor/verify-totp", {
+        cookie: cookiesOf(again),
+        body: { code },
       });
       expect(replay.status).toBe(401);
       expect(((await replay.json()) as { code?: string }).code).toBe("TOTP_STEP_USED");

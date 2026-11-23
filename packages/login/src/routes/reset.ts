@@ -11,10 +11,8 @@ import {
   clearKey,
   deadLinkKey,
   reserveAttempt,
-  resetLinkKey,
   takeResetQuota,
   undoAttempt,
-  waitingUntil,
 } from "../backoff";
 import { BOOTSTRAP_ISSUER } from "../bootstrap";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
@@ -255,8 +253,6 @@ export const lookupResetLink = async (
   const link = await openLink(db, tokenHash, now);
   if (link === null) return deadLink();
   await undoAttempt(db, deadLinkKey(address), scan.attemptId);
-  const until = await waitingUntil(db, [resetLinkKey(tokenHash)], now);
-  if (until !== null) return backoffResponse(until);
   return json(200, { email: link.email });
 };
 
@@ -287,8 +283,6 @@ export const resetEndpoints = (deps: AuthDeps) => {
           const tokenHash = await sha256Hex(ctx.body.token);
           if ((await openLink(db, tokenHash, now)) === null) throw dead;
           await undoAttempt(db, deadLinkKey(address), scan.attemptId);
-          const reservation = await reserveAttempt(db, [resetLinkKey(tokenHash)], now);
-          if (!reservation.allowed) throw tooMany(reservation.retryAt);
           const { password } = ctx.body;
           if (password.length < 12 || password.length > 128) {
             throw new APIError("BAD_REQUEST", {
