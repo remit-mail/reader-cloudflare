@@ -141,20 +141,6 @@ export const reserveAttempt = async (
   };
 };
 
-export const waitingUntil = async (
-  db: D1Database,
-  keys: readonly AttemptKey[],
-  now: number,
-): Promise<number | null> => {
-  const row = await db
-    .prepare(
-      `SELECT MAX(next_allowed_at) AS until FROM auth_attempt WHERE next_allowed_at > ?1 AND attempt_key IN (${keys.map((_, index) => `?${index + 2}`).join(", ")})`,
-    )
-    .bind(now, ...keys.map(({ key }) => key))
-    .first<{ until: number | null }>();
-  return row?.until ?? null;
-};
-
 export const clearKey = async (db: D1Database, key: AttemptKey): Promise<void> => {
   await db.prepare("DELETE FROM auth_attempt WHERE attempt_key = ?").bind(key.key).run();
 };
