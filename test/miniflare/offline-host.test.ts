@@ -113,11 +113,10 @@ describe("offline host contract", () => {
       TENANT_MAIL: { get: forbidden, idFromName: forbidden } as unknown as Env["TENANT_MAIL"],
       MAIL: { get: forbidden, put: forbidden } as unknown as Env["MAIL"],
     };
-    const response = await get(
-      "/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fa",
-      env,
-      await token(),
-    );
+    const response = await get("/api/image-proxy", env, await token(), {
+      method: "POST",
+      body: "http://127.0.0.1/a",
+    });
     expect(response.status).toBe(403);
     expect(response.headers.has("X-Remit-Partition")).toBe(false);
     expect(forbidden).not.toHaveBeenCalled();
@@ -139,11 +138,18 @@ describe("offline host contract", () => {
     for (const assertion of [undefined, "invalid", await token(SUBJECT, { exp: 1 })]) {
       for (const path of [
         "/api/session",
-        "/api/image-proxy?url=https%3A%2F%2Fimages.example.org%2Fa.png",
+        "/api/image-proxy",
         `/content/${bodyKey}`,
         `/${buildExportArchiveKey(PARTITION, "job")}`,
       ]) {
-        const response = await get(path, workerEnv(), assertion);
+        const response = await get(
+          path,
+          workerEnv(),
+          assertion,
+          path === "/api/image-proxy"
+            ? { method: "POST", body: "https://images.example.org/a.png" }
+            : {},
+        );
         expect(response.status).toBe(401);
         if (path === "/api/session") expect(response.headers.get("Cache-Control")).toBe("no-store");
         expect(response.headers.has("X-Remit-Partition")).toBe(false);

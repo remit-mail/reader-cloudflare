@@ -1,5 +1,4 @@
-import ipaddr from "ipaddr.js";
-import { z } from "zod";
+import { isIP } from "node:net";
 import { apiError, withPartition } from "./http";
 import { log } from "./log";
 
@@ -8,49 +7,6 @@ export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 const MAX_ATTEMPTS = 10;
 const USER_AGENT = "Remit-Image-Proxy/1.0";
-// ipaddr's "unicast" also includes unallocated IPv6. Fail closed to IANA's
-// allocated global prefixes; update when IANA makes a new allocation.
-// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
-const IPV6_ALLOCATIONS = [
-  "2001:200::/23",
-  "2001:400::/23",
-  "2001:600::/23",
-  "2001:800::/22",
-  "2001:c00::/23",
-  "2001:e00::/23",
-  "2001:1200::/23",
-  "2001:1400::/22",
-  "2001:1800::/23",
-  "2001:1a00::/23",
-  "2001:1c00::/22",
-  "2001:2000::/19",
-  "2001:4000::/23",
-  "2001:4200::/23",
-  "2001:4400::/23",
-  "2001:4600::/23",
-  "2001:4800::/23",
-  "2001:4a00::/23",
-  "2001:4c00::/23",
-  "2001:5000::/20",
-  "2001:8000::/19",
-  "2001:a000::/20",
-  "2001:b000::/20",
-  "2003::/18",
-  "2400::/12",
-  "2410::/12",
-  "2600::/12",
-  "2610::/23",
-  "2620::/23",
-  "2630::/12",
-  "2800::/12",
-  "2a00::/12",
-  "2a10::/12",
-  "2c00::/12",
-].map((prefix) => ipaddr.IPv6.parseCIDR(prefix));
-const dnsAnswer = z.object({
-  Status: z.number(),
-  Answer: z.array(z.object({ type: z.number(), data: z.string() })).optional(),
-});
 
 class Refusal extends Error {
   constructor(
@@ -61,16 +17,15 @@ class Refusal extends Error {
   }
 }
 
-const destination = (value: string | null): URL => {
-  const url = value === null ? null : URL.parse(value);
+const destination = (value: string): URL => {
+  const url = URL.parse(value);
   if (!url) throw new Refusal(400, "Provide an absolute image URL");
   if (!["http:", "https:"].includes(url.protocol)) throw new Refusal(403, "Scheme refused");
   if (url.port && url.port !== "80" && url.port !== "443") throw new Refusal(403, "Port refused");
   if (url.username || url.password) throw new Refusal(403, "URL credentials refused");
   const host = url.hostname.replace(/\.$/, "");
   if (
-    host.startsWith("[") ||
-    ipaddr.isValid(host) ||
+    isIP(host.replace(/^\[|\]$/g, "")) ||
     !host.includes(".") ||
     /(^|\.)(localhost|local|internal|invalid|test|example|onion)$/.test(host) ||
     host.endsWith(".home.arpa") ||
@@ -80,37 +35,6 @@ const destination = (value: string | null): URL => {
   url.hostname = host;
   url.hash = "";
   return url;
-};
-
-const publicAddress = (address: string): boolean => {
-  if (!ipaddr.isValid(address)) return false;
-  const ip = ipaddr.parse(address);
-  // Reject mapped/transition addresses too, even when the embedded IPv4 is public.
-  if (ip.range() !== "unicast") return false;
-  return ip.kind() === "ipv4" || IPV6_ALLOCATIONS.some((prefix) => ip.match(prefix));
-};
-
-const validateDns = async (host: string, signal: AbortSignal): Promise<void> => {
-  const answers = await Promise.all(
-    [1, 28].map(async (type) => {
-      const query = new URL("https://cloudflare-dns.com/dns-query");
-      query.searchParams.set("name", host);
-      query.searchParams.set("type", String(type));
-      const response = await fetch(query, {
-        headers: { Accept: "application/dns-json", "User-Agent": USER_AGENT },
-        redirect: "manual",
-        signal,
-      });
-      if (response.status !== 200) throw new Error("DNS lookup failed");
-      const answer = dnsAnswer.parse(await response.json());
-      if (answer.Status !== 0) throw new Refusal(403, "DNS destination unavailable");
-      return (answer.Answer ?? []).filter((record) => record.type === 1 || record.type === 28);
-    }),
-  );
-  const addresses = answers.flat();
-  if (!addresses.length || addresses.some((record) => !publicAddress(record.data))) {
-    throw new Refusal(403, "DNS destination refused");
-  }
 };
 
 // Pull one chunk at a time: no whole-image buffer and no unchecked Content-Length.
@@ -162,15 +86,16 @@ export const serveImageProxy = async (
   request: Request,
   partitionKey: string,
 ): Promise<Response> => {
-  if (request.method !== "GET") {
-    return apiError(405, "MethodNotAllowed", "Load images with GET", {
-      Allow: "GET",
+  if (request.method !== "POST") {
+    return apiError(405, "MethodNotAllowed", "Load images with POST", {
+      Allow: "POST",
       "Cache-Control": "no-store",
     });
   }
   let url: URL;
   try {
-    url = destination(new URL(request.url).searchParams.get("url"));
+    // Invocation logs include request.url: keep the destination only in the body.
+    url = destination(await request.text());
   } catch (error) {
     if (!(error instanceof Refusal)) throw error;
     return apiError(error.status, "ImageRefused", error.message, { "Cache-Control": "no-store" });
@@ -181,7 +106,6 @@ export const serveImageProxy = async (
     const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
     let upstream: Response | undefined;
     try {
-      await validateDns(url.hostname, abort.signal);
       // Workers fetch enforces its own private-network boundary at connection time.
       // Do not use resolveOverride: it cannot pin arbitrary external destinations.
       upstream = await fetch(url, {
@@ -224,7 +148,7 @@ export const serveImageProxy = async (
         return apiError(error.status, "ImageRefused", error.message, {
           "Cache-Control": "no-store",
         });
-      // Fetch/DNS errors can contain the complete tracking URL: never log them.
+      // Fetch errors can contain the complete tracking URL: never log them.
       log.warn("external image attempt failed", { host: url.hostname, attempt });
       if (attempt === MAX_ATTEMPTS)
         return apiError(502, "ImageUnavailable", "Image unavailable after 10 attempts", {

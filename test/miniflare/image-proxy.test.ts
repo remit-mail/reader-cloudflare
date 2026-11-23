@@ -2,21 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { IMAGE_MAX_BYTES, serveImageProxy } from "../../src/image-proxy";
 
 const request = (url: string, init: RequestInit = {}): Request =>
-  new Request(`https://app.remit.test/api/image-proxy?url=${encodeURIComponent(url)}`, init);
+  new Request("https://app.remit.test/api/image-proxy", {
+    method: "POST",
+    body: url,
+    ...init,
+  });
 const image = (headers: Record<string, string> = {}): Response =>
   new Response("image bytes", {
     headers: { "Content-Type": "image/png", ...headers },
   });
 const network = (
   upstream: () => Response | Promise<Response> = image,
-  addresses = ["93.184.215.14"],
 ): ReturnType<typeof vi.fn> => {
-  const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(String(input));
-    if (url.hostname === "cloudflare-dns.com") {
-      const type = Number(url.searchParams.get("type"));
-      return Response.json({ Status: 0, Answer: addresses.map((data) => ({ type, data })) });
-    }
+  const mock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
     expect(init?.redirect).toBe("manual");
     return upstream();
   });
@@ -73,95 +71,6 @@ describe("external image proxy", () => {
       expect((await serveImageProxy(request(url), "tenant")).status).toBe(403);
     }
   });
-  it("refuses DNS private IPv4 with 403 even alongside a public address", async () => {
-    const fetch = network(image, ["93.184.215.14", "10.0.0.1", "172.16.0.1", "192.168.1.1"]);
-    expect((await serveImageProxy(request("https://images.example.org/a"), "tenant")).status).toBe(
-      403,
-    );
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-  it("refuses DNS loopback addresses with 403", async () => {
-    for (const ip of ["127.0.0.1", "::1"]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-  it("refuses DNS link-local addresses with 403", async () => {
-    for (const ip of ["169.254.169.254", "fe80::1"]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-  it("refuses DNS CGNAT addresses with 403", async () => {
-    network(image, ["100.64.0.1"]);
-    expect((await serveImageProxy(request("https://images.example.org/a"), "tenant")).status).toBe(
-      403,
-    );
-  });
-  it("refuses DNS multicast addresses with 403", async () => {
-    for (const ip of ["224.0.0.1", "ff02::1"]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-  it("refuses reserved, documentation, benchmark and unspecified DNS addresses with 403", async () => {
-    for (const ip of [
-      "0.0.0.0",
-      "192.0.0.1",
-      "192.0.2.1",
-      "198.18.0.1",
-      "198.51.100.1",
-      "203.0.113.1",
-      "240.0.0.1",
-      "255.255.255.255",
-      "::",
-      "2001:db8::1",
-      "2001:2::1",
-      "3fff::1",
-      "100::1",
-    ]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-  it("refuses IANA-reserved gaps within global IPv6 space with 403", async () => {
-    for (const ip of ["2000::1", "2001:1000::1", "2004::1", "2d00::1", "3000::1", "3ffe::1"]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-
-  it("refuses unique-local and IPv4-mapped or transition IPv6 DNS addresses with 403", async () => {
-    for (const ip of [
-      "fc00::1",
-      "fd00::1",
-      "::ffff:10.0.0.1",
-      "::ffff:8.8.8.8",
-      "64:ff9b::a00:1",
-      "2002:7f00:1::1",
-    ]) {
-      network(image, [ip]);
-      expect(
-        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
-      ).toBe(403);
-    }
-  });
-  it("refuses empty DNS answers with 403", async () => {
-    network(image, []);
-    expect((await serveImageProxy(request("https://images.example.org/a"), "tenant")).status).toBe(
-      403,
-    );
-  });
   it("refuses redirects without fetching their target", async () => {
     const fetch = network(
       () => new Response(null, { status: 302, headers: { Location: "http://127.0.0.1/secret" } }),
@@ -170,7 +79,7 @@ describe("external image proxy", () => {
     expect(response.status).toBe(403);
     expect(response.headers.has("Location")).toBe(false);
     expect(response.headers.has("X-Remit-Partition")).toBe(false);
-    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it("refuses HTML, missing MIME and SVG with 415", async () => {
     for (const mime of ["text/html", "", "image/svg+xml; charset=utf-8"]) {
@@ -231,11 +140,11 @@ describe("external image proxy", () => {
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(response.headers.has("Set-Cookie")).toBe(false);
     expect(response.headers.has("Location")).toBe(false);
-    const init = fetch.mock.calls[2]?.[1];
+    const init = fetch.mock.calls[0]?.[1];
     expect(init?.headers).toEqual({ "User-Agent": "Remit-Image-Proxy/1.0", Accept: "image/*" });
   });
-  it("allows public IPv6 and HTTP port 80", async () => {
-    network(image, ["2606:4700:4700::1111"]);
+  it("allows HTTP port 80", async () => {
+    network();
     const response = await serveImageProxy(request("http://images.example.org:80/a"), "tenant");
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("image bytes");
@@ -255,28 +164,6 @@ describe("external image proxy", () => {
     await vi.advanceTimersByTimeAsync(15_000);
     await assertion;
     expect(cancelled).toHaveBeenCalledOnce();
-  });
-
-  it("revalidates DNS before a retry and refuses a now-private destination", async () => {
-    vi.useFakeTimers();
-    let imageAttempts = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (new URL(String(input)).hostname === "cloudflare-dns.com") {
-          return Response.json({
-            Status: 0,
-            Answer: [{ type: 1, data: imageAttempts ? "10.0.0.1" : "93.184.215.14" }],
-          });
-        }
-        imageAttempts++;
-        return new Response(null, { status: 503 });
-      }),
-    );
-    const pending = serveImageProxy(request("https://images.example.org/a"), "tenant");
-    await vi.advanceTimersByTimeAsync(100);
-    expect((await pending).status).toBe(403);
-    expect(imageAttempts).toBe(1);
   });
 
   it("logs host only and suppresses upstream errors containing a full URL", async () => {
@@ -300,11 +187,40 @@ describe("external image proxy", () => {
     warn.mockRestore();
   });
 
-  it("refuses methods other than GET with 405", async () => {
-    expect(
-      (await serveImageProxy(request("https://images.example.org/a", { method: "POST" }), "tenant"))
-        .status,
-    ).toBe(405);
+  it("rejects the former GET contract without fetching", async () => {
+    const fetch = network();
+    const response = await serveImageProxy(
+      new Request(
+        "https://app.remit.test/api/image-proxy?url=https%3A%2F%2Fimages.example.org%2Fa",
+      ),
+      "tenant",
+    );
+    expect(response.status).toBe(405);
+    expect(response.headers.get("Allow")).toBe("POST");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("fetches the complete destination from the body while the invocation URL stays fixed", async () => {
+    const fetch = network();
+    const remote =
+      "https://images.example.org/private/path?tracking=secret&signature=signed%2Bvalue";
+    const incoming = request(remote);
+    expect(incoming.method).toBe("POST");
+    expect(incoming.url).toBe("https://app.remit.test/api/image-proxy");
+    const response = await serveImageProxy(incoming, "tenant");
+    expect(await response.text()).toBe("image bytes");
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(remote);
+  });
+  it("requires a body and never reads the destination from the query", async () => {
+    const fetch = network();
+    const response = await serveImageProxy(
+      new Request(
+        "https://app.remit.test/api/image-proxy?url=https%3A%2F%2Fimages.example.org%2Fa",
+        { method: "POST" },
+      ),
+      "tenant",
+    );
+    expect(response.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("backs off exponentially and stops after ten transient upstream failures", async () => {
     vi.useFakeTimers();
@@ -324,17 +240,14 @@ describe("external image proxy", () => {
     }
     const response = await pending;
     expect(response.status).toBe(502);
-    expect(fetch).toHaveBeenCalledTimes(30);
+    expect(fetch).toHaveBeenCalledTimes(10);
   });
   it("times out stalled upstream requests and gives up after ten attempts", async () => {
     vi.useFakeTimers();
     let attempts = 0;
-    network();
-    const dnsFetch = globalThis.fetch;
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        if (new URL(String(input)).hostname === "cloudflare-dns.com") return dnsFetch(input, init);
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
         attempts++;
         return new Promise<Response>((_resolve, reject) =>
           init?.signal?.addEventListener("abort", () => reject(new Error("secret URL"))),
