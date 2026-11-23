@@ -137,9 +137,7 @@ export const accessOffline: OfflineOptions = {
     }
     return session;
   },
-  reauthenticate: () => {
-    renewOnce();
-  },
+  reauthenticate: () => window.location.assign(renewalUrl()),
 };
 
 const signOut = async (): Promise<void> => {

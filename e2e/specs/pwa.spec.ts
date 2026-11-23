@@ -6,9 +6,7 @@ const securityPage = "/settings/security?from=mail#security";
 test.beforeEach(async ({ context, page }) => {
   // Keep the expired-session screen stable while installing the real shell SW.
   await context.addInitScript(() => {
-    if (sessionStorage.getItem("remit-access-renewal-at") === null) {
-      sessionStorage.setItem("remit-access-renewal-at", String(Date.now()));
-    }
+    sessionStorage.setItem("remit-access-renewal-at", String(Date.now()));
   });
   await context.route("**/api/session", (route) => route.fulfill({ status: 401, json: {} }));
   await page.goto("/");
@@ -150,7 +148,6 @@ test("the shared Sign in control renews Access once without signing out", async 
     exact: true,
   });
   await expect(signIn).toBeVisible();
-  await page.evaluate((key) => sessionStorage.removeItem(key), RENEWAL_KEY);
   const navigation = page.waitForNavigation();
   await signIn.click();
   const response = await navigation;
@@ -161,8 +158,6 @@ test("the shared Sign in control renews Access once without signing out", async 
   expect(renewedUrl.searchParams.get("from")).toBe("mail");
   expect(new URL(page.url()).hash).toBe("#security");
   await expect(signIn).toBeVisible();
-  await signIn.click();
-  await expect(signIn).toBeHidden();
   expect(renewals).toHaveLength(1);
   expect(signOutRequests).toEqual([]);
 });

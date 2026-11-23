@@ -264,9 +264,10 @@ which sent the browser to the login host's `/sign-out`. Both that control and
 settings' **Sign in again** now call `AuthProvider.reauthenticate`; `signOut`
 remains the action for intentional logout.
 
-This host binds reauthentication to a guarded top-level navigation to the current
+This host binds reauthentication to a top-level navigation to the current
 page with `reauth=1`, preserving its other query parameters and fragment. Access
 renews through that navigation, using the live login session; background API
 requests do not renew it. The marker bypasses the PWA's cached shell so the
 request reaches Access, and successful session verification removes it. A
-per-tab guard allows one automatic renewal per minute to prevent a redirect loop.
+per-tab guard allows one automatic renewal per minute to prevent a redirect loop;
+explicit recovery always navigates, even after a recent automatic renewal.
