@@ -8,7 +8,7 @@ test.beforeEach(async ({ context, page }) => {
   await context.addInitScript(() => {
     sessionStorage.setItem("remit-access-renewal-at", String(Date.now()));
   });
-  await context.route("**/api/config", (route) => route.fulfill({ status: 401, json: {} }));
+  await context.route("**/api/session", (route) => route.fulfill({ status: 401, json: {} }));
   await page.goto("/");
   await expect
     .poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null), {
@@ -55,22 +55,26 @@ test("an active SW leaves missing icon navigations as 404", async ({ page, reque
 
 test("Access expiry renews through the network with an active SW", async ({ page }) => {
   let expired = false;
-  await page.route("**/api/config", (route) =>
+  await page.route("**/api/session", (route) =>
     route.fulfill({
       status: expired ? 401 : 200,
-      json: expired
-        ? {}
-        : {
-            accounts: [],
-            accountConfig: {
-              accountConfigId: "pwa",
-              userId: "pwa",
-              state: "active",
-              createdAt: 0,
-              updatedAt: 0,
-            },
-            buildCommit: process.env.E2E_COMMIT,
-          },
+      json: expired ? {} : { partitionKey: "pwa" },
+    }),
+  );
+  await page.route("**/api/config", (route) =>
+    route.fulfill({
+      json: {
+        accounts: [],
+        accountConfig: {
+          accountConfigId: "pwa",
+          userId: "pwa",
+          state: "active",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        buildCommit: process.env.E2E_COMMIT,
+      },
+      headers: { "X-Remit-Partition": "pwa" },
     }),
   );
   await page.goto(securityPage);
@@ -79,11 +83,13 @@ test("Access expiry renews through the network with an active SW", async ({ page
   });
   await expect(security).toBeVisible();
   expired = true;
-  const navigation = page.waitForNavigation();
   await page.evaluate((key) => {
     sessionStorage.removeItem(key);
-    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("online"));
   }, RENEWAL_KEY);
+  await expect(page.getByRole("status").filter({ hasText: "session unverified" })).toBeVisible();
+  const navigation = page.waitForNavigation();
+  await page.getByRole("button", { name: "Verify session / sign in" }).click();
   const response = await navigation;
   expect(response?.fromServiceWorker()).toBe(false);
   expect(new URL(page.url()).searchParams.get("reauth")).toBe("1");
@@ -93,6 +99,10 @@ test("Access expiry renews through the network with an active SW", async ({ page
   expired = false;
   await page.reload();
   await expect(security).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Session verified$/ })).toBeVisible();
+  expect(new URL(page.url()).searchParams.has("reauth")).toBe(false);
+  expect(new URL(page.url()).searchParams.get("from")).toBe("mail");
+  expect(new URL(page.url()).hash).toBe("#security");
 });
 
 test("Sign in again reaches the network with an active SW", async ({ page }) => {
@@ -105,3 +115,33 @@ test("Sign in again reaches the network with an active SW", async ({ page }) => 
   expect(response?.fromServiceWorker()).toBe(false);
   expect(new URL(page.url()).searchParams.get("reauth")).toBe("1");
 });
+
+for (const response of [
+  {
+    name: "login HTML",
+    status: 200,
+    contentType: "text/html",
+    body: "<html>Cloudflare Access</html>",
+  },
+  { name: "malformed JSON", status: 200, contentType: "application/json", body: "{" },
+  {
+    name: "empty identity",
+    status: 200,
+    contentType: "application/json",
+    body: '{"partitionKey":""}',
+  },
+  { name: "server failure", status: 503, contentType: "application/json", body: "{}" },
+]) {
+  test(`session verification rejects ${response.name} without authenticating`, async ({ page }) => {
+    await page.route("**/api/session", (route) => route.fulfill(response));
+    await page.goto("/downloads");
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: /^Session verified$/ })).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.has("reauth")).toBe(false);
+    expect(
+      await page.evaluate(async () =>
+        (await caches.keys()).some((name) => name.startsWith("remit-content-")),
+      ),
+    ).toBe(false);
+  });
+}

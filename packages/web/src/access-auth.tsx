@@ -1,7 +1,8 @@
 import { AuthCard, AuthHero, Banner, Button, ButtonLink } from "@remit/ui";
 import type { AuthAccountProps, AuthProvider } from "@remit/web-client/auth/provider";
-import { getRuntimeConfig } from "@remit/web-client/config";
+import { getOfflineRuntime, type OfflineOptions } from "@remit/web-client/offline";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { verifySession } from "./access-session";
 
 type Probe =
   | { readonly state: "checking" }
@@ -13,7 +14,6 @@ const IDENTITY_URL = "/cdn-cgi/access/get-identity";
 const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
 const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
 export const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
-const PROBE_INTERVAL_MS = 5 * 60_000;
 const RENEWAL_KEY = "remit-access-renewal-at";
 const RENEWAL_GUARD_MS = 60_000;
 const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
@@ -24,24 +24,13 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const emailOf = (body: unknown): string | null =>
   isRecord(body) && typeof body.email === "string" ? body.email : null;
 
-const configUrl = (): string => `${getRuntimeConfig().apiUrl}/config`;
-
-const classify = (response: Response): Probe => {
-  if (response.type === "opaqueredirect") return { state: "signedOut" };
-  if (response.status === 401 || response.status === 403) return { state: "signedOut" };
-  if (response.ok) return { state: "ready" };
-  return { state: "failed", detail: `GET ${configUrl()} returned ${response.status}.` };
-};
-
-const unreachable = (error: unknown): Probe => ({
-  state: "failed",
-  detail: `GET ${configUrl()} did not complete: ${error instanceof Error ? error.message : String(error)}.`,
-});
-
 const probeApi = (): Promise<Probe> =>
-  fetch(configUrl(), { credentials: "same-origin", redirect: "manual" }).then(
-    classify,
-    unreachable,
+  verifySession().then(
+    (session) => ({ state: session ? "ready" : "signedOut" }),
+    (error: unknown) => ({
+      state: "failed",
+      detail: error instanceof Error ? error.message : String(error),
+    }),
   );
 
 const reportUrl = (detail: string): string => {
@@ -87,7 +76,7 @@ const Frame = ({ children }: { children: ReactNode }) => (
   </AuthCard>
 );
 
-const AccessShell = ({ children }: { children: ReactNode }) => {
+const AccessSessionGate = ({ children }: { children: ReactNode }) => {
   const [probe, setProbe] = useState<Probe>({ state: "checking" });
 
   const check = useCallback(() => {
@@ -96,24 +85,6 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(check, [check]);
-
-  useEffect(() => {
-    const recheck = () => {
-      if (document.visibilityState !== "visible") return;
-      probeApi().then((next) => {
-        if (next.state === "signedOut" && renewOnce()) return;
-        setProbe((current) =>
-          next.state === "ready" && current.state === "ready" ? current : next,
-        );
-      });
-    };
-    const timer = window.setInterval(recheck, PROBE_INTERVAL_MS);
-    document.addEventListener("visibilitychange", recheck);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", recheck);
-    };
-  }, []);
 
   useEffect(() => {
     if (probe.state === "signedOut") renewOnce();
@@ -151,7 +122,25 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
   );
 };
 
-const signOut = (): void => {
+export const accessOffline: OfflineOptions = {
+  verifySession: async () => {
+    const session = await verifySession();
+    const url = new URL(window.location.href);
+    if (session && url.searchParams.get("reauth") === "1") {
+      url.searchParams.delete("reauth");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+    return session;
+  },
+  reauthenticate: () => window.location.assign(renewalUrl()),
+};
+
+const signOut = async (): Promise<void> => {
+  await getOfflineRuntime()?.removeDownloads();
   window.location.assign(LOGOUT_URL);
 };
 
@@ -174,6 +163,7 @@ export const accessAuthProvider: AuthProvider = {
   configure: () => {},
   getToken: async () => null,
   resetToken: () => {},
-  Shell: AccessShell,
+  Shell: AccessSessionGate,
+  SessionGate: AccessSessionGate,
   Account: AccessAccount,
 };
