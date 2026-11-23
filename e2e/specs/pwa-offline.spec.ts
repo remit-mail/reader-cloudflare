@@ -172,6 +172,10 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     // A manual cross-origin redirect is opaque in Chromium, so it does not
     // expose a 302 response event to Playwright.
     const refused = page.waitForRequest("**/api/session");
+    // Exercise manual recovery when automatic renewal has already run once.
+    await page.evaluate(() =>
+      sessionStorage.setItem("remit-access-renewal-at", String(Date.now())),
+    );
     await context.setOffline(false);
     await refused;
     await unverified(page);
