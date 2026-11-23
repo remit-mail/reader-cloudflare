@@ -1,5 +1,9 @@
 import { mountApp } from "@remit/web-client/shell";
-import { accessAuthProvider } from "./access-auth";
+import { accessAuthProvider, accessOffline } from "./access-auth";
 import { securitySlot } from "./security-slot";
 
-mountApp({ authProvider: accessAuthProvider, settingsSlots: [securitySlot] });
+mountApp({
+  authProvider: accessAuthProvider,
+  offline: accessOffline,
+  settingsSlots: [securitySlot],
+});

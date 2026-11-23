@@ -29,6 +29,9 @@ export const refusalOf = (status: number, body: unknown): Refusal => {
     stringOf(record.message) ||
     stringOf(record.error_description) ||
     stringOf(body) ||
+    (record.error === SIGN_IN_LINK_EXPIRED
+      ? "The authorization request could not be verified."
+      : "") ||
     `The login site refused the request (HTTP ${status}) without saying why.`;
   return {
     ok: false,

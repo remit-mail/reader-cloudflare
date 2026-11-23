@@ -89,10 +89,6 @@ export const ServerError: Story = {
   ),
 };
 
-export const SignInPageExpired: Story = {
-  render: () => <First problem={{ kind: "link-expired" }} />,
-};
-
 export const Refused: Story = {
   render: () => (
     <First

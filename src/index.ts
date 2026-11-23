@@ -22,6 +22,7 @@ import {
   unauthorized,
   withPartition,
 } from "./http";
+import { IMAGE_PROXY_PATH, serveImageProxy } from "./image-proxy";
 import {
   annotateLog,
   currentCorrelationId,
@@ -195,7 +196,9 @@ const authenticated = async (
   path: string,
   serve: Serve,
 ): Promise<Response> => {
-  const result = await requireTenant(request, env, { recordEmail: path !== "/api/session" });
+  const result = await requireTenant(request, env, {
+    recordEmail: path !== "/api/session" && path !== IMAGE_PROXY_PATH,
+  });
   if (!result.ok) {
     log.warn("access denied", { path, reason: result.reason });
     return unauthorized(result.reason);
@@ -259,6 +262,11 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     response.headers.set("Cache-Control", "no-store");
     return response;
   }
+  if (url.pathname === IMAGE_PROXY_PATH) {
+    return authenticated(request, env, url.pathname, async (request, _env, tenant) =>
+      serveImageProxy(request, tenant.accountConfigId),
+    );
+  }
   if (url.pathname.startsWith("/api/")) {
     return authenticated(request, env, url.pathname, serveApi);
   }
@@ -286,6 +294,7 @@ const operationOf = (method: string, url: URL): string => {
 };
 
 const routeOf = (method: string, url: URL): Promise<string> => {
+  if (url.pathname === IMAGE_PROXY_PATH) return Promise.resolve("image-proxy");
   if (url.pathname === "/api/session") return Promise.resolve("session");
   if (url.pathname === LOGIN_MAIL_PATH) return Promise.resolve("login-mail");
   if (url.pathname === MCP_API_PATH) return Promise.resolve("mcp-api");

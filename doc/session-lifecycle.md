@@ -13,9 +13,8 @@ not establish which path each historical incident took without a browser trace.
    `dist/src/lib/network-error.js:61` deliberately uses manual redirects to avoid
    a cross-origin login redirect failing CORS. It maps `opaqueredirect` to 401.
 3. `dist/src/lib/escalate.js:10` reports that 401 as signed out. The Access shell
-   only probes on mount, visibility changes and every five minutes (baseline
-   `packages/web/src/access-auth.tsx:100`), leaving the shared overlay reachable
-   before the next probe starts renewal.
+   did not prevent the shared overlay from receiving that failure before
+   renewal. The current shell probes `/api/session` on mount and explicit retry.
 4. The shared `dist/src/components/ui/SignedOutOverlay.js:27` calls the provider's
    **signOut** when the user clicks **Sign in**. The Cloudflare provider supplies
    `/sign-out` on the login host (baseline `packages/web/src/access-auth.tsx:154`).
@@ -30,9 +29,10 @@ not establish which path each historical incident took without a browser trace.
    package also uses the provider's signOut callback.
 
 The shared UI package lives in `remit-mail/reader-ui`, rather than `reader`.
-The fix belongs in this composition root: it must renew Access before a generic
-401 recovery surface receives control. No package change or dependency bump is
-needed.
+reader-ui#68 (tag `ui-v0.2.32`) fixes the shared recovery contract: both
+controls call `AuthProvider.reauthenticate`, while `Account.signOut` remains
+reserved for intentional logout. This host binds reauthentication to Access
+renewal without deleting the live login session.
 
 ## Lifecycle checks
 
@@ -65,11 +65,12 @@ needed.
   The old local `packages/web/src/stale-build.ts` has moved into the shared
   client. PWA build updates use its worker coordinator; neither update path
   deletes login sessions or OAuth tokens.
-- **Offline contract:** #194 supplies authenticated, no-store `/api/session`
-  (`src/index.ts:242`). The pinned web-client version has no offline runtime or
-  host `verifySession` wiring. The newer reader-ui offline runtime requires a
-  fresh host verification, deduplicates it within a tab, and treats a null result
-  as unverified, not a login-session deletion. It is not executing in this build.
+- **Offline contract:** The host verifies authenticated, no-store `/api/session`
+  for the shell and offline runtime. The runtime requires fresh host verification,
+  deduplicates it within a tab, and treats a null result as unverified. Successful
+  verification removes `reauth=1` from the address. Offline recovery uses the same
+  guarded renewal navigation as shared sign-in recovery; intentional logout
+  removes downloads before visiting the login host.
 - **Concurrency and clocks:** Tabs share the opaque login cookie and can authorize
   concurrently; the service worker does not run a token refresh. Renewal is
   guarded per tab for a minute. A stored future timestamp previously suppressed
@@ -84,22 +85,20 @@ needed.
 
 ## Fix and verification
 
-`access-session.ts` installs the host's fetch boundary at provider configuration.
-It covers same-origin API, mail-content, export and upload fetches, including
-both the generated API client and raw fetches. Before returning a 401 or opaque
-redirect to a caller it signals the Access shell and starts the existing marked
-top-level renewal. The shell removes shared recovery controls, even when the
-navigation guard requires the explicit renewal link. A late successful probe
-cannot reopen the old document's signed-out shell. Other origins and OAuth
-endpoints retain their transport behavior; denials, throttling, server errors
-and network failures retain their original outcomes. No request is replayed.
+`accessAuthProvider.reauthenticate` and offline recovery call the existing
+marked top-level renewal navigation, preserving the current path, query and
+fragment. A session-storage guard permits one navigation per tab per minute,
+including when several recovery controls activate together. A backwards clock
+correction does not suppress renewal indefinitely. The existing shell probe
+remains; no global fetch interception, custom event bridge or additional
+signed-out state is needed.
 
-`test/access-session.test.ts` reproduces expired redirect and direct-401
-responses, with concurrent generated/raw requests and one renewal navigation.
-The three expiry cases fail with the former pass-through transport and pass with
-the fix. The tests also check request/body/CSRF-header preservation, non-auth
-failures, origin scoping and a backwards clock correction. The login tests
-exercise actual Better Auth/D1 authorization, cookie renewal and code exchange.
+`test/web/access-recovery.test.ts` renders the published shared SignedOutOverlay
+with the host provider, activates its real **Sign in** control twice, and checks
+that Access renewal runs once and `signOut` never runs. The `/api/session` tests
+retain coverage for manual redirects, authentication refusals and malformed or
+failed verification responses. The login tests exercise actual Better Auth/D1
+authorization, cookie renewal and code exchange.
 
 Access policies, Tofu configuration, token signature checks, CSRF and login
 brute-force limits are unchanged. Validation does not include a live browser
