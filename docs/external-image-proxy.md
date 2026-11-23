@@ -11,7 +11,10 @@ credentials. IP literals (including URL-normalized numeric forms), single-label
 names, localhost and reserved local suffixes are refused. Both A and AAAA DNS
 answers must contain only public unicast addresses; mapped/transition IPv6,
 private, CGNAT, loopback, link-local, multicast, documentation and other reserved
-ranges are refused. DNS is checked anew on every attempt. Redirects are refused.
+ranges are refused. IPv6 must also match an allocated global prefix from the
+[IANA registry](https://www.iana.org/assignments/ipv6-unicast-address-assignments/);
+the allowlist must be updated when new prefixes are allocated. DNS is checked
+anew on every attempt. Redirects are refused.
 The resolver is Cloudflare's fixed DNS-over-HTTPS endpoint. The final connection
 uses Workers fetch's network isolation; there is no arbitrary-host IP-pinning
 API in fetch. `cf.resolveOverride` is restricted to hosts in the same zone and

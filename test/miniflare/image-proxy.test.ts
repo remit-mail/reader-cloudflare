@@ -47,8 +47,7 @@ describe("external image proxy", () => {
   });
   it("refuses embedded credentials with 403", async () => {
     expect(
-      (await serveImageProxy(request("https://user:password@images.example.org/a.png"), "tenant"))
-        .status,
+      (await serveImageProxy(request("https://user:password@example.org/a.png"), "tenant")).status,
     ).toBe(403);
   });
   it("refuses public and alternate-form IP literals with 403", async () => {
@@ -133,6 +132,15 @@ describe("external image proxy", () => {
       ).toBe(403);
     }
   });
+  it("refuses IANA-reserved gaps within global IPv6 space with 403", async () => {
+    for (const ip of ["2000::1", "2001:1000::1", "2004::1", "2d00::1", "3000::1", "3ffe::1"]) {
+      network(image, [ip]);
+      expect(
+        (await serveImageProxy(request("https://images.example.org/a"), "tenant")).status,
+      ).toBe(403);
+    }
+  });
+
   it("refuses unique-local and IPv4-mapped or transition IPv6 DNS addresses with 403", async () => {
     for (const ip of [
       "fc00::1",

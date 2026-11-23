@@ -8,6 +8,45 @@ export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 const MAX_ATTEMPTS = 10;
 const USER_AGENT = "Remit-Image-Proxy/1.0";
+// ipaddr's "unicast" also includes unallocated IPv6. Fail closed to IANA's
+// allocated global prefixes; update when IANA makes a new allocation.
+// https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+const IPV6_ALLOCATIONS = [
+  "2001:200::/23",
+  "2001:400::/23",
+  "2001:600::/23",
+  "2001:800::/22",
+  "2001:c00::/23",
+  "2001:e00::/23",
+  "2001:1200::/23",
+  "2001:1400::/22",
+  "2001:1800::/23",
+  "2001:1a00::/23",
+  "2001:1c00::/22",
+  "2001:2000::/19",
+  "2001:4000::/23",
+  "2001:4200::/23",
+  "2001:4400::/23",
+  "2001:4600::/23",
+  "2001:4800::/23",
+  "2001:4a00::/23",
+  "2001:4c00::/23",
+  "2001:5000::/20",
+  "2001:8000::/19",
+  "2001:a000::/20",
+  "2001:b000::/20",
+  "2003::/18",
+  "2400::/12",
+  "2410::/12",
+  "2600::/12",
+  "2610::/23",
+  "2620::/23",
+  "2630::/12",
+  "2800::/12",
+  "2a00::/12",
+  "2a10::/12",
+  "2c00::/12",
+].map((prefix) => ipaddr.IPv6.parseCIDR(prefix));
 const dnsAnswer = z.object({
   Status: z.number(),
   Answer: z.array(z.object({ type: z.number(), data: z.string() })).optional(),
@@ -48,7 +87,7 @@ const publicAddress = (address: string): boolean => {
   const ip = ipaddr.parse(address);
   // Reject mapped/transition addresses too, even when the embedded IPv4 is public.
   if (ip.range() !== "unicast") return false;
-  return ip.kind() === "ipv4" || ((ip.toByteArray()[0] ?? 0) & 0xe0) === 0x20;
+  return ip.kind() === "ipv4" || IPV6_ALLOCATIONS.some((prefix) => ip.match(prefix));
 };
 
 const validateDns = async (host: string, signal: AbortSignal): Promise<void> => {
