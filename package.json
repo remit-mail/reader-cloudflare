@@ -39,6 +39,7 @@
     "builds:log": "node npm-scripts/builds.mjs log",
     "builds:retry": "node npm-scripts/builds-retry.mjs",
     "e2e": "node npm-scripts/e2e.mjs",
+    "e2e:upgrade": "tsx npm-scripts/e2e-upgrade.ts",
     "e2e:login": "node npm-scripts/e2e-login.mjs",
     "dashboards": "node npm-scripts/dashboards.mjs",
     "access-env:write": "node npm-scripts/access-env-write.mjs",

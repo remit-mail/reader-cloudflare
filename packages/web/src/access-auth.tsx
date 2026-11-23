@@ -126,6 +126,9 @@ const AccessSessionGate = ({ children }: { children: ReactNode }) => {
 export const accessOffline: OfflineOptions = {
   verifySession: async () => {
     const session = await verifySession();
+    // Remembered downloads bypass AccessSessionGate. Renew the Access cookie
+    // here too, otherwise a cached shell leaves online users in read-only mode.
+    if (!session && navigator.onLine) renewOnce();
     const url = new URL(window.location.href);
     if (session && url.searchParams.get("reauth") === "1") {
       url.searchParams.delete("reauth");
