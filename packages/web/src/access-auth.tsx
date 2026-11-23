@@ -50,7 +50,8 @@ const renewalUrl = (): string => {
 const renewedRecently = (): boolean => {
   try {
     const last = Number(window.sessionStorage.getItem(RENEWAL_KEY) ?? "0");
-    return Date.now() - last < RENEWAL_GUARD_MS;
+    const elapsed = Date.now() - last;
+    return elapsed >= 0 && elapsed < RENEWAL_GUARD_MS;
   } catch {
     return true;
   }
@@ -160,6 +161,7 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
 };
 
 export const accessAuthProvider: AuthProvider = {
+  reauthenticate: accessOffline.reauthenticate,
   configure: () => {},
   getToken: async () => null,
   resetToken: () => {},

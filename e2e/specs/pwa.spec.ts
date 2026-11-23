@@ -121,6 +121,47 @@ test("Sign in again reaches the network with an active SW", async ({ page }) => 
   expect(new URL(page.url()).searchParams.get("reauth")).toBe("1");
 });
 
+test("the shared Sign in control renews Access once without signing out", async ({
+  context,
+  page,
+}) => {
+  const session = await page.request.get("/api/session");
+  expect(session.status()).toBe(200);
+  const { partitionKey } = (await session.json()) as { partitionKey: string };
+  await page.route("**/api/session", (route) => route.fulfill({ json: { partitionKey } }));
+  // Settings' People lookup raises the real shared signed-out overlay.
+  await page.route("**/api/people", (route) =>
+    route.fulfill({ status: 403, json: { code: "caller_disabled" } }),
+  );
+  const signOutRequests: string[] = [];
+  const renewals: string[] = [];
+  context.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/sign-out") signOutRequests.push(request.url());
+    if (request.isNavigationRequest() && url.searchParams.get("reauth") === "1") {
+      renewals.push(request.url());
+    }
+  });
+  await page.goto(securityPage);
+  const signIn = page.getByRole("alertdialog").getByRole("button", {
+    name: "Sign in",
+    exact: true,
+  });
+  await expect(signIn).toBeVisible();
+  const navigation = page.waitForNavigation();
+  await signIn.click();
+  const response = await navigation;
+  expect(response?.fromServiceWorker()).toBe(false);
+  const renewedUrl = new URL(response?.url() ?? "");
+  expect(renewedUrl.pathname).toBe("/settings/security");
+  expect(renewedUrl.searchParams.get("reauth")).toBe("1");
+  expect(renewedUrl.searchParams.get("from")).toBe("mail");
+  expect(new URL(page.url()).hash).toBe("#security");
+  await expect(signIn).toBeVisible();
+  expect(renewals).toHaveLength(1);
+  expect(signOutRequests).toEqual([]);
+});
+
 for (const response of [
   {
     name: "login HTML",
