@@ -4,7 +4,6 @@ import {
   type BannerTone,
   Button,
   Card,
-  Checkbox,
   FieldLabel,
   Input,
   type InputProps,
@@ -210,7 +209,6 @@ export const BackupCodeList = ({
   doneLabel: string;
   onDone: () => void;
 }) => {
-  const [saved, setSaved] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   const copy = () => {
@@ -246,12 +244,7 @@ export const BackupCodeList = ({
           {status}
         </span>
       </div>
-      <Checkbox
-        label="I saved my backup codes"
-        checked={saved}
-        onChange={(event) => setSaved(event.currentTarget.checked)}
-      />
-      <Button disabled={!saved} onClick={onDone} className="w-full">
+      <Button onClick={onDone} className="w-full">
         {doneLabel}
       </Button>
     </div>

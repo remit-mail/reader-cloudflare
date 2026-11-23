@@ -148,7 +148,7 @@ test("a replaced invite mails a fresh one, a reload drops the token, and the app
   await waitForInvite(request, renewed, OPERATOR);
 
   await openLink(page, first);
-  await expect(page.getByRole("heading", { name: "This invite has expired" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "This invite no longer works" })).toBeVisible();
   const button = page.getByRole("button", { name: "Email me a fresh invite" });
   await expect(button).toBeFocused();
   const resent = sentMails().length;
@@ -174,7 +174,6 @@ test("a replaced invite mails a fresh one, a reload drops the token, and the app
   authenticator = await enrollApp(page);
 
   await expect(page.getByRole("heading", { name: "Save your backup codes" })).toBeVisible();
-  await page.getByLabel("I saved my backup codes").check();
   await holdOpeningRemit(page);
   await page.getByRole("button", { name: "Continue to remit" }).click();
   await expectOpeningRemit(page);
@@ -228,7 +227,7 @@ test("a reset link with no second step opens remit", async ({ page }) => {
   await expectOpeningRemit(page);
 });
 
-test("security adds an app after skip, and a confirm resumes it", async ({ page }) => {
+test("security adds an app after skip without re-confirming sign-in", async ({ page }) => {
   await page.context().clearCookies();
   await signIn(page, NEWCOMER, NEWCOMER_RESET_PASSWORD);
   await page.waitForURL((url) => url.href.startsWith(REDIRECT_URI));
@@ -236,19 +235,13 @@ test("security adds an app after skip, and a confirm resumes it", async ({ page 
   await page.goto(`${BASE_URL}/security`);
   const addApp = page.getByRole("button", { name: "Add an authenticator app" });
   await addApp.click();
-  await expect(page.getByRole("dialog", { name: "Confirm it is you" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(addApp).toBeFocused();
-
-  await addApp.click();
-  await expect(page.getByRole("dialog", { name: "Confirm it is you" })).toBeVisible();
-  await expect(page.locator("#password")).toBeFocused();
-  await page.locator("#password").fill(NEWCOMER_RESET_PASSWORD);
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Add an authenticator app" })).toBeVisible();
+  await expect(page.locator("#password")).toHaveCount(0);
   await enrollApp(page);
   await expect(page.getByRole("dialog", { name: "Your new backup codes" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 test("a reset link on an app account lands on the second step", async ({ page }) => {

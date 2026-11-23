@@ -46,11 +46,6 @@ describe("password rules", () => {
     const email = uniqueEmail("change");
     const user = await createUser(email, { password: PASSWORD });
     const session = await signIn(user.id);
-    const confirmed = await call("/app/security/confirm", {
-      cookie: session.cookie,
-      body: { password: PASSWORD },
-    });
-    expect(confirmed.status).toBe(200);
     const changed = await call("/api/auth/change-password", {
       cookie: session.cookie,
       body: { currentPassword: PASSWORD, newPassword: PWNED },
@@ -77,7 +72,7 @@ describe("password rules", () => {
     expect(reset.status).toBe(200);
   });
 
-  it("signs the invitee in so the second step can still confirm the password", async () => {
+  it("signs the invitee in so they can add an authenticator app", async () => {
     mockPwnedPasswords([]);
     const password = "a fresh password for the welcome flow";
     const { token } = await issueInvite(testEnv.DB, uniqueEmail("second-step"), "test");
@@ -87,11 +82,8 @@ describe("password rules", () => {
       body: { password },
     });
     expect(welcomed.status).toBe(200);
-    const confirmed = await call("/app/security/confirm", {
-      cookie: cookiesOf(welcomed),
-      body: { password },
-    });
-    expect(confirmed.status).toBe(200);
+    const enrolled = await call("/app/second-step/app", { cookie: cookiesOf(welcomed), body: {} });
+    expect(enrolled.status).toBe(200);
   });
 
   it("sets nothing when the range API is unreachable", async () => {

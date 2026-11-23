@@ -41,13 +41,12 @@ const View = ({
     busy={false}
     onOpen={noop}
     onClose={noop}
-    onConfirmPassword={hold}
-    onConfirmPasskey={noop}
+    onSignOutEverywhere={noop}
     onRemovePasskey={noop}
     onAddPasskey={noop}
     onChangePassword={hold}
-    onNewCodes={hold}
-    onTurnOff={hold}
+    onNewCodes={noop}
+    onTurnOff={noop}
     addApp={null}
     mailSecurityUrl="http://localhost:8790/settings/security"
   />
@@ -57,25 +56,8 @@ export const Overview: Story = {
   render: () => <View />,
 };
 
-export const ConfirmItsYou: Story = {
-  render: () => (
-    <View
-      account={{ ...ACCOUNT, app: false, passkeys: [] }}
-      dialog={{ kind: "confirm", error: null }}
-    />
-  ),
-};
-
 export const NewBackupCodes: Story = {
   render: () => <View dialog={{ kind: "codes", codes: CODES }} />,
-};
-
-export const TurnOffApp: Story = {
-  render: () => <View dialog={{ kind: "turn-off" }} />,
-};
-
-export const SignOutEverywhere: Story = {
-  render: () => <View dialog={{ kind: "sign-out-everywhere" }} />,
 };
 
 export const NoPasskeySupport: Story = {
