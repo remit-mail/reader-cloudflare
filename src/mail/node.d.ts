@@ -1,4 +1,5 @@
 declare module "node:net" {
+  export function isIP(input: string): 0 | 4 | 6;
   const net: { connect(options: { host: string; port: number }): unknown };
   export default net;
 }
