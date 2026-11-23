@@ -2,6 +2,13 @@ import { AuthCard, AuthHero, Banner, Button, ButtonLink } from "@remit/ui";
 import type { AuthAccountProps, AuthProvider } from "@remit/web-client/auth/provider";
 import { getRuntimeConfig } from "@remit/web-client/config";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  ACCESS_EXPIRED,
+  accessExpired,
+  configureAccessSession,
+  renewalUrl,
+  renewOnce,
+} from "./access-session";
 
 type Probe =
   | { readonly state: "checking" }
@@ -14,8 +21,6 @@ const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
 const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
 export const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
 const PROBE_INTERVAL_MS = 5 * 60_000;
-const RENEWAL_KEY = "remit-access-renewal-at";
-const RENEWAL_GUARD_MS = 60_000;
 const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -27,8 +32,7 @@ const emailOf = (body: unknown): string | null =>
 const configUrl = (): string => `${getRuntimeConfig().apiUrl}/config`;
 
 const classify = (response: Response): Probe => {
-  if (response.type === "opaqueredirect") return { state: "signedOut" };
-  if (response.status === 401 || response.status === 403) return { state: "signedOut" };
+  if (accessExpired(response)) return { state: "signedOut" };
   if (response.ok) return { state: "ready" };
   return { state: "failed", detail: `GET ${configUrl()} returned ${response.status}.` };
 };
@@ -39,7 +43,7 @@ const unreachable = (error: unknown): Probe => ({
 });
 
 const probeApi = (): Promise<Probe> =>
-  fetch(configUrl(), { credentials: "same-origin", redirect: "manual" }).then(
+  fetch(configUrl(), { credentials: "same-origin", redirect: "manual", cache: "no-store" }).then(
     classify,
     unreachable,
   );
@@ -50,32 +54,6 @@ const reportUrl = (detail: string): string => {
     body: `${detail}\n\nPage: ${window.location.href}`,
   });
   return `${ISSUES_URL}?${params.toString()}`;
-};
-
-const renewalUrl = (): string => {
-  const url = new URL(window.location.href);
-  url.searchParams.set("reauth", "1");
-  return `${url.pathname}${url.search}${url.hash}`;
-};
-
-const renewedRecently = (): boolean => {
-  try {
-    const last = Number(window.sessionStorage.getItem(RENEWAL_KEY) ?? "0");
-    return Date.now() - last < RENEWAL_GUARD_MS;
-  } catch {
-    return true;
-  }
-};
-
-const renewOnce = (): boolean => {
-  if (renewedRecently()) return false;
-  try {
-    window.sessionStorage.setItem(RENEWAL_KEY, String(Date.now()));
-  } catch {
-    return false;
-  }
-  window.location.replace(renewalUrl());
-  return true;
 };
 
 const Frame = ({ children }: { children: ReactNode }) => (
@@ -92,7 +70,15 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
 
   const check = useCallback(() => {
     setProbe({ state: "checking" });
-    probeApi().then(setProbe);
+    probeApi().then((next) =>
+      setProbe((current) => (current.state === "signedOut" ? current : next)),
+    );
+  }, []);
+
+  useEffect(() => {
+    const expired = () => setProbe({ state: "signedOut" });
+    window.addEventListener(ACCESS_EXPIRED, expired);
+    return () => window.removeEventListener(ACCESS_EXPIRED, expired);
   }, []);
 
   useEffect(check, [check]);
@@ -103,7 +89,9 @@ const AccessShell = ({ children }: { children: ReactNode }) => {
       probeApi().then((next) => {
         if (next.state === "signedOut" && renewOnce()) return;
         setProbe((current) =>
-          next.state === "ready" && current.state === "ready" ? current : next,
+          current.state === "signedOut" || (next.state === "ready" && current.state === "ready")
+            ? current
+            : next,
         );
       });
     };
@@ -171,7 +159,7 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
 };
 
 export const accessAuthProvider: AuthProvider = {
-  configure: () => {},
+  configure: configureAccessSession,
   getToken: async () => null,
   resetToken: () => {},
   Shell: AccessShell,
