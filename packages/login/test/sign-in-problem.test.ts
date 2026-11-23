@@ -15,8 +15,11 @@ describe("sign-in page messages", () => {
     ).toBe("wrong");
   });
 
-  it("reads an expired sign-in page as expired", () => {
-    expect(kindFor(400, { error: "invalid_signature" })).toBe("link-expired");
+  it("reports a signature refusal that could not be renewed", () => {
+    expect(kindFor(400, { error: "invalid_signature" })).toBe("refused");
+    expect(noticeFor(400, { error: "invalid_signature" })?.body).toContain(
+      "The authorization request could not be verified.",
+    );
   });
 
   it("reads a backoff as locked", () => {

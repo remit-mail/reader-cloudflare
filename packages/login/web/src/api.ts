@@ -116,10 +116,6 @@ export const leave = async (answer: Answer): Promise<string | null> => {
     window.location.assign(answer.body.url);
     return null;
   }
-  if (oauthQuery() !== undefined) {
-    restartAuthorize();
-    return null;
-  }
   const origin = await readerOriginOf().then(
     (found): { readonly found: string } | { readonly failure: string } => ({ found }),
     (error: unknown) => ({ failure: error instanceof Error ? error.message : String(error) }),
