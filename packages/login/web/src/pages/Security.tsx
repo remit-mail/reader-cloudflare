@@ -1,11 +1,10 @@
 import { Button, ButtonLink, Card, Dialog } from "@remit/ui/auth";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 import { type Answer, FAILURE_EVENT, get, leave, post, readerOriginOf } from "../api";
-import { addPasskey, assertPasskey, passkeysSupported } from "../passkeys";
+import { addPasskey, passkeysSupported } from "../passkeys";
 import {
   BackupCodeList,
   Failure,
-  Field,
   Form,
   focusOnMount,
   Muted,
@@ -47,14 +46,10 @@ const loadAccount = async (): Promise<Account | null | string> => {
 };
 
 export type SecurityDialog =
-  | { readonly kind: "confirm"; readonly error: string | null }
   | { readonly kind: "remove-passkey"; readonly passkey: Passkey }
   | { readonly kind: "change-password" }
-  | { readonly kind: "new-codes" }
   | { readonly kind: "codes"; readonly codes: readonly string[] }
-  | { readonly kind: "turn-off" }
-  | { readonly kind: "add-app" }
-  | { readonly kind: "sign-out-everywhere" };
+  | { readonly kind: "add-app" };
 
 export interface SecurityFailure {
   readonly title: string;
@@ -70,13 +65,12 @@ export interface SecurityViewProps {
   readonly busy: boolean;
   readonly onOpen: (dialog: SecurityDialog) => void;
   readonly onClose: () => void;
-  readonly onConfirmPassword: (event: FormEvent<HTMLFormElement>) => void;
-  readonly onConfirmPasskey: () => void;
   readonly onRemovePasskey: (passkey: Passkey) => void;
   readonly onAddPasskey: () => void;
   readonly onChangePassword: (event: FormEvent<HTMLFormElement>) => void;
-  readonly onNewCodes: (event: FormEvent<HTMLFormElement>) => void;
-  readonly onTurnOff: (event: FormEvent<HTMLFormElement>) => void;
+  readonly onNewCodes: () => void;
+  readonly onTurnOff: () => void;
+  readonly onSignOutEverywhere: () => void;
   readonly addApp: ReactNode;
   readonly mailSecurityUrl: string | null;
 }
@@ -137,82 +131,10 @@ const Cancel = ({ onClose, focus }: { onClose: () => void; focus?: boolean }) =>
   </Button>
 );
 
-const noop = () => undefined;
-
-const SignOutEverywhereForm = ({ onClose }: { onClose: () => void }) => {
-  const [busy, setBusy] = useState(false);
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-    if (busy) return;
-    setBusy(true);
-    void post("/app/sign-out-everywhere").then(async (answer) => {
-      const failure = answer.ok ? await leave(answer) : answer.message;
-      if (failure === null) return;
-      setBusy(false);
-      window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
-    });
-  };
-  return (
-    <form onSubmit={onSubmit} className="flex gap-2">
-      <Button type="submit" variant="danger" disabled={busy}>
-        Sign out everywhere
-      </Button>
-      <Cancel onClose={onClose} focus />
-    </form>
-  );
-};
-
 const DialogBody = ({ props }: { props: SecurityViewProps }) => {
-  const { dialog, account, busy, onClose } = props;
+  const { dialog, busy, onClose } = props;
   if (dialog === null) return null;
   switch (dialog.kind) {
-    case "confirm":
-      return (
-        <SecurityDialogFrame title="Confirm it is you" onClose={onClose}>
-          <Muted>
-            {account.app
-              ? "Type the code from your authenticator app or use a passkey. Your change then runs."
-              : "Type your password or use a passkey. Your change then runs."}
-          </Muted>
-          {account.app || account.passkeys.length === 0 ? (
-            <Form onSubmit={props.onConfirmPassword}>
-              {account.app ? (
-                <Field
-                  id="code"
-                  label="Code from your authenticator app"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  className="font-mono"
-                  required
-                  ref={focusOnMount}
-                  error={dialog.error}
-                />
-              ) : (
-                <PasswordField
-                  id="password"
-                  label="Password"
-                  autoComplete="current-password"
-                  placeholder="Your password"
-                  required
-                  ref={focusOnMount}
-                  error={dialog.error}
-                />
-              )}
-              <Submit disabled={busy}>Confirm</Submit>
-            </Form>
-          ) : dialog.error ? (
-            <Failure message={dialog.error} />
-          ) : null}
-          <div className="flex gap-2">
-            {account.passkeys.length > 0 ? (
-              <Button variant="secondary" onClick={props.onConfirmPasskey} disabled={busy}>
-                Use a passkey
-              </Button>
-            ) : null}
-            <Cancel onClose={onClose} />
-          </div>
-        </SecurityDialogFrame>
-      );
     case "remove-passkey":
       return (
         <SecurityDialogFrame title={`Remove the passkey ${dialog.passkey.name}?`} onClose={onClose}>
@@ -255,67 +177,17 @@ const DialogBody = ({ props }: { props: SecurityViewProps }) => {
           <Cancel onClose={onClose} />
         </SecurityDialogFrame>
       );
-    case "new-codes":
-      return (
-        <SecurityDialogFrame title="Make new backup codes" onClose={onClose}>
-          <Muted>Your old codes stop working. Type your password to continue.</Muted>
-          <Form onSubmit={props.onNewCodes}>
-            <PasswordField
-              id="password"
-              label="Password"
-              autoComplete="current-password"
-              required
-              ref={focusOnMount}
-            />
-            <Submit disabled={busy}>Make new codes</Submit>
-          </Form>
-          <Cancel onClose={onClose} />
-        </SecurityDialogFrame>
-      );
     case "codes":
       return (
-        <SecurityDialogFrame title="Your new backup codes" onClose={noop}>
+        <SecurityDialogFrame title="Your new backup codes" onClose={onClose}>
           <Notice title="Your old codes no longer work">You see these codes only now.</Notice>
           <BackupCodeList codes={dialog.codes} doneLabel="Done" onDone={onClose} />
-        </SecurityDialogFrame>
-      );
-    case "turn-off":
-      return (
-        <SecurityDialogFrame title="Turn off the authenticator app?" onClose={onClose}>
-          <Text>
-            Sign-in then asks only for your password or a passkey. Your backup codes stop working
-            too.
-          </Text>
-          <Form onSubmit={props.onTurnOff}>
-            <PasswordField
-              id="password"
-              label="Password"
-              autoComplete="current-password"
-              required
-            />
-            <div className="flex gap-2">
-              <Button type="submit" variant="danger" disabled={busy}>
-                Turn off
-              </Button>
-              <Cancel onClose={onClose} focus />
-            </div>
-          </Form>
         </SecurityDialogFrame>
       );
     case "add-app":
       return (
         <SecurityDialogFrame title="Add an authenticator app" onClose={onClose}>
           {props.addApp}
-        </SecurityDialogFrame>
-      );
-    case "sign-out-everywhere":
-      return (
-        <SecurityDialogFrame title="Sign out everywhere?" onClose={onClose}>
-          <Text>
-            This device signs out now. Every other device and browser signs out within 15 minutes.
-            Your password and passkeys stay as they are.
-          </Text>
-          <SignOutEverywhereForm onClose={onClose} />
         </SecurityDialogFrame>
       );
   }
@@ -375,11 +247,13 @@ export const SecurityView = (props: SecurityViewProps) => {
           <>
             <Row
               title="On"
-              action={<Action onClick={() => onOpen({ kind: "turn-off" })}>Turn off</Action>}
+              sub="Turning off also removes your backup codes"
+              action={<Action onClick={props.onTurnOff}>Turn off</Action>}
             />
             <Row
               title="Backup codes"
-              action={<Action onClick={() => onOpen({ kind: "new-codes" })}>Make new codes</Action>}
+              sub="Making new codes replaces your old codes"
+              action={<Action onClick={props.onNewCodes}>Make new codes</Action>}
             />
           </>
         ) : (
@@ -406,9 +280,14 @@ export const SecurityView = (props: SecurityViewProps) => {
           title="Every device and browser"
           sub="Other devices sign out within 15 minutes"
           action={
-            <Action danger onClick={() => onOpen({ kind: "sign-out-everywhere" })}>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={props.busy}
+              onClick={props.onSignOutEverywhere}
+            >
               Sign out everywhere
-            </Action>
+            </Button>
           }
         />
       </Section>
@@ -424,7 +303,6 @@ export const Security = () => {
   const [dialog, setDialog] = useState<SecurityDialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [mailSecurityUrl, setMailSecurityUrl] = useState<string | null>(null);
-  const pending = useRef<(() => Promise<unknown>) | null>(null);
 
   const reload = useCallback(() => {
     loadAccount().then(setAccount);
@@ -447,11 +325,6 @@ export const Security = () => {
     const answer = await change();
     setBusy(false);
     if (!answer.ok) {
-      if (answer.code === "REAUTHENTICATE") {
-        pending.current = () => run(change, success, failedTitle);
-        setDialog({ kind: "confirm", error: null });
-        return answer;
-      }
       setDialog(null);
       setFailure({ title: failedTitle, message: answer.message });
       return answer;
@@ -485,60 +358,15 @@ export const Security = () => {
     );
   }
 
-  const confirmed = async (answer: Answer) => {
-    if (!answer.ok) {
-      setDialog({ kind: "confirm", error: answer.message });
-      return;
+  const securityAction = (path: string, success: string, failedTitle: string) => async () => {
+    const answer = await run(() => post(path), success, failedTitle);
+    if (answer.ok && Array.isArray(answer.body.backupCodes)) {
+      setDialog({
+        kind: "codes",
+        codes: answer.body.backupCodes.filter((code): code is string => typeof code === "string"),
+      });
     }
-    setDialog(null);
-    setFailure(null);
-    const resume = pending.current;
-    pending.current = null;
-    if (resume === null) {
-      setNotice("Confirmed for 5 minutes.");
-      return;
-    }
-    await resume();
   };
-
-  const confirmPassword = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const body = account.app
-      ? { totpCode: String(form.get("code") ?? "").trim() }
-      : { password: form.get("password") };
-    setBusy(true);
-    const answer = await post("/app/security/confirm", body);
-    setBusy(false);
-    await confirmed(answer);
-  };
-
-  const confirmPasskey = async () => {
-    setBusy(true);
-    const asserted = await assertPasskey();
-    if (!asserted.ok) {
-      setBusy(false);
-      setDialog({ kind: "confirm", error: asserted.answer.message });
-      return;
-    }
-    const answer = await post("/app/security/confirm", { passkey: asserted.assertion });
-    setBusy(false);
-    await confirmed(answer);
-  };
-
-  const withPassword =
-    (path: string, success: string, failedTitle: string) =>
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const password = new FormData(event.currentTarget).get("password");
-      const answer = await run(() => post(path, { password }), success, failedTitle);
-      if (answer.ok && Array.isArray(answer.body.backupCodes)) {
-        setDialog({
-          kind: "codes",
-          codes: answer.body.backupCodes.filter((code): code is string => typeof code === "string"),
-        });
-      }
-    };
 
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -564,12 +392,15 @@ export const Security = () => {
       dialog={dialog}
       busy={busy}
       onOpen={setDialog}
-      onClose={() => {
-        pending.current = null;
-        setDialog(null);
+      onClose={() => setDialog(null)}
+      onSignOutEverywhere={async () => {
+        setBusy(true);
+        const answer = await post("/app/sign-out-everywhere");
+        const failure = answer.ok ? await leave(answer) : answer.message;
+        if (failure === null) return;
+        setBusy(false);
+        window.dispatchEvent(new CustomEvent(FAILURE_EVENT, { detail: failure }));
       }}
-      onConfirmPassword={confirmPassword}
-      onConfirmPasskey={confirmPasskey}
       onRemovePasskey={(passkey) =>
         run(
           () => post("/api/auth/passkey/delete-passkey", { id: passkey.id }),
@@ -579,22 +410,18 @@ export const Security = () => {
       }
       onAddPasskey={() => run(addPasskey, "Passkey added.", "The passkey was not added")}
       onChangePassword={changePassword}
-      onNewCodes={withPassword(
-        "/api/auth/two-factor/generate-backup-codes",
+      onNewCodes={securityAction(
+        "/app/security/backup-codes",
         "New backup codes made.",
         "No new backup codes were made",
       )}
-      onTurnOff={withPassword(
-        "/api/auth/two-factor/disable",
+      onTurnOff={securityAction(
+        "/app/security/disable-app",
         "Authenticator app removed.",
         "The authenticator app was not turned off",
       )}
       addApp={
         <AppSetup
-          onReauthenticate={() => {
-            pending.current = async () => setDialog({ kind: "add-app" });
-            setDialog({ kind: "confirm", error: null });
-          }}
           onDone={(codes) => {
             setDialog({ kind: "codes", codes });
             setNotice("Authenticator app added.");

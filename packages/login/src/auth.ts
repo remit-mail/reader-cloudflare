@@ -15,7 +15,7 @@ import type { Env } from "./env";
 import { isRecord } from "./http";
 import { log } from "./log";
 import { sendSecurityChange } from "./mail";
-import { APP_ENROLL_PATH, appEndpoints, REAUTH_WINDOW_MS } from "./routes/app";
+import { APP_ENROLL_PATH, appEndpoints } from "./routes/app";
 import { RESET_PASSWORD_PATH, resetEndpoints } from "./routes/reset";
 import {
   PASSKEY_SIGN_IN_PATH,
@@ -45,32 +45,17 @@ export const ALLOWED_AUTH_PATHS: ReadonlySet<string> = new Set([
   "/passkey/list-user-passkeys",
   "/passkey/delete-passkey",
   "/passkey/update-passkey",
-  "/two-factor/disable",
-  "/two-factor/get-totp-uri",
   "/two-factor/verify-totp",
   "/two-factor/verify-backup-code",
-  "/two-factor/generate-backup-codes",
 ]);
 
 const SERVER_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/app/welcome/password",
   RESET_PASSWORD_PATH,
   APP_ENROLL_PATH,
-  "/app/security/confirm",
+  "/app/security/disable-app",
+  "/app/security/backup-codes",
   "/app/sign-out",
-  "/app/sign-out-everywhere",
-]);
-
-const FACTOR_GATED: ReadonlySet<string> = new Set([
-  "/passkey/generate-register-options",
-  "/passkey/verify-registration",
-  "/passkey/delete-passkey",
-  "/passkey/update-passkey",
-  APP_ENROLL_PATH,
-  "/two-factor/disable",
-  "/two-factor/get-totp-uri",
-  "/two-factor/generate-backup-codes",
-  "/change-password",
   "/app/sign-out-everywhere",
 ]);
 
@@ -89,9 +74,12 @@ const FACTOR_CHANGES: ReadonlyMap<
   ["/passkey/delete-passkey", { event: "FactorRemoved", change: "A passkey was removed" }],
   ["/passkey/update-passkey", { event: "FactorRenamed", change: "A passkey was renamed" }],
   [APP_ENROLL_PATH, { event: "FactorAdded", change: "An authenticator app was added" }],
-  ["/two-factor/disable", { event: "FactorRemoved", change: "The authenticator app was removed" }],
   [
-    "/two-factor/generate-backup-codes",
+    "/app/security/disable-app",
+    { event: "FactorRemoved", change: "The authenticator app was removed" },
+  ],
+  [
+    "/app/security/backup-codes",
     { event: "BackupCodesRegenerated", change: "New backup codes were made" },
   ],
   ["/change-password", { event: "PasswordChanged", change: "The password was changed" }],
@@ -161,19 +149,8 @@ const tokenRaceGuard = (db: D1Database) =>
     throw refuseAuthorizationCode("the sign-in behind this code has ended");
   });
 
-const factorGate = createAuthMiddleware(async (ctx) => {
-  const session = await getSessionFromCtx(ctx);
-  if (!session) return;
-  const reauthenticatedAt = Number(
-    (session.session as { reauthenticatedAt?: unknown }).reauthenticatedAt ?? 0,
-  );
-  if (Date.now() - reauthenticatedAt > REAUTH_WINDOW_MS) {
-    throw new APIError("FORBIDDEN", {
-      message: "Confirm it is you first.",
-      code: "REAUTHENTICATE",
-    });
-  }
-  if (ctx.path === "/change-password" && isRecord(ctx.body)) {
+const changePassword = createAuthMiddleware(async (ctx) => {
+  if (isRecord(ctx.body)) {
     return { context: { body: { ...ctx.body, revokeOtherSessions: true } } };
   }
 });
@@ -193,7 +170,7 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
             TWO_FACTOR_PATHS.has(ctx.path ?? ""),
           handler: before,
         },
-        { matcher: (ctx) => FACTOR_GATED.has(ctx.path ?? ""), handler: factorGate },
+        { matcher: (ctx) => ctx.path === "/change-password", handler: changePassword },
         { matcher: (ctx) => ctx.path === "/oauth2/token", handler: tokenGuard },
       ],
       after: [
@@ -278,9 +255,6 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
     session: {
       expiresIn: 90 * DAY_SECONDS,
       updateAge: DAY_SECONDS,
-      additionalFields: {
-        reauthenticatedAt: { type: "number", required: true, input: false, defaultValue: 0 },
-      },
     },
     rateLimit: {
       enabled: true,
@@ -312,6 +286,9 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
       }),
       passkey({
         rpID: config.loginHostname,
+        // Skip the plugin's freshness middleware. With no resolveUser callback,
+        // registration still requires an authoritative session and binds its challenge to it.
+        registration: { requireSession: false },
         rpName: "remit",
         origin: config.loginOrigin,
         authenticatorSelection: { userVerification: "required", residentKey: "required" },

@@ -17,9 +17,7 @@ const Step = ({ step, passkeys = true }: { step: OnboardingStep; passkeys?: bool
   <WelcomeSecondStepView
     step={step}
     passkeys={passkeys}
-    busy={false}
     opening={null}
-    onConfirm={hold}
     onPasskey={noop}
     onApp={noop}
     onChoose={noop}
@@ -32,9 +30,7 @@ const App = ({ error }: { error: string | null }) => (
   <WelcomeSecondStepView
     step={{ kind: "app" }}
     passkeys
-    busy={false}
     opening={null}
-    onConfirm={hold}
     onPasskey={noop}
     onApp={noop}
     onChoose={noop}
@@ -50,10 +46,6 @@ const App = ({ error }: { error: string | null }) => (
     }
   />
 );
-
-export const ConfirmAgain: Story = {
-  render: () => <Step step={{ kind: "confirm-again", resume: "app", error: null }} />,
-};
 
 export const Choose: Story = {
   render: () => <Step step={{ kind: "choose" }} />,
@@ -89,9 +81,7 @@ const OpeningStep = ({ opening }: { opening: Opening }) => (
   <WelcomeSecondStepView
     step={{ kind: "choose" }}
     passkeys
-    busy={false}
     opening={opening}
-    onConfirm={hold}
     onPasskey={noop}
     onApp={noop}
     onChoose={noop}

@@ -214,13 +214,14 @@ const lookupState = (answer: Answer): ResetPasswordState => {
   if (answer.ok && typeof answer.body.email === "string") {
     return { kind: "ready", email: answer.body.email, problem: null };
   }
-  if (answer.ok) return { kind: "expired", failure: null };
+  if (answer.ok)
+    return { kind: "failed", message: "The reset response did not include an email address." };
   const failure = failureOf(answer);
   if (failure.kind === "locked") {
     return { kind: "locked", message: failure.message, retryAt: failure.retryAt };
   }
-  if (failure.kind === "server") return { kind: "failed", message: failure.message };
-  return { kind: "expired", failure: null };
+  if (answer.status === 410) return { kind: "expired", failure: null };
+  return { kind: "failed", message: failure.message };
 };
 
 const passwordProblem = (answer: Refusal): NewPasswordProblem | "expired" => {

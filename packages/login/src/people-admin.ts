@@ -247,6 +247,8 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     return { ok: true, value: person(updated, caller) };
   },
 
+  // The host's People route sends operators to /admin; this shared interface
+  // still includes reader's self-host-only password step-up.
   createStepUp: async () => refused("not_found"),
 
   signOutPerson: async (request) => {

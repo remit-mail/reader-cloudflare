@@ -52,11 +52,6 @@ export const accountKey = async (email: string): Promise<AttemptKey> => ({
   curve: ACCOUNT_CURVE,
 });
 
-export const resetLinkKey = (tokenHash: string): AttemptKey => ({
-  key: `reset-link:${tokenHash}`,
-  curve: ADDRESS_CURVE,
-});
-
 export const deadLinkKey = (address: string): AttemptKey => ({
   key: `dead-link:address:${resetAddressPrefix(address)}`,
   curve: ADDRESS_CURVE,

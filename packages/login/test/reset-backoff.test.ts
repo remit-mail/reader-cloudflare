@@ -82,15 +82,15 @@ describe("reset backoff", () => {
     expect(statuses.filter((status) => status === 429).length).toBeGreaterThanOrEqual(14);
   });
 
-  it("refuses the lookup up front once the link itself is paused", async () => {
+  it("returns each invalid password error without pausing a valid link", async () => {
     mockPwnedPasswords([]);
     const { token } = await linkFor("paused");
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      expect((await redeem(token, randomAddress(), "too short")).status).toBe(400);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const invalid = await redeem(token, randomAddress(), "too short");
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ code: expect.stringContaining("PASSWORD") });
     }
-    const refused = await lookup(token);
-    expect(refused.status).toBe(429);
-    expect((await refused.json()) as { retryAt: string }).toHaveProperty("retryAt");
-    expect((await redeem(token)).status).toBe(429);
+    expect((await lookup(token)).status).toBe(200);
+    expect((await redeem(token)).status).toBe(200);
   });
 });

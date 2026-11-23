@@ -11,15 +11,11 @@ import { generateRandomString, symmetricEncrypt } from "better-auth/crypto";
 import { z } from "zod";
 import { audit } from "../audit";
 import type { AuthDeps } from "../auth";
-import { addressKey, addressOf, clearKey, refundKey, reserveAttempt, userKey } from "../backoff";
+import { addressKey, addressOf, refundKey, reserveAttempt } from "../backoff";
 import type { LoginConfig } from "../config";
 import { randomId, randomToken, sameHash, sha256Hex } from "../crypto";
 import { json } from "../http";
-import { reserveOrAudit } from "../second-factor";
-import { recordTotpStep, totpStepMatchingNow } from "../totp";
-import { isAssertion, passkeyCount, verifyOwnPasskey } from "../webauthn";
 
-export const REAUTH_WINDOW_MS = 5 * 60_000;
 export const APP_ENROLL_PATH = "/app/second-step/app";
 
 const INVITE_LIFE_MS = 7 * 24 * 60 * 60_000;
@@ -27,7 +23,10 @@ const GRANT_LIFE_SECONDS = 30 * 60;
 const GRANT_PATH = "/app/welcome";
 const DEAD_INVITE = "This invite link no longer works. Email yourself a fresh one.";
 const BACKUP_CODE_COUNT = 10;
-const PASSKEY_CHALLENGE_COOKIE = "better-auth-passkey";
+const backupCodes = (): string[] =>
+  Array.from({ length: BACKUP_CODE_COUNT }, () =>
+    generateRandomString(10, "a-z", "0-9", "A-Z"),
+  ).map((code) => `${code.slice(0, 5)}-${code.slice(5)}`);
 
 export const grantCookieName = (config: LoginConfig): string =>
   config.loginOrigin.startsWith("https://") ? "__Secure-login-grant" : "login-grant";
@@ -165,12 +164,6 @@ export const revokeInvite = async (db: D1Database, inviteId: string): Promise<vo
 
 const passwordSchema = z.object({ password: z.string() });
 
-const confirmSchema = z.union([
-  z.object({ password: z.string().min(1).max(128) }),
-  z.object({ totpCode: z.string().regex(/^\d{6}$/) }),
-  z.object({ passkey: z.unknown() }),
-]);
-
 export const appEndpoints = (deps: AuthDeps) => {
   const { db, config } = deps;
   return {
@@ -182,7 +175,7 @@ export const appEndpoints = (deps: AuthDeps) => {
         async (ctx) => {
           const grantToken = ctx.getCookie(grantCookieName(config));
           const refused = new APIError("FORBIDDEN", {
-            message: "This step has expired. Open your invite link again.",
+            message: "This step has expired. Email yourself a fresh invite.",
             code: "NO_GRANT",
           });
           if (!grantToken) throw refused;
@@ -230,13 +223,7 @@ export const appEndpoints = (deps: AuthDeps) => {
             accountId: user.id,
             password: hash,
           });
-          const created = await ctx.context.internalAdapter.createSession(user.id);
-          const reauthenticatedAt = Date.now();
-          await db
-            .prepare("UPDATE session SET reauthenticated_at = ? WHERE id = ?")
-            .bind(reauthenticatedAt, created.id)
-            .run();
-          const session = { ...created, reauthenticatedAt };
+          const session = await ctx.context.internalAdapter.createSession(user.id);
           await setSessionCookie(ctx, { session, user });
           ctx.setCookie(grantCookieName(config), "", {
             path: GRANT_PATH,
@@ -253,94 +240,6 @@ export const appEndpoints = (deps: AuthDeps) => {
             outcome: "Succeeded",
           });
           return ctx.json({ email: user.email });
-        },
-      ),
-      securityConfirm: createAuthEndpoint(
-        "/app/security/confirm",
-        {
-          method: "POST",
-          body: confirmSchema,
-          use: [sessionMiddleware],
-          metadata: { SERVER_ONLY: true },
-        },
-        async (ctx) => {
-          const { session, user } = ctx.context.session;
-          const address = addressOf({ headers: ctx.headers ?? new Headers() });
-          const twoFactor = await db
-            .prepare("SELECT secret FROM two_factor WHERE user_id = ?")
-            .bind(user.id)
-            .first<{ secret: string }>();
-          const hasApp = Boolean(user.twoFactorEnabled) && twoFactor !== null;
-          const hasPasskey = (await passkeyCount(db, user.id)) > 0;
-          const body = ctx.body;
-          if ("password" in body && (hasApp || hasPasskey)) {
-            throw new APIError("FORBIDDEN", {
-              message: "Confirm with your passkey or your authenticator app.",
-              code: "FACTOR_REQUIRED",
-            });
-          }
-          const personal = userKey(user.id);
-          const reservation = await reserveOrAudit(db, [personal], user.email, user.email, address);
-          if (!reservation.allowed) {
-            throw new APIError("TOO_MANY_REQUESTS", {
-              message: "Too many attempts. Try again later.",
-              code: "BACKOFF",
-              retryAt: new Date(reservation.retryAt).toISOString(),
-            });
-          }
-          const confirmed = await (async (): Promise<boolean> => {
-            if ("password" in body) {
-              const credential = (await ctx.context.internalAdapter.findAccounts(user.id)).find(
-                (account) => account.providerId === "credential",
-              );
-              if (!credential?.password) return false;
-              return ctx.context.password.verify({
-                hash: credential.password,
-                password: body.password,
-              });
-            }
-            if ("totpCode" in body) {
-              if (!hasApp || twoFactor === null) return false;
-              const now = Date.now();
-              const step = await totpStepMatchingNow(
-                ctx.context.secretConfig,
-                twoFactor.secret,
-                body.totpCode,
-                now,
-              );
-              if (step === null) return false;
-              if (await recordTotpStep(db, user.id, step, "SecurityConfirm", now)) return true;
-              throw new APIError("UNAUTHORIZED", {
-                message: "That code was already used. Wait for the next one.",
-                code: "TOTP_STEP_USED",
-              });
-            }
-            if (!hasPasskey || !isAssertion(body.passkey)) return false;
-            const cookie = ctx.context.createAuthCookie(PASSKEY_CHALLENGE_COOKIE);
-            const verificationId = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
-            if (!verificationId) return false;
-            const stored =
-              await ctx.context.internalAdapter.consumeVerificationValue(verificationId);
-            if (!stored) return false;
-            const { type, expectedChallenge } = JSON.parse(stored.value) as {
-              type?: string;
-              expectedChallenge?: string;
-            };
-            if (type !== "authentication" || typeof expectedChallenge !== "string") return false;
-            return verifyOwnPasskey(db, config, user.id, body.passkey, expectedChallenge);
-          })();
-          if (!confirmed) {
-            throw new APIError("UNAUTHORIZED", {
-              message: "That did not match. Try again.",
-              code: "NOT_CONFIRMED",
-            });
-          }
-          await clearKey(db, personal);
-          await db
-            .prepare("UPDATE session SET reauthenticated_at = ? WHERE id = ?")
-            .bind(Date.now(), session.id)
-            .run();
-          return ctx.json({ confirmedUntil: Date.now() + REAUTH_WINDOW_MS });
         },
       ),
       appEnroll: createAuthEndpoint(
@@ -360,9 +259,7 @@ export const appEndpoints = (deps: AuthDeps) => {
               code: "TOTP_ALREADY_ENABLED",
             });
           }
-          const codes = Array.from({ length: BACKUP_CODE_COUNT }, () =>
-            generateRandomString(10, "a-z", "0-9", "A-Z"),
-          ).map((code) => `${code.slice(0, 5)}-${code.slice(5)}`);
+          const codes = backupCodes();
           const secret = generateRandomString(32);
           const key = ctx.context.secretConfig;
           const encryptedSecret = await symmetricEncrypt({ key, data: secret });
@@ -383,6 +280,42 @@ export const appEndpoints = (deps: AuthDeps) => {
             totpURI: createOTP(secret, { digits: 6 }).url("remit", user.email),
             backupCodes: codes,
           });
+        },
+      ),
+      disableApp: createAuthEndpoint(
+        "/app/security/disable-app",
+        { method: "POST", use: [sessionMiddleware], metadata: { SERVER_ONLY: true } },
+        async (ctx) => {
+          const { session, user } = ctx.context.session;
+          const updated = await ctx.context.internalAdapter.updateUser(user.id, {
+            twoFactorEnabled: false,
+          });
+          await db.prepare("DELETE FROM two_factor WHERE user_id = ?").bind(user.id).run();
+          await setSessionCookie(ctx, { session, user: updated });
+          return ctx.json({ status: true });
+        },
+      ),
+      regenerateBackupCodes: createAuthEndpoint(
+        "/app/security/backup-codes",
+        { method: "POST", use: [sessionMiddleware], metadata: { SERVER_ONLY: true } },
+        async (ctx) => {
+          const { user } = ctx.context.session;
+          const refused = new APIError("BAD_REQUEST", {
+            message: "No authenticator app is enabled.",
+            code: "TOTP_NOT_ENABLED",
+          });
+          if (!user.twoFactorEnabled) throw refused;
+          const codes = backupCodes();
+          const encrypted = await symmetricEncrypt({
+            key: ctx.context.secretConfig,
+            data: JSON.stringify(codes),
+          });
+          const changed = await db
+            .prepare("UPDATE two_factor SET backup_codes = ? WHERE user_id = ? RETURNING id")
+            .bind(encrypted, user.id)
+            .first();
+          if (changed === null) throw refused;
+          return ctx.json({ backupCodes: codes });
         },
       ),
       appSignOut: createAuthEndpoint(
