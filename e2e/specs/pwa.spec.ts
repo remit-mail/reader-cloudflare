@@ -54,11 +54,16 @@ test("an active SW leaves missing icon navigations as 404", async ({ page, reque
 });
 
 test("Access expiry renews through the network with an active SW", async ({ page }) => {
+  // Ancillary API requests still reach the real Worker and must agree with
+  // the mocked session and config about this tenant's provenance.
+  const session = await page.request.get("/api/session");
+  expect(session.status()).toBe(200);
+  const { partitionKey } = (await session.json()) as { partitionKey: string };
   let expired = false;
   await page.route("**/api/session", (route) =>
     route.fulfill({
       status: expired ? 401 : 200,
-      json: expired ? {} : { partitionKey: "pwa" },
+      json: expired ? {} : { partitionKey },
     }),
   );
   await page.route("**/api/config", (route) =>
@@ -74,7 +79,7 @@ test("Access expiry renews through the network with an active SW", async ({ page
         },
         buildCommit: process.env.E2E_COMMIT,
       },
-      headers: { "X-Remit-Partition": "pwa" },
+      headers: { "X-Remit-Partition": partitionKey },
     }),
   );
   await page.goto(securityPage);

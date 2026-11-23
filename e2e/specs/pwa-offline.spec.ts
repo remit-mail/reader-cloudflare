@@ -14,14 +14,15 @@ const LOGIN_HTML =
 let messageId: string;
 let partitionKey: string;
 
-// Sync and body delivery are asynchronous. Bound readiness to ten attempts.
+// Sync, body delivery and shell installation are asynchronous. Bound readiness
+// to ten attempts with exponential backoff.
 const eventually = async <T>(read: () => Promise<T>, ready: (value: T) => boolean): Promise<T> => {
   for (let attempt = 0; attempt < 10; attempt++) {
     const value = await read();
     if (ready(value)) return value;
     if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
   }
-  throw new Error("Mail was not ready after ten attempts");
+  throw new Error("Readiness condition was not met after ten attempts");
 };
 
 const verified = (page: Page) =>
@@ -64,23 +65,22 @@ const stored = (page: Page) =>
 const downloaded = async (page: Page) => {
   await page.goto(`/downloads/${messageId}`);
   await verified(page);
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await eventually(() => page.evaluate(() => !!navigator.serviceWorker.controller), Boolean);
   // Content reads start only after the packaged worker controls this document.
   await page.reload();
   await readBody(page);
-  await expect
-    .poll(async () =>
-      (await stored(page)).records.some(({ key }) => String(key).startsWith("part:")),
-    )
-    .toBe(true);
-  await expect
-    .poll(async () =>
+  await eventually(
+    async () => (await stored(page)).records.some(({ key }) => String(key).startsWith("part:")),
+    Boolean,
+  );
+  await eventually(
+    async () =>
       (await stored(page)).records.some(
         ({ key, value }) =>
           String(key).startsWith("queries:") && JSON.stringify(value).includes(messageId),
       ),
-    )
-    .toBe(true);
+    Boolean,
+  );
 };
 
 const wiped = async (page: Page) => {
@@ -169,14 +169,18 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     await context.route("**/api/session", (route) =>
       route.fulfill({ status: 302, headers: { location: "https://access.remit.test/login" } }),
     );
-    const refused = page.waitForResponse(
-      (response) => response.url().endsWith("/api/session") && response.status() === 302,
-    );
+    // A manual cross-origin redirect is opaque in Chromium, so it does not
+    // expose a 302 response event to Playwright.
+    const refused = page.waitForRequest("**/api/session");
     await context.setOffline(false);
     await refused;
     await unverified(page);
     await readBody(page);
     await page.goto("/mail/brief");
+    await unverified(page);
+    // Startup verification must reject the redirect before the server session
+    // is restored, otherwise it can verify itself before the explicit click.
+    await expect(page.getByRole("status").filter({ hasText: "Opening downloads…" })).toHaveCount(0);
     await unverified(page);
     await context.unroute("**/api/session");
     const session = page.waitForResponse(
@@ -223,28 +227,26 @@ test("offline logout purges downloads before leaving for the login Worker", asyn
   page,
 }) => {
   await downloaded(page);
+  const observer = await context.newPage();
+  await observer.goto("/downloads");
+  await verified(observer);
   await page.goto("/mail/brief");
   await page.getByRole("button", { name: "Account", exact: true }).click();
   await context.setOffline(true);
-  // Abort the external navigation so the origin's durable stores remain inspectable.
-  let completeLogout: () => void;
-  const logout = new Promise<void>((resolve) => {
-    completeLogout = resolve;
-  });
-  await context.route("http://127.0.0.1:8791/sign-out", async (route) => {
-    await wiped(page);
-    await route.abort();
-    completeLogout();
-  });
+  // Inspect from another tab: evaluating the navigating page while its request
+  // is paused deadlocks Chromium's navigation. Keep the external hop local.
+  await context.route("http://127.0.0.1:8791/sign-out", (route) => route.abort());
+  const logout = page.waitForRequest("http://127.0.0.1:8791/sign-out");
   await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await logout;
+  await wiped(observer);
 });
 
 for (const hostile of ["Access HTML", "login redirect"]) {
   test(`${hostile} cannot replace downloaded app content`, async ({ context, page }) => {
     await page.goto("/downloads");
     await verified(page);
-    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    await eventually(() => page.evaluate(() => !!navigator.serviceWorker.controller), Boolean);
     await context.route("**/content/**", (route) =>
       route.fulfill(
         hostile === "Access HTML"
@@ -262,7 +264,7 @@ for (const hostile of ["Access HTML", "login redirect"]) {
     await expect(
       page
         .getByRole("alert")
-        .filter({ hasText: /download|content|session/i })
+        .filter({ hasText: /message body|download|content|session/i })
         .first(),
     ).toBeVisible();
     const state = await stored(page);
