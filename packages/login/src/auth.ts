@@ -168,7 +168,13 @@ const loginHooks = (deps: AuthDeps): BetterAuthPlugin => {
             ctx.path === SIGN_IN_PATH ||
             ctx.path === PASSKEY_SIGN_IN_PATH ||
             TWO_FACTOR_PATHS.has(ctx.path ?? ""),
-          handler: before,
+          handler: createAuthMiddleware(async (ctx) => {
+            if (isRecord(ctx.body) && typeof ctx.body.oauth_query === "string") {
+              const exp = new URLSearchParams(ctx.body.oauth_query).get("exp");
+              if (exp !== null && Number(exp) * 1000 < Date.now()) delete ctx.body.oauth_query;
+            }
+            await before(ctx);
+          }),
         },
         { matcher: (ctx) => ctx.path === "/change-password", handler: changePassword },
         { matcher: (ctx) => ctx.path === "/oauth2/token", handler: tokenGuard },
@@ -304,7 +310,7 @@ export const authOptions = (deps: AuthDeps, disabledPaths: string[]) => {
         consentPage: "/sign-in",
         allowDynamicClientRegistration: false,
         grantTypes: ["authorization_code"],
-        // better-auth signs the /sign-in link with the authorization code lifetime, so this is also how long a person has to type their password.
+        // The sign-in hook drops an expired query before the OAuth provider reads it.
         codeExpiresIn: 600,
         accessTokenExpiresIn: 900,
         idTokenExpiresIn: 900,
