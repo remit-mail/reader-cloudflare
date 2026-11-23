@@ -103,6 +103,26 @@ describe("offline host contract", () => {
     expect(forbidden).not.toHaveBeenCalled();
   });
 
+  it("routes the image proxy after authentication without storage access", async () => {
+    const forbidden = vi.fn(() => {
+      throw new Error("proxy must not touch storage");
+    });
+    const env = {
+      ...workerEnv(),
+      DB: { batch: forbidden, prepare: forbidden } as unknown as D1Database,
+      TENANT_MAIL: { get: forbidden, idFromName: forbidden } as unknown as Env["TENANT_MAIL"],
+      MAIL: { get: forbidden, put: forbidden } as unknown as Env["MAIL"],
+    };
+    const response = await get(
+      "/api/image-proxy?url=http%3A%2F%2F127.0.0.1%2Fa",
+      env,
+      await token(),
+    );
+    expect(response.status).toBe(403);
+    expect(response.headers.has("X-Remit-Partition")).toBe(false);
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
   it("partitions service tokens by their client id", async () => {
     const response = await get(
       "/api/session",
@@ -119,6 +139,7 @@ describe("offline host contract", () => {
     for (const assertion of [undefined, "invalid", await token(SUBJECT, { exp: 1 })]) {
       for (const path of [
         "/api/session",
+        "/api/image-proxy?url=https%3A%2F%2Fimages.example.org%2Fa.png",
         `/content/${bodyKey}`,
         `/${buildExportArchiveKey(PARTITION, "job")}`,
       ]) {
