@@ -1,4 +1,3 @@
-import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { LoginMailReader } from "./login-mail";
 import type { TenantMail } from "./mail/tenant-mail";
 import type { LoginOperatorService } from "./operator-audit-contract";
@@ -33,7 +32,6 @@ export interface Env {
   readonly LOGIN_MAIL?: LoginMailReader;
   readonly LOGIN_MAIL_READER?: string;
   readonly LOGIN_OPERATOR: LoginOperatorService;
-  readonly PEOPLE_DIRECTORY: PeopleDirectory;
 }
 
 type WorkerEnv = Env;

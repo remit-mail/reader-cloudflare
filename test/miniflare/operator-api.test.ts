@@ -92,19 +92,11 @@ describe("person settings", () => {
 });
 
 describe("People identity changes", () => {
-  it.each([
-    ["POST", "/people/invites", { email: "person@remit.test" }],
-    ["DELETE", "/people/invites/person%40remit.test", undefined],
-    ["POST", "/people/step-up", { userId: "person", action: "Disable", password: "password" }],
-    ["POST", "/people/person/sign-out", undefined],
-    ["PATCH", "/people/person", { status: "Disabled" }],
-    ["POST", "/people/person/password-reset", undefined],
-    ["POST", "/people/person/factors/reset", undefined],
-  ] as const)("refuses %s %s even for an operator", async (method, path, body) => {
-    const response = await SELF.fetch(`http://example.test/api${path}`, {
-      method,
+  it("refuses an app-Worker People mutation even for an operator", async () => {
+    const response = await SELF.fetch("http://example.test/api/people/person", {
+      method: "PATCH",
       headers: { ...OPERATOR_HEADERS, "content-type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      body: JSON.stringify({ status: "Disabled" }),
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({

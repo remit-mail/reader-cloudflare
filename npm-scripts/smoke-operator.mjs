@@ -258,9 +258,6 @@ check(
   `answered ${agentDefault.status}`,
 );
 
-const people = await callTool(operatorMcp, "list_people");
-check("list people", Array.isArray(people.people), "did not answer with people");
-
 await callTool(operatorMcp, "get_config");
 await callTool(operatorMcp, "list_outbox_messages", { continuationToken: "" });
 await callTool(operatorMcp, "list_calendars");

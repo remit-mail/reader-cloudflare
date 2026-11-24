@@ -1,4 +1,4 @@
-import type { PeopleDirectory, PeopleRefusal } from "@remit/auth-service/people";
+import type { PeopleRefusal } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import { z } from "zod";
 import type {
@@ -20,6 +20,7 @@ import type { Auth } from "../auth";
 import { addressOf, clearKey, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
 import { json, notFound } from "../http";
+import type { LoginPeople } from "../people-admin";
 import { reserveOrAudit } from "../second-factor";
 import {
   type AdminAction,
@@ -39,7 +40,7 @@ export interface AdminContext {
   readonly auth: Auth;
   readonly config: LoginConfig;
   readonly db: D1Database;
-  readonly people: PeopleDirectory;
+  readonly people: LoginPeople;
   readonly settings: OperatorSettingsService;
 }
 

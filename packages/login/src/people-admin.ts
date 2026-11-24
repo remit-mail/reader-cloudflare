@@ -1,5 +1,4 @@
-import { WorkerEntrypoint, waitUntil } from "cloudflare:workers";
-import type { PeopleAuditEvent, Person, PersonStatus } from "@remit/api-openapi-types";
+import type { Person, PersonStatus } from "@remit/api-openapi-types";
 import type {
   PeopleDirectory,
   PeopleOutcome,
@@ -8,11 +7,9 @@ import type {
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { PersonEmail } from "../../../src/operator-audit-contract";
-import { audit, auditRows, auditStatement } from "./audit";
-import { createAuth } from "./auth";
+import { audit, auditStatement } from "./audit";
 import { mailerOf } from "./capture";
 import { configOf, isOperator, normalizeEmail } from "./config";
-import { randomId, randomToken, sha256Hex } from "./crypto";
 import type { Env } from "./env";
 import { sendInvite } from "./mail";
 import { issueInvite } from "./routes/app";
@@ -103,7 +100,7 @@ const personAuditStatement = (
   request: PeopleRequest,
   caller: Caller,
   email: string,
-  event: "Disabled" | "Enabled" | "FactorReset" | "SignOutEverywhere" | "PasswordReset",
+  event: "Disabled" | "Enabled" | "FactorReset" | "SignOutEverywhere",
   at: number,
 ): D1PreparedStatement =>
   auditStatement(
@@ -131,42 +128,12 @@ const guardedTarget = async (
   return found;
 };
 
-export const peopleAdmin = (env: Env): PeopleDirectory => ({
-  listPeople: async (request) => {
-    const caller = await activeCaller(env.DB, request);
-    if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
-    const rows = await env.DB.prepare(
-      `SELECT user.id, user.email, user.created_at, user.banned,
-        (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?1) AS sessions,
-        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = user.email AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
-      FROM user ORDER BY user.email`,
-    )
-      .bind(Date.now())
-      .all<PersonRow>();
-    return { ok: true, value: rows.results.map((row) => person(row, caller)) };
-  },
+export type LoginPeople = Pick<
+  PeopleDirectory,
+  "invitePerson" | "revokeInvite" | "resetPersonFactors" | "signOutPerson" | "updatePerson"
+>;
 
-  listAudit: async (request) => {
-    if ((await activeCaller(env.DB, request)) === null) {
-      return refused(PeopleErrorCode.CallerDisabled);
-    }
-    const rows = await auditRows(env.DB, 90);
-    return {
-      ok: true,
-      value: rows.map(
-        (row): PeopleAuditEvent => ({
-          auditEventId: row.auditEventId,
-          occurredAt: row.at,
-          actor: row.actor,
-          target: row.email,
-          action: row.event,
-          outcome: row.outcome,
-          clientIp: row.address,
-        }),
-      ),
-    };
-  },
-
+export const peopleAdmin = (env: Env): LoginPeople => ({
   invitePerson: async (request) => {
     const caller = await activeCaller(env.DB, request);
     if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
@@ -245,10 +212,6 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     return { ok: true, value: person(updated, caller) };
   },
 
-  // Reader retains this legacy password-check endpoint for compatibility.
-  // Operators on this host use /admin instead.
-  createStepUp: async () => refused("not_found"),
-
   signOutPerson: async (request) => {
     const found = await guardedTarget(env, request);
     if (!found.ok) return found;
@@ -290,95 +253,4 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     if (updated === null) throw new Error(`user ${row.id} vanished after status update`);
     return { ok: true, value: person(updated, caller) };
   },
-
-  createPasswordReset: async (request) => {
-    const found = await guardedTarget(env, request);
-    if (!found.ok) return found;
-    const { caller, row } = found.value;
-    const now = Date.now();
-    const expiresAt = now + 24 * 60 * 60_000;
-    const token = randomToken();
-    const context = await (await createAuth(env, waitUntil)).$context;
-    const scrambledHash = await context.password.hash(randomToken());
-    await env.OPERATOR_SETTINGS.revokePersonCredentials(row.email, false);
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE reset_link SET state = 'Replaced', state_changed_at = ? WHERE user_id = ? AND state = 'Open'",
-      ).bind(now, row.id),
-      env.DB.prepare(
-        "INSERT INTO reset_link (reset_link_id, user_id, email, token_hash, state, created_at, expires_at, state_changed_at) VALUES (?, ?, ?, ?, 'Open', ?, ?, ?)",
-      ).bind(randomId(), row.id, row.email, await sha256Hex(token), now, expiresAt, now),
-      env.DB.prepare(
-        "UPDATE account SET password = ?, updated_at = ? WHERE user_id = ? AND provider_id = 'credential'",
-      ).bind(scrambledHash, now, row.id),
-      env.DB.prepare("DELETE FROM session WHERE user_id = ?").bind(row.id),
-      env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
-      personAuditStatement(env, request, caller, row.email, "PasswordReset", now),
-    ]);
-    const updated = await personRow(env.DB, row.id);
-    if (updated === null) throw new Error(`user ${row.id} vanished after password reset`);
-    return {
-      ok: true,
-      value: {
-        person: person(updated, caller),
-        resetUrl: `${configOf(env).loginOrigin}/reset/password#${token}`,
-        expiresAt,
-      },
-    };
-  },
-
-  recordRefusal: (request) => {
-    waitUntil(
-      audit(env.DB, {
-        actor: normalizeEmail(request.callerId),
-        email: request.targetId,
-        address: request.clientIp,
-        event: "PeopleRequestRefused",
-        outcome: "Refused",
-        clientId: "api",
-      }),
-    );
-  },
 });
-
-export class PeopleAdmin extends WorkerEntrypoint<Env> {
-  listPeople(...args: Parameters<PeopleDirectory["listPeople"]>) {
-    return peopleAdmin(this.env).listPeople(...args);
-  }
-
-  listAudit(...args: Parameters<PeopleDirectory["listAudit"]>) {
-    return peopleAdmin(this.env).listAudit(...args);
-  }
-
-  invitePerson(...args: Parameters<PeopleDirectory["invitePerson"]>) {
-    return peopleAdmin(this.env).invitePerson(...args);
-  }
-
-  revokeInvite(...args: Parameters<PeopleDirectory["revokeInvite"]>) {
-    return peopleAdmin(this.env).revokeInvite(...args);
-  }
-
-  resetPersonFactors(...args: Parameters<PeopleDirectory["resetPersonFactors"]>) {
-    return peopleAdmin(this.env).resetPersonFactors(...args);
-  }
-
-  createStepUp(...args: Parameters<PeopleDirectory["createStepUp"]>) {
-    return peopleAdmin(this.env).createStepUp(...args);
-  }
-
-  signOutPerson(...args: Parameters<PeopleDirectory["signOutPerson"]>) {
-    return peopleAdmin(this.env).signOutPerson(...args);
-  }
-
-  updatePerson(...args: Parameters<PeopleDirectory["updatePerson"]>) {
-    return peopleAdmin(this.env).updatePerson(...args);
-  }
-
-  createPasswordReset(...args: Parameters<PeopleDirectory["createPasswordReset"]>) {
-    return peopleAdmin(this.env).createPasswordReset(...args);
-  }
-
-  recordRefusal(...args: Parameters<PeopleDirectory["recordRefusal"]>) {
-    return peopleAdmin(this.env).recordRefusal(...args);
-  }
-}

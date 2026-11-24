@@ -14,7 +14,7 @@ import { configOf, isOperator, type LoginConfig, normalizeEmail } from "./config
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
-import { PeopleAdmin, peopleAdmin, personEmail } from "./people-admin";
+import { peopleAdmin, personEmail } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
@@ -281,8 +281,6 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
     });
   }
 }
-
-export { PeopleAdmin };
 
 export default {
   async fetch(request, env): Promise<Response> {
