@@ -8,8 +8,8 @@
   },
   "dependencies": {
     "@remit/api-http-client": "0.0.120",
-    "@remit/ui": "0.0.245",
-    "@remit/web-client": "0.0.358",
+    "@remit/ui": "0.0.247",
+    "@remit/web-client": "0.0.360",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
