@@ -224,7 +224,7 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     if (tokenHash === undefined) return feedNotFound();
     const { success } = await env.CALENDAR_FEED_RATE_LIMIT.limit({ key: tokenHash });
     if (!success) return feedRateLimited(RATE_LIMIT_PERIOD_SECONDS);
-    const tenantId = await tenantOfFeedToken(env.DB, tokenHash);
+    const tenantId = await tenantOfFeedToken(env.DB, tokenHash, env.AGENT_TENANT);
     if (tenantId === undefined) return feedNotFound();
     return servePublic(request, env, tenantId);
   }

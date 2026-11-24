@@ -281,7 +281,8 @@ export const resetEndpoints = (deps: AuthDeps) => {
           if (!scan.allowed) throw tooMany(scan.retryAt);
           const dead = new APIError("GONE", { message: DEAD_LINK, code: "LINK_DEAD" });
           const tokenHash = await sha256Hex(ctx.body.token);
-          if ((await openLink(db, tokenHash, now)) === null) throw dead;
+          const link = await openLink(db, tokenHash, now);
+          if (link === null) throw dead;
           await undoAttempt(db, deadLinkKey(address), scan.attemptId);
           const { password } = ctx.body;
           if (password.length < 12 || password.length > 128) {
@@ -291,6 +292,7 @@ export const resetEndpoints = (deps: AuthDeps) => {
             });
           }
           const hash = await ctx.context.password.hash(password);
+          await deps.settings.revokePersonCredentials(link.email, false);
           const used = await db
             .prepare(
               "UPDATE reset_link SET state = 'Used', state_changed_at = ?1 WHERE token_hash = ?2 AND state = 'Open' AND expires_at > ?1 RETURNING user_id, token_hash",
