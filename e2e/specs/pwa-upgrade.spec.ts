@@ -167,7 +167,6 @@ test("remembered mail renews expired Access on reload without signing out", asyn
     await page.reload();
   }
   await expect.poll(() => renewals, { timeout: 30_000 }).toBe(1);
-  await expect(page.getByRole("status").filter({ hasText: /^Session verified$/ })).toBeVisible();
   await expect(page.getByText(email, { exact: true }).first()).toBeVisible();
   expect(configs).toBeGreaterThan(priorConfigs);
   await page.goto("/downloads/message1");

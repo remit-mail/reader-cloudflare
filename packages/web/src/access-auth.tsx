@@ -1,6 +1,6 @@
 import { AuthCard, AuthHero, Banner, Button, ButtonLink } from "@remit/ui";
 import type { AuthAccountProps, AuthProvider } from "@remit/web-client/auth/provider";
-import { getOfflineRuntime, type OfflineOptions } from "@remit/web-client/offline";
+import type { OfflineOptions } from "@remit/web-client/offline";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { verifySession } from "./access-session";
 
@@ -144,7 +144,6 @@ export const accessOffline: OfflineOptions = {
 };
 
 const signOut = async (): Promise<void> => {
-  await getOfflineRuntime()?.removeDownloads();
   window.location.assign(LOGOUT_URL);
 };
 
