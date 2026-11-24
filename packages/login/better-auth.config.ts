@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { authOptions } from "./src/auth";
+import type { Env } from "./src/env";
 
 export const auth = betterAuth(
   authOptions(
@@ -15,6 +16,7 @@ export const auth = betterAuth(
       db: {} as D1Database,
       email: {} as SendEmail,
       secret: "schema-generation-only-secret-value",
+      settings: {} as Env["OPERATOR_SETTINGS"],
       waitUntil: () => {},
     },
     [],

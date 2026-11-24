@@ -90,6 +90,7 @@ export interface AuthDeps {
   readonly db: D1Database;
   readonly email: SendEmail;
   readonly secret: string;
+  readonly settings: Env["OPERATOR_SETTINGS"];
   readonly waitUntil: (promise: Promise<unknown>) => void;
 }
 
@@ -350,6 +351,7 @@ export const createAuth = async (
     db: env.DB,
     email: mailerOf(env),
     secret,
+    settings: env.OPERATOR_SETTINGS,
     waitUntil: (promise) => waitUntil(promise),
   });
   cache.set(env, { key, auth });

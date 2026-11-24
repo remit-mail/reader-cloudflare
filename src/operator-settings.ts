@@ -5,7 +5,6 @@ import {
   CLASSIFICATION_PRESETS,
   type ClassificationDeploymentDefault,
 } from "@remit/data-ports/classification-presets";
-import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { eq, sql } from "drizzle-orm";
 import {
   classificationDefaultFromDeployment,
@@ -20,6 +19,7 @@ import {
   sealsEmptyKey,
 } from "./crypto/envelope";
 import { openAppDb } from "./db/client";
+import { personCredentialDeletes } from "./db/person-credentials";
 import { classificationDefaults } from "./db/schema";
 import type { Env } from "./env";
 import type {
@@ -229,19 +229,7 @@ export class OperatorSettings extends WorkerEntrypoint<Env> implements OperatorS
   async revokePersonCredentials(email: string, disabled: boolean): Promise<void> {
     const tenantId = await tenantOfEmail(this.env.DB, email);
     if (tenantId === undefined) return;
-    await this.env.DB.batch([
-      this.env.DB.prepare("DELETE FROM mcp_oauth_access_token WHERE user_id = ?").bind(tenantId),
-      this.env.DB.prepare("DELETE FROM mcp_oauth_refresh_token WHERE user_id = ?").bind(tenantId),
-      this.env.DB.prepare("DELETE FROM mcp_session WHERE user_id = ?").bind(tenantId),
-      ...(disabled
-        ? [
-            this.env.DB.prepare("DELETE FROM mcp_oauth_consent WHERE user_id = ?").bind(tenantId),
-            this.env.DB.prepare("DELETE FROM mcp_device_code WHERE user_id = ?").bind(tenantId),
-            this.env.DB.prepare("DELETE FROM calendar_feed_token WHERE account_config_id = ?").bind(
-              deriveAccountConfigId(tenantId),
-            ),
-          ]
-        : []),
-    ]);
+    const db = openAppDb(this.env.DB);
+    await db.batch(personCredentialDeletes(db, tenantId, { disabled }));
   }
 }

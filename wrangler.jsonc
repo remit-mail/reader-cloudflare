@@ -50,6 +50,7 @@
   "vars": {
     "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
     "ACCESS_AUD": "local",
+    "AGENT_TENANT": "local-agent",
     "PUBLIC_ORIGIN": "http://localhost:8790",
     "OPERATOR_EMAILS": "operator@remit.test"
   },
@@ -258,6 +259,7 @@
       "vars": {
         "ACCESS_TEAM_DOMAIN": "example.cloudflareaccess.com",
         "ACCESS_AUD": "local",
+        "AGENT_TENANT": "local-agent",
         "PUBLIC_ORIGIN": "http://127.0.0.1:8790",
         "OPERATOR_EMAILS": "e2e@remit.test",
         "ACCESS_DEV_IDENTITY": "e2e@remit.test",
