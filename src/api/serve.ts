@@ -38,7 +38,7 @@ const quotaRefusing = (registry: Handlers): Handlers =>
 const adminRequired: Handler = async () => ({
   statusCode: 403,
   body: {
-    code: "AdminRequired",
+    code: "forbidden",
     message: "Manage people from /admin on the login server.",
   },
 });

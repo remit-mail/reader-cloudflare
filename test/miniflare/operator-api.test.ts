@@ -100,7 +100,7 @@ describe("People identity changes", () => {
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
-      code: "AdminRequired",
+      code: "forbidden",
       message: "Manage people from /admin on the login server.",
     });
   });
