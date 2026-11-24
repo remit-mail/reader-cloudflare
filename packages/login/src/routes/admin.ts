@@ -396,8 +396,6 @@ const runAction = async (
   if (action === "Disable") {
     const changed = await context.people.updatePerson({
       ...request,
-      operatorGrant: true,
-      stepUpToken: null,
       status: "Disabled",
     });
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
@@ -408,8 +406,6 @@ const runAction = async (
       return { ok: false, status: 409, message: `${targetEmail} is not disabled.` };
     const changed = await context.people.updatePerson({
       ...request,
-      operatorGrant: true,
-      stepUpToken: null,
       status: "Active",
     });
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
@@ -420,11 +416,7 @@ const runAction = async (
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
     return { ok: true, message: `Reset the factors of ${targetEmail}.` };
   }
-  const changed = await context.people.signOutPerson({
-    ...request,
-    operatorGrant: true,
-    stepUpToken: null,
-  });
+  const changed = await context.people.signOutPerson(request);
   if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
   return { ok: true, message: `Signed ${targetEmail} out everywhere.` };
 };

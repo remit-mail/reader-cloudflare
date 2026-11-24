@@ -23,7 +23,7 @@ export const verifyMcpBearer = async (
   env: Env,
 ): Promise<McpBearerResult> => {
   const verification = await createBetterAuthTokenVerifier(auth, env.PUBLIC_ORIGIN).verify(bearer);
-  if (!verification.ok) return verification;
+  if (!verification.ok) return { ok: false, reason: verification.description };
   const subject = verification.principal.userId;
   const email = await emailOfTenant(env.DB, subject);
   if (email === undefined) return { ok: false, reason: "MCP subject has no recorded email" };

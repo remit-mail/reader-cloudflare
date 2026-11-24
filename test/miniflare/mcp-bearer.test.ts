@@ -3,6 +3,7 @@ import { MCP_SCOPES } from "@remit/mcp-server/app";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../src/env";
 import { mcpAuth } from "../../src/mcp/auth";
+import { serveMcpMachine } from "../../src/mcp/route";
 import { verifyMcpBearer } from "../../src/mcp/verify";
 
 const ORIGIN = "http://localhost";
@@ -34,6 +35,20 @@ const json = async (response: Response): Promise<Record<string, unknown>> => {
 };
 
 describe("MCP connector token", () => {
+  it("explains an invalid bearer in the response and challenge", async () => {
+    const response = await serveMcpMachine(
+      new Request(`${ORIGIN}/mcp`, { headers: { authorization: "Bearer invalid-token" } }),
+      workerEnv(),
+    );
+    expect(response.status).toBe(401);
+    const body = await response.json<{ error: string; error_description: string }>();
+    expect(body.error).toBe("invalid_token");
+    expect(body.error_description).toMatch(/invalid|expired/i);
+    expect(response.headers.get("www-authenticate")).toContain(
+      `error_description="${body.error_description}"`,
+    );
+  });
+
   it("is accepted by the /mcp verifier right after it is issued", async () => {
     const env = workerEnv();
     const { auth, routes } = await mcpAuth(env);

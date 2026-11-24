@@ -259,8 +259,6 @@ describe("admin step-up", () => {
         callerId: OPERATOR,
         clientIp: "192.0.2.1",
         targetId: other.id,
-        operatorGrant: true,
-        stepUpToken: null,
         status: "Disabled",
       }),
     ).toEqual({ ok: false, refusal: "not_found" });

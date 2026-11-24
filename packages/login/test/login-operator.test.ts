@@ -76,8 +76,6 @@ describe("LoginOperator", () => {
       callerId: OPERATOR,
       clientIp: "203.0.113.8",
       targetId: target.id,
-      operatorGrant: true,
-      stepUpToken: null,
       status: "Disabled",
     });
 

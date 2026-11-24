@@ -90,7 +90,7 @@ const serveBearer = async (request: Request, env: Env): Promise<Response> => {
   const verified = await verifyMcpBearer(bearer, (await mcpAuth(env)).auth, env);
   if (!verified.ok) {
     log.warn("mcp refused", { reason: verified.reason });
-    return challenge(resourceConfig(env), "invalid_token");
+    return challenge(resourceConfig(env), "invalid_token", verified.reason);
   }
   return serveTools(
     withConnectingIp(request),

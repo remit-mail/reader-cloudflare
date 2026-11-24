@@ -95,7 +95,6 @@ export const serveRequest = (
       client: async () => client,
       identity: async () => identity,
       operator: async () => operator,
-      operatorGrant: async () => operator,
       peopleDirectory: async () => people,
     },
     correlationId,

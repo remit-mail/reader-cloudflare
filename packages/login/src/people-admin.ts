@@ -5,7 +5,6 @@ import type {
   PeopleOutcome,
   PeopleRequest,
   PersonRequest,
-  TargetedRequest,
 } from "@remit/auth-service/people";
 import { PeopleErrorCode } from "@remit/domain-enums";
 import type { PersonEmail } from "../../../src/operator-audit-contract";
@@ -122,10 +121,9 @@ const personAuditStatement = (
 
 const guardedTarget = async (
   env: Env,
-  request: TargetedRequest,
+  request: PersonRequest,
   status?: PersonStatus,
 ): Promise<PeopleOutcome<Target>> => {
-  if (!request.operatorGrant) return refused(PeopleErrorCode.StepUpRequired);
   const found = await target(env, request);
   if (found.ok && status === "Disabled" && found.value.row.id === found.value.caller.id) {
     return refused(PeopleErrorCode.CannotDisableSelf);
@@ -247,8 +245,8 @@ export const peopleAdmin = (env: Env): PeopleDirectory => ({
     return { ok: true, value: person(updated, caller) };
   },
 
-  // The host's People route sends operators to /admin; this shared interface
-  // still includes reader's self-host-only password step-up.
+  // Reader retains this legacy password-check endpoint for compatibility.
+  // Operators on this host use /admin instead.
   createStepUp: async () => refused("not_found"),
 
   signOutPerson: async (request) => {
