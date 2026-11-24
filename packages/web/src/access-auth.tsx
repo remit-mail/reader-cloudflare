@@ -14,6 +14,7 @@ const IDENTITY_URL = "/cdn-cgi/access/get-identity";
 const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
 const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
 export const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
+export const PEOPLE_URL = `${LOGIN_ORIGIN}/admin`;
 const RENEWAL_KEY = "remit-access-renewal-at";
 const RENEWAL_GUARD_MS = 60_000;
 const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
