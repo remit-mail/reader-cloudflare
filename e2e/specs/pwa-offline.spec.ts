@@ -249,12 +249,17 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     ]);
     let page = await context.newPage();
     await downloaded(page);
+    await page.goto("/mail/brief");
+    await expect(page.getByText(SUBJECT, { exact: true }).first()).toBeVisible();
     await context.clearCookies();
     await context.close();
     context = await launch(true);
     page = await context.newPage();
     await page.goto(`/downloads/${messageId}`);
     await readBody(page);
+    // Return to the remembered list while still offline, before recovery starts.
+    await page.goto("/mail/brief");
+    await expect(page.getByText(SUBJECT, { exact: true }).first()).toBeVisible();
     // Local Wrangler has no Access edge: simulate its expired-cookie redirect.
     await context.route("**/api/session", (route) =>
       route.fulfill({ status: 302, headers: { location: "https://access.remit.test/login" } }),
@@ -268,8 +273,7 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     );
     await context.setOffline(false);
     await refused;
-    await readBody(page);
-    await page.goto("/mail/brief");
+    await expect(page.getByText(SUBJECT, { exact: true }).first()).toBeVisible();
     const signIn = page
       .getByRole("alertdialog")
       .getByRole("button", { name: "Sign in", exact: true });

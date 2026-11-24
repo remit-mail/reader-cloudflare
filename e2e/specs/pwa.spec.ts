@@ -126,8 +126,8 @@ test("the shared Sign in control renews Access once without signing out", async 
   expect(session.status()).toBe(200);
   const { partitionKey } = (await session.json()) as { partitionKey: string };
   await page.route("**/api/session", (route) => route.fulfill({ json: { partitionKey } }));
-  // Settings' People lookup raises the real shared signed-out overlay.
-  await page.route("**/api/people", (route) =>
+  // Classification's settings lookup raises the real shared signed-out overlay.
+  await page.route("**/api/settings", (route) =>
     route.fulfill({ status: 403, json: { code: "caller_disabled" } }),
   );
   const signOutRequests: string[] = [];
@@ -139,7 +139,7 @@ test("the shared Sign in control renews Access once without signing out", async 
       renewals.push(request.url());
     }
   });
-  await page.goto(securityPage);
+  await page.goto("/settings/classification?from=mail#classification");
   const signIn = page.getByRole("alertdialog").getByRole("button", {
     name: "Sign in",
     exact: true,
@@ -150,10 +150,10 @@ test("the shared Sign in control renews Access once without signing out", async 
   const response = await navigation;
   expect(response?.fromServiceWorker()).toBe(false);
   const renewedUrl = new URL(response?.url() ?? "");
-  expect(renewedUrl.pathname).toBe("/settings/security");
+  expect(renewedUrl.pathname).toBe("/settings/classification");
   expect(renewedUrl.searchParams.get("reauth")).toBe("1");
   expect(renewedUrl.searchParams.get("from")).toBe("mail");
-  expect(new URL(page.url()).hash).toBe("#security");
+  expect(new URL(page.url()).hash).toBe("#classification");
   await expect(signIn).toBeVisible();
   expect(renewals).toHaveLength(1);
   expect(signOutRequests).toEqual([]);
