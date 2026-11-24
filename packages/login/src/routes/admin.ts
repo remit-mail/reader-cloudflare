@@ -1,5 +1,3 @@
-import type { PeopleDirectory, PeopleRefusal } from "@remit/auth-service/people";
-import { PeopleErrorCode } from "@remit/domain-enums";
 import { z } from "zod";
 import type {
   ClassificationInput,
@@ -20,6 +18,7 @@ import type { Auth } from "../auth";
 import { addressOf, clearKey, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
 import { json, notFound } from "../http";
+import type { LoginPeople, LoginPeopleRefusal } from "../people-admin";
 import { reserveOrAudit } from "../second-factor";
 import {
   type AdminAction,
@@ -39,7 +38,7 @@ export interface AdminContext {
   readonly auth: Auth;
   readonly config: LoginConfig;
   readonly db: D1Database;
-  readonly people: PeopleDirectory;
+  readonly people: LoginPeople;
   readonly settings: OperatorSettingsService;
 }
 
@@ -396,8 +395,6 @@ const runAction = async (
   if (action === "Disable") {
     const changed = await context.people.updatePerson({
       ...request,
-      operatorGrant: true,
-      stepUpToken: null,
       status: "Disabled",
     });
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
@@ -408,8 +405,6 @@ const runAction = async (
       return { ok: false, status: 409, message: `${targetEmail} is not disabled.` };
     const changed = await context.people.updatePerson({
       ...request,
-      operatorGrant: true,
-      stepUpToken: null,
       status: "Active",
     });
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
@@ -420,20 +415,16 @@ const runAction = async (
     if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
     return { ok: true, message: `Reset the factors of ${targetEmail}.` };
   }
-  const changed = await context.people.signOutPerson({
-    ...request,
-    operatorGrant: true,
-    stepUpToken: null,
-  });
+  const changed = await context.people.signOutPerson(request);
   if (!changed.ok) return peopleFailure(changed.refusal, targetEmail);
   return { ok: true, message: `Signed ${targetEmail} out everywhere.` };
 };
 
-const peopleFailure = (refusal: PeopleRefusal, email: string): Outcome => {
+const peopleFailure = (refusal: LoginPeopleRefusal, email: string): Outcome => {
   if (refusal === "not_found") {
     return { ok: false, status: 404, message: `${email} was not found.` };
   }
-  if (refusal === PeopleErrorCode.CannotDisableSelf) {
+  if (refusal === "cannot_disable_self") {
     return { ok: false, status: 409, message: "You cannot disable your own account." };
   }
   return { ok: false, status: 403, message: `The people directory refused ${refusal}.` };

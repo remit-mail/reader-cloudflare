@@ -149,11 +149,6 @@
       "binding": "LOGIN_OPERATOR",
       "service": "reader-cloudflare-login",
       "entrypoint": "LoginOperator"
-    },
-    {
-      "binding": "PEOPLE_DIRECTORY",
-      "service": "reader-cloudflare-login",
-      "entrypoint": "PeopleAdmin"
     }
   ],
   "migrations": [
@@ -364,11 +359,6 @@
           "binding": "LOGIN_OPERATOR",
           "service": "reader-cloudflare-login-e2e",
           "entrypoint": "LoginOperator"
-        },
-        {
-          "binding": "PEOPLE_DIRECTORY",
-          "service": "reader-cloudflare-login-e2e",
-          "entrypoint": "PeopleAdmin"
         }
       ],
       "ratelimits": [

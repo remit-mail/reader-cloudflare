@@ -1,6 +1,6 @@
 import { createExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { LoginOperator, PeopleAdmin } from "../src/index";
+import { LoginOperator } from "../src/index";
 import { createUser, OPERATOR, OTHER_OPERATOR, testEnv, uniqueEmail } from "./helpers";
 
 const loginOperator = (): LoginOperator => new LoginOperator(createExecutionContext(), testEnv);
@@ -66,27 +66,5 @@ describe("LoginOperator", () => {
       .bind(target)
       .first();
     expect(row).toEqual({ actor: OPERATOR, event: "SettingsUpdated", outcome: "Succeeded" });
-  });
-
-  it("lets an operator named by email disable a person", async () => {
-    const target = await createUser(uniqueEmail("disabled"));
-    await ensureOperator();
-
-    const changed = await new PeopleAdmin(createExecutionContext(), testEnv).updatePerson({
-      callerId: OPERATOR,
-      clientIp: "203.0.113.8",
-      targetId: target.id,
-      operatorGrant: true,
-      stepUpToken: null,
-      status: "Disabled",
-    });
-
-    expect(changed).toMatchObject({ ok: true, value: { userId: target.id, status: "Disabled" } });
-    const row = await testEnv.DB.prepare(
-      "SELECT actor, event, outcome FROM audit_event WHERE email = ? AND client_id = 'api'",
-    )
-      .bind(target.email)
-      .first();
-    expect(row).toEqual({ actor: OPERATOR, event: "Disabled", outcome: "Succeeded" });
   });
 });

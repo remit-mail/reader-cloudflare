@@ -14,7 +14,7 @@ import { configOf, isOperator, type LoginConfig, normalizeEmail } from "./config
 import type { Env } from "./env";
 import { json, notFound, text } from "./http";
 import { log } from "./log";
-import { PeopleAdmin, peopleAdmin, personEmail } from "./people-admin";
+import { peopleAdmin, personEmail } from "./people-admin";
 import {
   type AdminContext,
   openAdminChallenge,
@@ -282,7 +282,8 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
   }
 }
 
-export { PeopleAdmin };
+// TODO: Remove PeopleAdmin in the follow-up release once dev and prod app Workers run without PEOPLE_DIRECTORY.
+export { PeopleAdmin } from "./people-admin-rpc";
 
 export default {
   async fetch(request, env): Promise<Response> {

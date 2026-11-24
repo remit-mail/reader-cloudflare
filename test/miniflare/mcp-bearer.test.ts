@@ -3,6 +3,7 @@ import { MCP_SCOPES } from "@remit/mcp-server/app";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../../src/env";
 import { mcpAuth } from "../../src/mcp/auth";
+import { serveMcpMachine } from "../../src/mcp/route";
 import { verifyMcpBearer } from "../../src/mcp/verify";
 
 const ORIGIN = "http://localhost";
@@ -34,7 +35,7 @@ const json = async (response: Response): Promise<Record<string, unknown>> => {
 };
 
 describe("MCP connector token", () => {
-  it("is accepted by the /mcp verifier right after it is issued", async () => {
+  it("accepts an issued token and explains refusal when the account is disabled", async () => {
     const env = workerEnv();
     const { auth, routes } = await mcpAuth(env);
     const browser = new Headers({ "x-dev-identity": OWNER });
@@ -104,5 +105,21 @@ describe("MCP connector token", () => {
 
     const verified = await verifyMcpBearer(String(token.access_token), auth, env);
     expect(verified).toMatchObject({ ok: true });
+
+    env.LOGIN_OPERATOR.isDisabled = async () => true;
+    const response = await serveMcpMachine(
+      new Request(`${ORIGIN}/mcp`, {
+        headers: { authorization: `Bearer ${String(token.access_token)}` },
+      }),
+      env,
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: "invalid_token",
+      error_description: "The account is disabled",
+    });
+    expect(response.headers.get("www-authenticate")).toContain(
+      'error_description="The account is disabled"',
+    );
   });
 });

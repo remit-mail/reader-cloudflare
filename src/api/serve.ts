@@ -1,4 +1,3 @@
-import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { RemitClient } from "@remit/backend/client";
 import { handlers, publicHandlers } from "@remit/backend/handlers";
 import {
@@ -35,10 +34,30 @@ const quotaRefusing = (registry: Handlers): Handlers =>
     ),
   );
 
+// Identity changes require the login Worker's action-bound /admin proof.
+const adminRequired: Handler = async () => ({
+  statusCode: 403,
+  body: {
+    code: "forbidden",
+    message: "Manage people from /admin on the login server.",
+  },
+});
+
+const hostHandlers: Handlers = {
+  ...handlers,
+  PeopleOperations_invitePerson: adminRequired,
+  PeopleOperations_revokeInvite: adminRequired,
+  PeopleOperations_createStepUp: adminRequired,
+  PeopleOperations_signOutPerson: adminRequired,
+  PeopleOperations_updatePerson: adminRequired,
+  PeopleOperations_createPasswordReset: adminRequired,
+  PeopleOperations_resetPersonFactors: adminRequired,
+};
+
 let served: ReturnType<typeof serveApi<QueueName>> | undefined;
 
 const servedApi = (): ReturnType<typeof serveApi<QueueName>> => {
-  served ??= serveApi<QueueName>({ handlers: quotaRefusing(handlers), publicHandlers });
+  served ??= serveApi<QueueName>({ handlers: quotaRefusing(hostHandlers), publicHandlers });
   return served;
 };
 
@@ -84,7 +103,6 @@ export const serveRequest = (
   operator: boolean,
   client: RemitClient,
   correlationId: string,
-  people: PeopleDirectory | null,
 ): Promise<Response> => {
   const url = new URL(request.url);
   url.pathname = url.pathname.slice(API_ROOT.length);
@@ -95,26 +113,11 @@ export const serveRequest = (
       client: async () => client,
       identity: async () => identity,
       operator: async () => operator,
-      operatorGrant: async () => operator,
-      peopleDirectory: async () => people,
+      peopleDirectory: async () => null,
     },
     correlationId,
   );
 };
-
-const callingAs = (people: PeopleDirectory, callerEmail: string): PeopleDirectory => ({
-  listPeople: (request) => people.listPeople({ ...request, callerId: callerEmail }),
-  listAudit: (request) => people.listAudit({ ...request, callerId: callerEmail }),
-  invitePerson: (request) => people.invitePerson({ ...request, callerId: callerEmail }),
-  revokeInvite: (request) => people.revokeInvite({ ...request, callerId: callerEmail }),
-  resetPersonFactors: (request) => people.resetPersonFactors({ ...request, callerId: callerEmail }),
-  createStepUp: (request) => people.createStepUp({ ...request, callerId: callerEmail }),
-  signOutPerson: (request) => people.signOutPerson({ ...request, callerId: callerEmail }),
-  updatePerson: (request) => people.updatePerson({ ...request, callerId: callerEmail }),
-  createPasswordReset: (request) =>
-    people.createPasswordReset({ ...request, callerId: callerEmail }),
-  recordRefusal: (request) => people.recordRefusal({ ...request, callerId: callerEmail }),
-});
 
 export interface OperatorCall {
   readonly login: Pick<LoginOperatorService, "writeAudit">;
@@ -127,19 +130,11 @@ export const serveUserRequest = async (
   operator: boolean,
   client: RemitClient,
   correlationId: string,
-  people: PeopleDirectory,
   call: OperatorCall,
   partitionKey: string,
 ): Promise<Response> => {
   const response = withPartition(
-    await serveRequest(
-      request,
-      identity,
-      operator,
-      client,
-      correlationId,
-      callingAs(people, identity.email),
-    ),
+    await serveRequest(request, identity, operator, client, correlationId),
     partitionKey,
   );
   if (!operator) return response;

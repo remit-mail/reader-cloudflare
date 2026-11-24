@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import type { PeopleDirectory } from "@remit/auth-service/people";
 import type { RemitClient } from "@remit/backend/client";
 import type { UserIdentity } from "@remit/backend/serve";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
@@ -59,8 +58,6 @@ const login = {
   },
 };
 
-const people = {} as PeopleDirectory;
-
 const settingsClient = (accountConfigIds: string[]) => ({
   accountSetting: { get: async () => undefined, getMany: async () => [] },
   accountConfig: { get: async () => ({ createdAt: 0 }) },
@@ -98,7 +95,6 @@ export class DefaultTenant extends DurableObject<TestEnv> {
       true,
       client,
       "miniflare-test",
-      people,
       {
         login,
         targetEmail,

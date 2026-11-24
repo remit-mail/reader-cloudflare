@@ -90,3 +90,18 @@ describe("person settings", () => {
     expect([read.status, patched.status, cleared.status]).toEqual([404, 404, 404]);
   });
 });
+
+describe("People identity changes", () => {
+  it("refuses an app-Worker People mutation even for an operator", async () => {
+    const response = await SELF.fetch("http://example.test/api/people/person", {
+      method: "PATCH",
+      headers: { ...OPERATOR_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ status: "Disabled" }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      code: "forbidden",
+      message: "Manage people from /admin on the login server.",
+    });
+  });
+});
