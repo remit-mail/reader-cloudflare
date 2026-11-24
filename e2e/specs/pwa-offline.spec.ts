@@ -270,6 +270,10 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     await refused;
     await readBody(page);
     await page.goto("/mail/brief");
+    const signIn = page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Sign in", exact: true });
+    await expect(signIn).toBeVisible();
     await context.unroute("**/api/session");
     const session = page.waitForResponse(
       (response) => response.url().endsWith("/api/session") && response.status() === 200,
@@ -277,7 +281,7 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     const refreshed = page.waitForResponse(
       (response) => response.url().includes("/threads") && response.status() === 200,
     );
-    await page.goto("/mail/brief?reauth=1");
+    await signIn.click();
     await session;
     await shellReady(page);
     await refreshed;
