@@ -282,6 +282,9 @@ export class LoginOperator extends WorkerEntrypoint<Env> implements LoginOperato
   }
 }
 
+// TODO: Remove PeopleAdmin in the follow-up release once dev and prod app Workers run without PEOPLE_DIRECTORY.
+export { PeopleAdmin } from "./people-admin-rpc";
+
 export default {
   async fetch(request, env): Promise<Response> {
     const started = Date.now();

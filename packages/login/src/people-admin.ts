@@ -58,7 +58,7 @@ const personRow = (db: D1Database, userId: string): Promise<PersonRow | null> =>
 
 // callerId carries the caller's email, the one identity the app Worker and the
 // login Worker share.
-const activeCaller = (
+export const activeCaller = (
   db: D1Database,
   request: Pick<PeopleRequest, "callerId">,
 ): Promise<Caller | null> =>
