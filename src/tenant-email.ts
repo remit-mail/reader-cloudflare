@@ -1,16 +1,7 @@
-import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { and, eq, ne, notExists, sql } from "drizzle-orm";
 import { openAppDb } from "./db/client";
-import {
-  calendarFeedTokens,
-  mcpDeviceCode,
-  mcpOauthAccessToken,
-  mcpOauthConsent,
-  mcpOauthRefreshToken,
-  mcpSession,
-  tenantEmails,
-  tenantKeys,
-} from "./db/schema";
+import { personCredentialDeletes } from "./db/person-credentials";
+import { tenantEmails, tenantKeys } from "./db/schema";
 import type { LoginOperatorService } from "./operator-audit-contract";
 
 export const normalizedEmail = (email: string): string => email.trim().toLowerCase();
@@ -26,14 +17,7 @@ export const recordTenantEmail = async (
     db.select({ one: sql`1` }).from(tenantEmails).where(eq(tenantEmails.tenantId, tenantId)),
   );
   await db.batch([
-    db
-      .delete(calendarFeedTokens)
-      .where(
-        and(eq(calendarFeedTokens.accountConfigId, deriveAccountConfigId(tenantId)), unenrolled),
-      ),
-    ...[mcpOauthAccessToken, mcpOauthRefreshToken, mcpSession, mcpOauthConsent, mcpDeviceCode].map(
-      (table) => db.delete(table).where(and(eq(table.userId, tenantId), unenrolled)),
-    ),
+    ...personCredentialDeletes(db, tenantId, { disabled: true }, unenrolled),
     db
       .delete(tenantEmails)
       .where(and(eq(tenantEmails.email, normalized), ne(tenantEmails.tenantId, tenantId))),

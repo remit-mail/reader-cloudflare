@@ -109,7 +109,7 @@ const issueBearer = async (env: Env) => {
     ),
   );
 
-  return { auth, bearer: String(token.access_token) };
+  return { auth, bearer: String(token.access_token), clientId };
 };
 
 describe("MCP connector token", () => {
@@ -138,7 +138,7 @@ describe("MCP connector token", () => {
 
   it("purges a person's credentials when they sign in again after losing their tenant_email row", async () => {
     const env = workerEnv();
-    const { auth, bearer } = await issueBearer(env);
+    const { auth, bearer, clientId } = await issueBearer(env);
     const verified = await verifyMcpBearer(bearer, auth, env);
     if (!verified.ok) throw new Error(verified.reason);
     const { tenantId, accountConfigId } = verified.tenant;
@@ -160,26 +160,25 @@ describe("MCP connector token", () => {
           .bind(feed, account, feed),
       ]);
     }
-    await db
-      .prepare(
-        "INSERT INTO mcp_device_code (id, device_code, user_code, user_id, expires_at, status) VALUES ('device', 'device-code', 'user-code', ?, ?, 'approved')",
-      )
-      .bind(tenantId, Date.now() + 60_000)
-      .run();
+    // The browser flow issues a JWT. Seed the opaque access token stored by the device flow.
+    await db.batch([
+      db
+        .prepare(
+          "INSERT INTO mcp_oauth_access_token (id, token, client_id, user_id, scopes) VALUES ('access', 'opaque-token', ?, ?, '[]')",
+        )
+        .bind(clientId, tenantId),
+      db
+        .prepare(
+          "INSERT INTO mcp_device_code (id, device_code, user_code, user_id, expires_at, status) VALUES ('device', 'device-code', 'user-code', ?, ?, 'approved')",
+        )
+        .bind(tenantId, Date.now() + 60_000),
+    ]);
     await db.prepare("DELETE FROM tenant_email WHERE tenant_id = ?").bind(tenantId).run();
 
     expect(await tenantOfFeedToken(db, "owner-feed", env.AGENT_TENANT)).toBeUndefined();
     expect(await tenantOfFeedToken(db, "agent-feed", env.AGENT_TENANT)).toBe(AGENT);
-    expect((await verifyMcpBearer(bearer, auth, env)).ok).toBe(false);
 
-    await new OperatorSettings(createExecutionContext(), env).revokePersonCredentials(OWNER, false);
-    expect(
-      await requireTenant(new Request(ORIGIN, { headers: { "x-dev-identity": OWNER } }), env),
-    ).toMatchObject({ ok: true, tenant: { tenantId } });
-
-    expect(await tenantOfEmail(db, OWNER)).toBe(tenantId);
-    expect((await verifyMcpBearer(bearer, auth, env)).ok).toBe(false);
-    const remaining = await db.batch<{ count: number }>([
+    const countStatements = [
       ...[
         "mcp_oauth_access_token",
         "mcp_oauth_refresh_token",
@@ -192,8 +191,21 @@ describe("MCP connector token", () => {
       db
         .prepare("SELECT COUNT(*) AS count FROM calendar_feed_token WHERE account_config_id = ?")
         .bind(accountConfigId),
-    ]);
-    expect(remaining.map(({ results }) => results[0]?.count)).toEqual([0, 0, 0, 0, 0, 0]);
+    ];
+    const credentialCounts = async () =>
+      (await db.batch<{ count: number }>(countStatements)).map(({ results }) => results[0]?.count);
+
+    await new OperatorSettings(createExecutionContext(), env).revokePersonCredentials(OWNER, false);
+    expect((await verifyMcpBearer(bearer, auth, env)).ok).toBe(false);
+    for (const count of await credentialCounts()) expect(count).toBeGreaterThan(0);
+
+    expect(
+      await requireTenant(new Request(ORIGIN, { headers: { "x-dev-identity": OWNER } }), env),
+    ).toMatchObject({ ok: true, tenant: { tenantId } });
+
+    expect(await tenantOfEmail(db, OWNER)).toBe(tenantId);
+    expect((await verifyMcpBearer(bearer, auth, env)).ok).toBe(false);
+    expect(await credentialCounts()).toEqual([0, 0, 0, 0, 0, 0]);
     expect(await tenantOfFeedToken(db, "agent-feed", env.AGENT_TENANT)).toBe(AGENT);
   });
 });

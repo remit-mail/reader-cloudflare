@@ -16,7 +16,7 @@ export const tenantOfAccountConfig = async (
 export const tenantOfFeedToken = async (
   binding: D1Database,
   tokenHash: string,
-  agentTenant: string | undefined,
+  agentTenant: string,
 ): Promise<string | undefined> => {
   const [row] = await openAppDb(binding)
     .select({ tenantId: tenantAccountConfigs.tenantId })
@@ -29,10 +29,7 @@ export const tenantOfFeedToken = async (
     .where(
       and(
         eq(calendarFeedTokens.tokenHash, tokenHash),
-        or(
-          isNotNull(tenantEmails.tenantId),
-          agentTenant === undefined ? undefined : eq(tenantAccountConfigs.tenantId, agentTenant),
-        ),
+        or(isNotNull(tenantEmails.tenantId), eq(tenantAccountConfigs.tenantId, agentTenant)),
       ),
     )
     .limit(1);

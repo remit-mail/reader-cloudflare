@@ -11,8 +11,7 @@ export interface LoginMailReader {
 
 export const serveLoginMail = async (request: Request, env: Env): Promise<Response> => {
   const reader = env.LOGIN_MAIL;
-  const agent = env.AGENT_TENANT;
-  if (reader === undefined || agent === undefined || request.method !== "GET") {
+  if (reader === undefined || request.method !== "GET") {
     return notFound("Captured login mail");
   }
   const result = await requireTenant(request, env);
@@ -20,7 +19,7 @@ export const serveLoginMail = async (request: Request, env: Env): Promise<Respon
     log.warn("access denied", { path: LOGIN_MAIL_PATH, reason: result.reason });
     return unauthorized(result.reason);
   }
-  if (result.tenant.tenantId !== agent) {
+  if (result.tenant.tenantId !== env.AGENT_TENANT) {
     return apiError(403, "Forbidden", "Only the agent service token reads captured login mail");
   }
   const messages = await reader.latest();
