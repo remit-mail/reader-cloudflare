@@ -14,6 +14,7 @@ export default defineConfig(
     },
     runtimeConfig: {
       apiUrl: "/api",
+      externalImageProxyUrl: "/api/image-proxy",
       betterAuthEnabled: false,
       rum: { appMonitorId: "" },
       disableDevtools: true,

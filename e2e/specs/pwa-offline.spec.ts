@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect, type Page, test } from "@playwright/test";
+import { waitFor } from "../.reader/packages/e2e/src/api.js";
 import { appendRawMessage } from "../.reader/packages/e2e/src/imap.js";
 import { baseUrl, connectImapAccount, mintIdentity, tenantJson } from "./tenant";
 
@@ -9,26 +10,15 @@ const identity = mintIdentity("pwa");
 const json = tenantJson(identity);
 const SUBJECT = "Mail retained after Access expires";
 const BODY = "These downloaded bytes survive a cold offline launch.";
+const IMAGE_URL = "https://images.remit.test/pixel.png?token=private";
 const LOGIN_HTML =
   '<html><body>Cloudflare Access<form action="/login">Sign in</form></body></html>';
 let messageId: string;
 let partitionKey: string;
 
-// Sync, body delivery and shell installation are asynchronous. Bound readiness
-// to ten attempts with exponential backoff.
-const eventually = async <T>(read: () => Promise<T>, ready: (value: T) => boolean): Promise<T> => {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const value = await read();
-    if (ready(value)) return value;
-    if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
-  }
-  throw new Error("Readiness condition was not met after ten attempts");
-};
+const poll = { timeout: 52_000, intervals: Array.from({ length: 9 }, (_, i) => 100 * 2 ** i) };
 
-const verified = (page: Page) =>
-  expect(page.getByRole("status").filter({ hasText: /^Session verified$/ })).toBeVisible();
-const unverified = (page: Page) =>
-  expect(page.getByRole("status").filter({ hasText: "session unverified" })).toBeVisible();
+const shellReady = (page: Page) => expect(page.getByRole("main")).toBeVisible();
 const readBody = (page: Page) =>
   expect(page.frameLocator('iframe[title="Email content"]').getByText(BODY)).toBeVisible();
 
@@ -64,23 +54,29 @@ const stored = (page: Page) =>
 
 const downloaded = async (page: Page) => {
   await page.goto(`/downloads/${messageId}`);
-  await verified(page);
-  await eventually(() => page.evaluate(() => !!navigator.serviceWorker.controller), Boolean);
+  await shellReady(page);
+  await expect
+    .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), poll)
+    .toBe(true);
   // Content reads start only after the packaged worker controls this document.
   await page.reload();
   await readBody(page);
-  await eventually(
-    async () => (await stored(page)).records.some(({ key }) => String(key).startsWith("part:")),
-    Boolean,
-  );
-  await eventually(
-    async () =>
-      (await stored(page)).records.some(
-        ({ key, value }) =>
-          String(key).startsWith("queries:") && JSON.stringify(value).includes(messageId),
-      ),
-    Boolean,
-  );
+  await expect
+    .poll(
+      async () => (await stored(page)).records.some(({ key }) => String(key).startsWith("part:")),
+      poll,
+    )
+    .toBe(true);
+  await expect
+    .poll(
+      async () =>
+        (await stored(page)).records.some(
+          ({ key, value }) =>
+            String(key).startsWith("queries:") && JSON.stringify(value).includes(messageId),
+        ),
+      poll,
+    )
+    .toBe(true);
 };
 
 const wiped = async (page: Page) => {
@@ -107,7 +103,7 @@ test.beforeAll(async () => {
       "MIME-Version: 1.0",
       "Content-Type: text/html; charset=utf-8",
       "",
-      `<p>${BODY}</p>`,
+      `<p>${BODY}</p><img alt="external test image" src="${IMAGE_URL}">`,
       "",
     ].join("\r\n"),
   );
@@ -118,7 +114,7 @@ test.beforeAll(async () => {
   );
   const inbox = mailboxes.items.find((item) => item.fullPath === "INBOX");
   if (!inbox) throw new Error("No INBOX");
-  const threads = await eventually(
+  const threads = await waitFor(
     () =>
       json<{ items: { messageId: string; subject: string }[] }>(
         "GET",
@@ -129,7 +125,7 @@ test.beforeAll(async () => {
   const message = threads.items.find((item) => item.subject === SUBJECT);
   if (!message) throw new Error("No seeded message");
   messageId = message.messageId;
-  await eventually(async () => {
+  await waitFor(async () => {
     const description = await json<{ bodyParts: { contentUrl?: string }[] }>(
       "GET",
       `/messages/${messageId}`,
@@ -140,6 +136,101 @@ test.beforeAll(async () => {
     return response.status === 200 && (await response.text()).includes(BODY);
   }, Boolean);
   ({ partitionKey } = await json<{ partitionKey: string }>("GET", "/session"));
+});
+
+test("the mail shell has no offline storage bar", async ({ page }) => {
+  await page.goto("/mail/brief");
+  await shellReady(page);
+  await expect(page.getByText(SUBJECT, { exact: true }).first()).toBeVisible();
+  for (const text of [
+    "Downloaded mail",
+    "Session verified",
+    "MiB used",
+    "Storage may be removed",
+    "Keep downloads on this device",
+  ]) {
+    await expect(page.getByText(text, { exact: false })).toHaveCount(0);
+  }
+});
+
+const imageReady = (page: Page) =>
+  expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const image = document
+            .querySelector<HTMLIFrameElement>('iframe[title="Email content"]')
+            ?.contentDocument?.querySelector<HTMLImageElement>('img[alt="external test image"]');
+          return (
+            !!image && image.src.startsWith("blob:") && image.complete && image.naturalWidth === 1
+          );
+        }),
+      poll,
+    )
+    .toBe(true);
+
+test("a permitted external image uses the POST proxy and reopens offline", async ({
+  context,
+  page,
+}) => {
+  const requests: {
+    method: string;
+    url: string;
+    body: string | null;
+    contentType: string | undefined;
+  }[] = [];
+  // Fixture the remote image response; exercise the real renderer, runtime config,
+  // partition admission and durable browser storage without an external server.
+  await context.route("**/api/image-proxy", async (route) => {
+    const request = route.request();
+    requests.push({
+      method: request.method(),
+      url: request.url(),
+      body: request.postData(),
+      contentType: request.headers()["content-type"],
+    });
+    await route.fulfill({
+      contentType: "image/png",
+      headers: { "X-Remit-Partition": partitionKey },
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+  });
+  const direct: string[] = [];
+  context.on("request", (request) => {
+    if (request.url() === IMAGE_URL) direct.push(request.url());
+  });
+  await downloaded(page);
+  await page.getByRole("button", { name: "Load once", exact: true }).click();
+  await imageReady(page);
+  expect(requests).toEqual([
+    {
+      method: "POST",
+      url: `${baseUrl()}/api/image-proxy`,
+      body: IMAGE_URL,
+      contentType: "text/plain;charset=UTF-8",
+    },
+  ]);
+  await context.setOffline(true);
+  await page.reload();
+  await readBody(page);
+  await page.getByRole("button", { name: "Load once", exact: true }).click();
+  await imageReady(page);
+  expect(requests).toHaveLength(1);
+  expect(direct).toEqual([]);
+});
+
+test("a blocked external image sends no proxy request", async ({ context, page }) => {
+  const requests: string[] = [];
+  context.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/image-proxy" || request.url() === IMAGE_URL)
+      requests.push(request.url());
+  });
+  await downloaded(page);
+  await expect(page.getByRole("button", { name: "Load once", exact: true })).toBeVisible();
+  expect(requests).toEqual([]);
 });
 
 test("cold offline launch keeps downloaded mail after the Access cookie expires, then reconnects", async () => {
@@ -163,7 +254,6 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     context = await launch(true);
     page = await context.newPage();
     await page.goto(`/downloads/${messageId}`);
-    await unverified(page);
     await readBody(page);
     // Local Wrangler has no Access edge: simulate its expired-cookie redirect.
     await context.route("**/api/session", (route) =>
@@ -178,14 +268,12 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     );
     await context.setOffline(false);
     await refused;
-    await unverified(page);
     await readBody(page);
     await page.goto("/mail/brief");
-    await unverified(page);
-    // Startup verification must reject the redirect before the server session
-    // is restored, otherwise it can verify itself before the explicit click.
-    await expect(page.getByRole("status").filter({ hasText: "Opening downloads…" })).toHaveCount(0);
-    await unverified(page);
+    const signIn = page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Sign in", exact: true });
+    await expect(signIn).toBeVisible();
     await context.unroute("**/api/session");
     const session = page.waitForResponse(
       (response) => response.url().endsWith("/api/session") && response.status() === 200,
@@ -193,9 +281,9 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     const refreshed = page.waitForResponse(
       (response) => response.url().includes("/threads") && response.status() === 200,
     );
-    await page.getByRole("button", { name: "Verify session / sign in" }).click();
+    await signIn.click();
     await session;
-    await verified(page);
+    await shellReady(page);
     await refreshed;
     await page.goto(`/downloads/${messageId}`);
     await readBody(page);
@@ -233,7 +321,7 @@ test("offline logout purges downloads before leaving for the login Worker", asyn
   await downloaded(page);
   const observer = await context.newPage();
   await observer.goto("/downloads");
-  await verified(observer);
+  await shellReady(observer);
   await page.goto("/mail/brief");
   await page.getByRole("button", { name: "Account", exact: true }).click();
   await context.setOffline(true);
@@ -249,8 +337,10 @@ test("offline logout purges downloads before leaving for the login Worker", asyn
 for (const hostile of ["Access HTML", "login redirect"]) {
   test(`${hostile} cannot replace downloaded app content`, async ({ context, page }) => {
     await page.goto("/downloads");
-    await verified(page);
-    await eventually(() => page.evaluate(() => !!navigator.serviceWorker.controller), Boolean);
+    await shellReady(page);
+    await expect
+      .poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), poll)
+      .toBe(true);
     await context.route("**/content/**", (route) =>
       route.fulfill(
         hostile === "Access HTML"
@@ -293,7 +383,7 @@ for (const hostile of ["Access HTML", "login redirect"]) {
 
 test("the Chromium install button consumes the browser's PWA prompt", async ({ page }) => {
   await page.goto("/mail/brief");
-  await verified(page);
+  await shellReady(page);
   await page.evaluate(() => {
     const event = new Event("beforeinstallprompt", { cancelable: true });
     Object.assign(event, {

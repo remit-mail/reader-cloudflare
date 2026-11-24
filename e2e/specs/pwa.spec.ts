@@ -88,13 +88,11 @@ test("Access expiry renews through the network with an active SW", async ({ page
   });
   await expect(security).toBeVisible();
   expired = true;
+  const navigation = page.waitForNavigation();
   await page.evaluate((key) => {
     sessionStorage.removeItem(key);
     window.dispatchEvent(new Event("online"));
   }, RENEWAL_KEY);
-  await expect(page.getByRole("status").filter({ hasText: "session unverified" })).toBeVisible();
-  const navigation = page.waitForNavigation();
-  await page.getByRole("button", { name: "Verify session / sign in" }).click();
   const response = await navigation;
   expect(response?.fromServiceWorker()).toBe(false);
   expect(new URL(page.url()).searchParams.get("reauth")).toBe("1");
@@ -104,7 +102,6 @@ test("Access expiry renews through the network with an active SW", async ({ page
   expired = false;
   await page.reload();
   await expect(security).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: /^Session verified$/ })).toBeVisible();
   expect(new URL(page.url()).searchParams.has("reauth")).toBe(false);
   expect(new URL(page.url()).searchParams.get("from")).toBe("mail");
   expect(new URL(page.url()).hash).toBe("#security");
