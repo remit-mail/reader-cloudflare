@@ -1,11 +1,3 @@
-import type { Person, PersonStatus } from "@remit/api-openapi-types";
-import type {
-  PeopleDirectory,
-  PeopleOutcome,
-  PeopleRequest,
-  PersonRequest,
-} from "@remit/auth-service/people";
-import { PeopleErrorCode } from "@remit/domain-enums";
 import type { PersonEmail } from "../../../src/operator-audit-contract";
 import { audit, auditStatement } from "./audit";
 import { mailerOf } from "./capture";
@@ -14,75 +6,47 @@ import type { Env } from "./env";
 import { sendInvite } from "./mail";
 import { issueInvite } from "./routes/app";
 
-interface PersonRow {
-  readonly id: string;
-  readonly email: string;
-  readonly created_at: number;
-  readonly banned: number | null;
-  readonly sessions: number;
-  readonly last_sign_in: number | null;
-}
-
-const refused = <T>(
-  refusal: "not_found" | (typeof PeopleErrorCode)[keyof typeof PeopleErrorCode],
-): PeopleOutcome<T> => ({
-  ok: false,
-  refusal,
-});
-
-interface Caller {
+interface Identity {
   readonly id: string;
   readonly email: string;
 }
 
-const person = (row: PersonRow, caller: Caller): Person => ({
-  userId: row.id,
-  email: row.email,
-  createdAt: row.created_at,
-  lastSignInAt: row.last_sign_in ?? row.created_at,
-  sessionCount: row.sessions,
-  status: row.banned ? "Disabled" : "Active",
-  isCaller: row.id === caller.id,
-});
+interface AdminRequest {
+  readonly callerId: string;
+  readonly clientIp: string;
+}
 
-const personRow = (db: D1Database, userId: string): Promise<PersonRow | null> =>
-  db
-    .prepare(
-      `SELECT user.id, user.email, user.created_at, user.banned,
-        (SELECT COUNT(*) FROM session WHERE session.user_id = user.id AND session.expires_at > ?2) AS sessions,
-        (SELECT MAX(at) FROM audit_event WHERE audit_event.email = user.email AND event = 'SignIn' AND outcome = 'Succeeded') AS last_sign_in
-      FROM user WHERE user.id = ?1`,
-    )
-    .bind(userId, Date.now())
-    .first<PersonRow>();
+interface TargetRequest extends AdminRequest {
+  readonly targetId: string;
+}
 
-// callerId carries the caller's email, the one identity the app Worker and the
-// login Worker share.
-export const activeCaller = (
-  db: D1Database,
-  request: Pick<PeopleRequest, "callerId">,
-): Promise<Caller | null> =>
+type PersonStatus = "Active" | "Disabled";
+export type LoginPeopleRefusal = "not_found" | "caller_disabled" | "cannot_disable_self";
+type Refused = { readonly ok: false; readonly refusal: LoginPeopleRefusal };
+type MutationOutcome = { readonly ok: true } | Refused;
+
+const refused = (refusal: LoginPeopleRefusal): Refused => ({ ok: false, refusal });
+
+export const activeCaller = (db: D1Database, email: string): Promise<Identity | null> =>
   db
     .prepare("SELECT id, email FROM user WHERE email = ? AND COALESCE(banned, 0) = 0")
-    .bind(normalizeEmail(request.callerId))
-    .first<Caller>();
-
-interface Target {
-  readonly caller: Caller;
-  readonly row: PersonRow;
-}
+    .bind(normalizeEmail(email))
+    .first<Identity>();
 
 const target = async (
   env: Env,
-  request: Pick<PersonRequest, "callerId" | "targetId">,
-): Promise<PeopleOutcome<Target>> => {
-  const caller = await activeCaller(env.DB, request);
-  if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
-  const row = await personRow(env.DB, request.targetId);
+  callerEmail: string,
+  targetId: string,
+): Promise<{ ok: true; caller: Identity; row: Identity } | Refused> => {
+  const caller = await activeCaller(env.DB, callerEmail);
+  if (caller === null) return refused("caller_disabled");
+  const row = await env.DB.prepare("SELECT id, email FROM user WHERE id = ?")
+    .bind(targetId)
+    .first<Identity>();
   if (row === null || (row.id !== caller.id && isOperator(configOf(env), row.email))) {
     return refused("not_found");
   }
-  return { ok: true, value: { caller, row } };
+  return { ok: true, caller, row };
 };
 
 export const personEmail = async (
@@ -90,15 +54,15 @@ export const personEmail = async (
   callerEmail: string,
   userId: string,
 ): Promise<PersonEmail> => {
-  const found = await target(env, { callerId: callerEmail, targetId: userId });
+  const found = await target(env, callerEmail, userId);
   if (!found.ok) return { ok: false, refusal: "not_found" };
-  return { ok: true, email: found.value.row.email };
+  return { ok: true, email: found.row.email };
 };
 
 const personAuditStatement = (
   env: Env,
-  request: PeopleRequest,
-  caller: Caller,
+  request: AdminRequest,
+  caller: Identity,
   email: string,
   event: "Disabled" | "Enabled" | "FactorReset" | "SignOutEverywhere",
   at: number,
@@ -116,27 +80,18 @@ const personAuditStatement = (
     at,
   );
 
-const guardedTarget = async (
-  env: Env,
-  request: PersonRequest,
-  status?: PersonStatus,
-): Promise<PeopleOutcome<Target>> => {
-  const found = await target(env, request);
-  if (found.ok && status === "Disabled" && found.value.row.id === found.value.caller.id) {
-    return refused(PeopleErrorCode.CannotDisableSelf);
-  }
-  return found;
-};
-
-export type LoginPeople = Pick<
-  PeopleDirectory,
-  "invitePerson" | "revokeInvite" | "resetPersonFactors" | "signOutPerson" | "updatePerson"
->;
+export interface LoginPeople {
+  invitePerson(request: AdminRequest & { email: string }): Promise<MutationOutcome>;
+  revokeInvite(request: AdminRequest & { email: string }): Promise<MutationOutcome>;
+  resetPersonFactors(request: TargetRequest): Promise<MutationOutcome>;
+  signOutPerson(request: TargetRequest): Promise<MutationOutcome>;
+  updatePerson(request: TargetRequest & { status: PersonStatus }): Promise<MutationOutcome>;
+}
 
 export const peopleAdmin = (env: Env): LoginPeople => ({
   invitePerson: async (request) => {
-    const caller = await activeCaller(env.DB, request);
-    if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
+    const caller = await activeCaller(env.DB, request.callerId);
+    if (caller === null) return refused("caller_disabled");
     const email = normalizeEmail(request.email);
     const existing = await env.DB.prepare("SELECT id FROM user WHERE email = ?")
       .bind(email)
@@ -160,12 +115,12 @@ export const peopleAdmin = (env: Env): LoginPeople => ({
       outcome: "Succeeded",
       clientId: "api",
     });
-    return { ok: true, value: { email } };
+    return { ok: true };
   },
 
   revokeInvite: async (request) => {
-    const caller = await activeCaller(env.DB, request);
-    if (caller === null) return refused(PeopleErrorCode.CallerDisabled);
+    const caller = await activeCaller(env.DB, request.callerId);
+    if (caller === null) return refused("caller_disabled");
     const email = normalizeEmail(request.email);
     const now = Date.now();
     const [revoked] = await env.DB.batch([
@@ -187,13 +142,13 @@ export const peopleAdmin = (env: Env): LoginPeople => ({
       ),
     ]);
     if (revoked === undefined || revoked.meta.changes === 0) return refused("not_found");
-    return { ok: true, value: { email } };
+    return { ok: true };
   },
 
   resetPersonFactors: async (request) => {
-    const found = await target(env, request);
+    const found = await target(env, request.callerId, request.targetId);
     if (!found.ok) return found;
-    const { caller, row } = found.value;
+    const { caller, row } = found;
     const now = Date.now();
     await env.OPERATOR_SETTINGS.revokePersonCredentials(row.email, false);
     await env.DB.batch([
@@ -207,15 +162,13 @@ export const peopleAdmin = (env: Env): LoginPeople => ({
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
       personAuditStatement(env, request, caller, row.email, "FactorReset", now),
     ]);
-    const updated = await personRow(env.DB, row.id);
-    if (updated === null) throw new Error(`user ${row.id} vanished after resetting factors`);
-    return { ok: true, value: person(updated, caller) };
+    return { ok: true };
   },
 
   signOutPerson: async (request) => {
-    const found = await guardedTarget(env, request);
+    const found = await target(env, request.callerId, request.targetId);
     if (!found.ok) return found;
-    const { caller, row } = found.value;
+    const { caller, row } = found;
     const now = Date.now();
     await env.OPERATOR_SETTINGS.revokePersonCredentials(row.email, false);
     await env.DB.batch([
@@ -223,16 +176,15 @@ export const peopleAdmin = (env: Env): LoginPeople => ({
       env.DB.prepare("DELETE FROM oauth_access_token WHERE user_id = ?").bind(row.id),
       personAuditStatement(env, request, caller, row.email, "SignOutEverywhere", now),
     ]);
-    const updated = await personRow(env.DB, row.id);
-    if (updated === null) throw new Error(`user ${row.id} vanished after sign-out`);
-    return { ok: true, value: person(updated, caller) };
+    return { ok: true };
   },
 
   updatePerson: async (request) => {
-    const found = await guardedTarget(env, request, request.status);
+    const found = await target(env, request.callerId, request.targetId);
     if (!found.ok) return found;
-    const { caller, row } = found.value;
+    const { caller, row } = found;
     const disabled = request.status === "Disabled";
+    if (disabled && row.id === caller.id) return refused("cannot_disable_self");
     const now = Date.now();
     if (disabled) await env.OPERATOR_SETTINGS.revokePersonCredentials(row.email, true);
     await env.DB.batch([
@@ -249,8 +201,6 @@ export const peopleAdmin = (env: Env): LoginPeople => ({
         : []),
       personAuditStatement(env, request, caller, row.email, disabled ? "Disabled" : "Enabled", now),
     ]);
-    const updated = await personRow(env.DB, row.id);
-    if (updated === null) throw new Error(`user ${row.id} vanished after status update`);
-    return { ok: true, value: person(updated, caller) };
+    return { ok: true };
   },
 });

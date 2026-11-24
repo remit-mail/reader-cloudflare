@@ -1,5 +1,3 @@
-import type { PeopleRefusal } from "@remit/auth-service/people";
-import { PeopleErrorCode } from "@remit/domain-enums";
 import { z } from "zod";
 import type {
   ClassificationInput,
@@ -20,7 +18,7 @@ import type { Auth } from "../auth";
 import { addressOf, clearKey, userKey } from "../backoff";
 import { isOperator, type LoginConfig, normalizeEmail } from "../config";
 import { json, notFound } from "../http";
-import type { LoginPeople } from "../people-admin";
+import type { LoginPeople, LoginPeopleRefusal } from "../people-admin";
 import { reserveOrAudit } from "../second-factor";
 import {
   type AdminAction,
@@ -422,11 +420,11 @@ const runAction = async (
   return { ok: true, message: `Signed ${targetEmail} out everywhere.` };
 };
 
-const peopleFailure = (refusal: PeopleRefusal, email: string): Outcome => {
+const peopleFailure = (refusal: LoginPeopleRefusal, email: string): Outcome => {
   if (refusal === "not_found") {
     return { ok: false, status: 404, message: `${email} was not found.` };
   }
-  if (refusal === PeopleErrorCode.CannotDisableSelf) {
+  if (refusal === "cannot_disable_self") {
     return { ok: false, status: 409, message: "You cannot disable your own account." };
   }
   return { ok: false, status: 403, message: `The people directory refused ${refusal}.` };

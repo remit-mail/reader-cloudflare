@@ -27,7 +27,7 @@ const callerDisabled = () => ({ ok: false as const, refusal: PeopleErrorCode.Cal
 
 export class PeopleAdmin extends WorkerEntrypoint<Env> implements PeopleDirectory {
   async listPeople(request: PeopleRequest): ReturnType<PeopleDirectory["listPeople"]> {
-    const caller = await activeCaller(this.env.DB, request);
+    const caller = await activeCaller(this.env.DB, request.callerId);
     if (caller === null) return callerDisabled();
     const rows = await this.env.DB.prepare(
       `SELECT user.id, user.email, user.created_at, user.banned,
@@ -54,7 +54,7 @@ export class PeopleAdmin extends WorkerEntrypoint<Env> implements PeopleDirector
   }
 
   async listAudit(request: PeopleRequest): ReturnType<PeopleDirectory["listAudit"]> {
-    if ((await activeCaller(this.env.DB, request)) === null) return callerDisabled();
+    if ((await activeCaller(this.env.DB, request.callerId)) === null) return callerDisabled();
     const rows = await auditRows(this.env.DB, 90);
     return {
       ok: true,
