@@ -35,10 +35,30 @@ const quotaRefusing = (registry: Handlers): Handlers =>
     ),
   );
 
+// Identity changes require the login Worker's action-bound /admin proof.
+const adminRequired: Handler = async () => ({
+  statusCode: 403,
+  body: {
+    code: "AdminRequired",
+    message: "Manage people from /admin on the login server.",
+  },
+});
+
+const hostHandlers: Handlers = {
+  ...handlers,
+  PeopleOperations_invitePerson: adminRequired,
+  PeopleOperations_revokeInvite: adminRequired,
+  PeopleOperations_createStepUp: adminRequired,
+  PeopleOperations_signOutPerson: adminRequired,
+  PeopleOperations_updatePerson: adminRequired,
+  PeopleOperations_createPasswordReset: adminRequired,
+  PeopleOperations_resetPersonFactors: adminRequired,
+};
+
 let served: ReturnType<typeof serveApi<QueueName>> | undefined;
 
 const servedApi = (): ReturnType<typeof serveApi<QueueName>> => {
-  served ??= serveApi<QueueName>({ handlers: quotaRefusing(handlers), publicHandlers });
+  served ??= serveApi<QueueName>({ handlers: quotaRefusing(hostHandlers), publicHandlers });
   return served;
 };
 
