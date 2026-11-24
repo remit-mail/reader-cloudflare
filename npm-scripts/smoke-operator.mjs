@@ -1,14 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { once } from "node:events";
+import { createServer } from "node:http";
+import { MCP_OPERATOR_SCOPE, MCP_SCOPES } from "@remit/mcp-server/app";
 import { ImapFlow } from "imapflow";
 import { resolveAccountId } from "./cf-api.mjs";
 import { readDeploySecrets } from "./deploy-config.mjs";
-import { accessEnvOf, CF_ENV, CONFIG_DIR, readEnvFile, TEST_ACCOUNT_ENV } from "./env.mjs";
+import { accessEnvOf, CF_ENV, readEnvFile, TEST_ACCOUNT_ENV } from "./env.mjs";
 import { callMcp, MCP_PROTOCOL_VERSION } from "./smoke-mcp.ts";
 import { PROD } from "./stages.mjs";
 
-const OPERATOR_TOKEN = join(CONFIG_DIR, "operator-mcp-token");
 const POLL_MS = 5_000;
 const TIMEOUT_MS = 10 * 60_000;
 
@@ -20,24 +21,32 @@ const check = (step, ok, detail) => {
   throw new Error(`${step}: ${detail}`);
 };
 
+const withCleanup = async (step, run, cleanup) => {
+  try {
+    await run();
+  } catch (error) {
+    try {
+      await cleanup();
+    } catch {
+      console.error(`${step} also failed`);
+    }
+    throw error;
+  }
+  await cleanup();
+};
+
+const [userId, ...extraArgs] = process.argv.slice(2);
+if (!userId || extraArgs.length > 0) {
+  console.error("Usage: npm run smoke:operator -- <login-user-id>");
+  process.exit(1);
+}
+
 const access = readEnvFile(accessEnvOf(PROD));
 for (const name of ["APP_URL", "CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]) {
   if (!access[name]) {
     console.error(`${accessEnvOf(PROD)} does not set ${name}; run npm run access-env:write`);
     process.exit(1);
   }
-}
-
-let operatorToken;
-try {
-  operatorToken = readFileSync(OPERATOR_TOKEN, "utf8").trim();
-} catch {
-  console.error(`${OPERATOR_TOKEN} is missing; ask the owner for an operator-granted MCP token`);
-  process.exit(1);
-}
-if (!operatorToken) {
-  console.error(`${OPERATOR_TOKEN} is empty; ask the owner for an operator-granted MCP token`);
-  process.exit(1);
 }
 
 const tofuToken = process.env.CLOUDFLARE_TOFU_TOKEN;
@@ -51,6 +60,88 @@ if (!deploySecrets.classification) {
   console.error("the deploy config has no classification key");
   process.exit(1);
 }
+
+const authorizeOperator = async () => {
+  const verifier = randomBytes(32).toString("base64url");
+  const state = randomBytes(32).toString("base64url");
+  const server = createServer().listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const redirect = `http://127.0.0.1:${server.address().port}/callback`;
+    const registered = await fetch(new URL("/auth/oauth2/register", access.APP_URL), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        client_name: "smoke:operator",
+        redirect_uris: [redirect],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+      redirect: "manual",
+    });
+    check("register operator smoke client", registered.ok, `answered ${registered.status}`);
+    const { client_id: clientId } = await registered.json();
+    if (!clientId) throw new Error("Operator smoke client registration returned no client id");
+
+    const authorize = new URL("/auth/oauth2/authorize", access.APP_URL);
+    authorize.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirect,
+      scope: [...MCP_SCOPES, MCP_OPERATOR_SCOPE].join(" "),
+      state,
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+    }).toString();
+    const code = await new Promise((resolve, reject) => {
+      server.on("request", (request, response) => {
+        const callback = URL.parse(request.url, redirect);
+        if (
+          request.method !== "GET" ||
+          callback?.pathname !== "/callback" ||
+          callback.searchParams.get("state") !== state
+        ) {
+          response.writeHead(400).end("Invalid authorization callback.");
+          return;
+        }
+        const code = callback.searchParams.get("code");
+        if (!code || callback.searchParams.has("error")) {
+          response.writeHead(400).end("Operator authorization failed. Return to the terminal.");
+          reject(new Error("Operator authorization returned no usable code"));
+          return;
+        }
+        response.end("Authorization received. Return to the terminal.");
+        resolve(code);
+      });
+      console.log(`Open this URL in your browser and tick the operator box:\n${authorize}`);
+    });
+
+    const exchanged = await fetch(new URL("/auth/oauth2/token", access.APP_URL), {
+      method: "POST",
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        redirect_uri: redirect,
+        code,
+        code_verifier: verifier,
+      }),
+      redirect: "manual",
+    });
+    check("exchange operator authorization code", exchanged.ok, `answered ${exchanged.status}`);
+    const { access_token: token, scope } = await exchanged.json();
+    check(
+      "operator authorization granted",
+      Boolean(token) && scope?.split(" ").includes(MCP_OPERATOR_SCOPE),
+      "the token response must include an access token with the operator scope",
+    );
+    return token;
+  } finally {
+    server.close();
+  }
+};
+
+const operatorToken = await authorizeOperator();
 
 let requestId = 0;
 const mcp = (path, headers, method, params) =>
@@ -104,26 +195,28 @@ const appendMessage = async () => {
     logger: false,
   });
   await client.connect();
-  try {
-    const appended = await client.append(
-      "INBOX",
-      [
-        "From: smoke@example.invalid",
-        `To: ${test.TEST_EMAIL ?? test.TEST_IMAP_USER}`,
-        `Subject: operator smoke ${now.toISOString()}`,
-        `Date: ${now.toUTCString()}`,
-        `Message-ID: <operator-smoke-${now.getTime()}@example.invalid>`,
-        "Content-Type: text/plain; charset=utf-8",
-        "",
-        "A deterministic message for the deployed classifier smoke test.",
-      ].join("\r\n"),
-      [],
-      now,
-    );
-    check("append classifier fixture", appended !== false, "server returned no append result");
-  } finally {
-    await client.logout();
-  }
+  await withCleanup(
+    "IMAP logout",
+    async () => {
+      const appended = await client.append(
+        "INBOX",
+        [
+          "From: smoke@example.invalid",
+          `To: ${test.TEST_EMAIL ?? test.TEST_IMAP_USER}`,
+          `Subject: operator smoke ${now.toISOString()}`,
+          `Date: ${now.toUTCString()}`,
+          `Message-ID: <operator-smoke-${now.getTime()}@example.invalid>`,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          "A deterministic message for the deployed classifier smoke test.",
+        ].join("\r\n"),
+        [],
+        now,
+      );
+      check("append classifier fixture", appended !== false, "server returned no append result");
+    },
+    () => client.logout(),
+  );
 };
 
 const started = Date.now();
@@ -145,16 +238,16 @@ check(
   configured.source === "Config",
   `source is ${String(configured.source)}`,
 );
-const initialTenant = await callTool(operatorMcp, "get_tenant_settings", {
-  userId: access.CF_ACCESS_CLIENT_ID,
-});
-const initialSources = initialTenant.classification?.sources;
-check(
-  "tenant classification starts inherited",
-  initialSources !== undefined &&
-    Object.values(initialSources).every((source) => source === "Deployment"),
-  "one or more classifier settings are not inherited",
-);
+const checkInherited = (step, settings) => {
+  const sources = settings.classification?.sources;
+  check(
+    step,
+    sources !== undefined && Object.values(sources).every((source) => source === "Deployment"),
+    "one or more classifier settings are not inherited",
+  );
+};
+const initialTenant = await callTool(operatorMcp, "get_tenant_settings", { userId });
+checkInherited("tenant classification starts inherited", initialTenant);
 
 const classification = {
   presetId: configured.presetId,
@@ -185,8 +278,9 @@ check(
   "agent lists an operator-only tool",
 );
 
-try {
-  try {
+await withCleanup(
+  "Restore classification default",
+  async () => {
     const overridden = await callTool(operatorMcp, "set_classification_default", classification);
     check(
       "classification default from operator",
@@ -199,54 +293,55 @@ try {
       readBack.source === "Operator",
       `source is ${String(readBack.source)}`,
     );
-  } finally {
+  },
+  async () => {
     const restored = await callTool(operatorMcp, "clear_classification_default");
     check(
       "classification default restored",
       restored.source === "Config",
       `source is ${String(restored.source)}`,
     );
-  }
+  },
+);
 
-  const saved = await callTool(operatorMcp, "update_tenant_settings", {
-    userId: access.CF_ACCESS_CLIENT_ID,
-    classificationPresetId: configured.presetId,
-    classificationModel: configured.model,
-    classificationBaseUrl: configured.baseUrl,
-    classificationApiKey: deploySecrets.classification.api_key,
-    classificationEnabled: configured.enabled,
-    classificationDailyLimit: configured.dailyLimit,
-  });
-  check(
-    "tenant classification key saved",
-    saved.classification?.sources?.apiKey === "Saved",
-    `source is ${String(saved.classification?.sources?.apiKey)}`,
-  );
+await withCleanup(
+  "Restore tenant classification",
+  async () => {
+    const saved = await callTool(operatorMcp, "update_tenant_settings", {
+      userId,
+      classificationPresetId: configured.presetId,
+      classificationModel: configured.model,
+      classificationBaseUrl: configured.baseUrl,
+      classificationApiKey: deploySecrets.classification.api_key,
+      classificationEnabled: configured.enabled,
+      classificationDailyLimit: configured.dailyLimit,
+    });
+    check(
+      "tenant classification key saved",
+      saved.classification?.sources?.apiKey === "Saved",
+      `source is ${String(saved.classification?.sources?.apiKey)}`,
+    );
+  },
+  async () => {
+    const inherited = await callTool(operatorMcp, "clear_tenant_classification", { userId });
+    checkInherited("tenant classification restored", inherited);
+  },
+);
 
-  const statsSince = new Date().toISOString();
-  await appendMessage();
+const statsSince = new Date().toISOString();
+await appendMessage();
 
-  const synced = spawnSync("npm", ["run", "smoke:sync"], { stdio: "inherit" });
-  if (synced.error) throw synced.error;
-  check("smoke:sync", synced.status === 0, `exited ${synced.status}`);
+const synced = spawnSync("npm", ["run", "smoke:sync"], { stdio: "inherit" });
+if (synced.error) throw synced.error;
+check("smoke:sync", synced.status === 0, `exited ${synced.status}`);
 
-  const statsDeadline = Date.now() + TIMEOUT_MS;
-  let stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
-  while (stats.examined === 0 && Date.now() < statsDeadline) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
-  }
-  check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
-} finally {
-  const inherited = await callTool(operatorMcp, "clear_tenant_classification", {
-    userId: access.CF_ACCESS_CLIENT_ID,
-  });
-  check(
-    "tenant classification key inherited",
-    inherited.classification?.sources?.apiKey === "Deployment",
-    `source is ${String(inherited.classification?.sources?.apiKey)}`,
-  );
+const statsDeadline = Date.now() + TIMEOUT_MS;
+let stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
+while (stats.examined === 0 && Date.now() < statsDeadline) {
+  await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  stats = await callTool(agentMcp, "classifier_stats", { since: statsSince });
 }
+check("classifier decisions", stats.examined > 0, `examined ${String(stats.examined)}`);
 
 const agentDefault = await fetch(new URL("/api/system/classification-default", access.APP_URL), {
   headers: agentHeaders,
