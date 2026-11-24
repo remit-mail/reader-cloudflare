@@ -1,8 +1,8 @@
 import { AuthCard, AuthHero, Banner, Button, ButtonLink } from "@remit/ui";
 import type { AuthAccountProps, AuthProvider } from "@remit/web-client/auth/provider";
-import type { OfflineOptions } from "@remit/web-client/offline";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
-import { verifySession } from "./access-session";
+import { readSession } from "@remit/web-client/offline";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { SESSION_URL } from "./access-session";
 
 type Probe =
   | { readonly state: "checking" }
@@ -26,7 +26,7 @@ const emailOf = (body: unknown): string | null =>
   isRecord(body) && typeof body.email === "string" ? body.email : null;
 
 const probeApi = (): Promise<Probe> =>
-  verifySession().then(
+  readSession(SESSION_URL).then(
     (session) => ({ state: session ? "ready" : "signedOut" }),
     (error: unknown) => ({
       state: "failed",
@@ -69,6 +69,13 @@ const renewOnce = (): boolean => {
   return true;
 };
 
+const clearRenewalUrl = (): void => {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("reauth") !== "1") return;
+  url.searchParams.delete("reauth");
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+};
+
 const Frame = ({ children }: { children: ReactNode }) => (
   <AuthCard>
     <AuthHero />
@@ -78,19 +85,34 @@ const Frame = ({ children }: { children: ReactNode }) => (
   </AuthCard>
 );
 
-const AccessSessionGate = ({ children }: { children: ReactNode }) => {
+const AccessProbe = createContext<{ probe: Probe; check(): void } | null>(null);
+
+const AccessProbeProvider = ({ children }: { children: ReactNode }) => {
   const [probe, setProbe] = useState<Probe>({ state: "checking" });
 
   const check = useCallback(() => {
+    if (!navigator.onLine) return;
     setProbe({ state: "checking" });
-    probeApi().then(setProbe);
+    void probeApi().then((next) => {
+      setProbe(next);
+      if (next.state === "signedOut" && navigator.onLine) renewOnce();
+      if (next.state === "ready") clearRenewalUrl();
+    });
   }, []);
 
-  useEffect(check, [check]);
-
   useEffect(() => {
-    if (probe.state === "signedOut") renewOnce();
-  }, [probe.state]);
+    check();
+    window.addEventListener("online", check);
+    return () => window.removeEventListener("online", check);
+  }, [check]);
+
+  return <AccessProbe.Provider value={{ probe, check }}>{children}</AccessProbe.Provider>;
+};
+
+const AccessSessionGate = ({ children }: { children: ReactNode }) => {
+  const access = useContext(AccessProbe);
+  if (!access) throw new Error("AccessSessionGate requires AccessProbeProvider");
+  const { probe, check } = access;
 
   if (probe.state === "ready") return <>{children}</>;
   if (probe.state === "checking") {
@@ -124,26 +146,6 @@ const AccessSessionGate = ({ children }: { children: ReactNode }) => {
   );
 };
 
-export const accessOffline: OfflineOptions = {
-  verifySession: async () => {
-    const session = await verifySession();
-    // Remembered downloads bypass AccessSessionGate. Renew the Access cookie
-    // here too, otherwise a cached shell leaves online users in read-only mode.
-    if (!session && navigator.onLine) renewOnce();
-    const url = new URL(window.location.href);
-    if (session && url.searchParams.get("reauth") === "1") {
-      url.searchParams.delete("reauth");
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `${url.pathname}${url.search}${url.hash}`,
-      );
-    }
-    return session;
-  },
-  reauthenticate: () => window.location.assign(renewalUrl()),
-};
-
 const signOut = async (): Promise<void> => {
   window.location.assign(LOGOUT_URL);
 };
@@ -164,10 +166,11 @@ const AccessAccount = ({ children }: AuthAccountProps) => {
 };
 
 export const accessAuthProvider: AuthProvider = {
-  reauthenticate: accessOffline.reauthenticate,
+  reauthenticate: () => window.location.assign(renewalUrl()),
   configure: () => {},
   getToken: async () => null,
   resetToken: () => {},
+  Provider: AccessProbeProvider,
   Shell: AccessSessionGate,
   SessionGate: AccessSessionGate,
   Account: AccessAccount,

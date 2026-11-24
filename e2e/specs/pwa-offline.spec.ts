@@ -1,10 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, expect, type Page, test } from "@playwright/test";
+import { type BrowserContext, chromium, expect, type Page, test } from "@playwright/test";
 import { waitFor } from "../.reader/packages/e2e/src/api.js";
 import { appendRawMessage } from "../.reader/packages/e2e/src/imap.js";
-import { baseUrl, connectImapAccount, mintIdentity, tenantJson } from "./tenant";
+import { baseUrl, connectImapAccount, type ImapAccount, mintIdentity, tenantJson } from "./tenant";
 
 const identity = mintIdentity("pwa");
 const json = tenantJson(identity);
@@ -15,12 +15,13 @@ const LOGIN_HTML =
   '<html><body>Cloudflare Access<form action="/login">Sign in</form></body></html>';
 let messageId: string;
 let partitionKey: string;
+let account: ImapAccount;
 
 const poll = { timeout: 52_000, intervals: Array.from({ length: 9 }, (_, i) => 100 * 2 ** i) };
 
 const shellReady = (page: Page) => expect(page.getByRole("main")).toBeVisible();
-const readBody = (page: Page) =>
-  expect(page.frameLocator('iframe[title="Email content"]').getByText(BODY)).toBeVisible();
+const readBody = (page: Page, body = BODY) =>
+  expect(page.frameLocator('iframe[title="Email content"]').getByText(body)).toBeVisible();
 
 const stored = (page: Page) =>
   page.evaluate(async () => {
@@ -91,19 +92,18 @@ test.use({
   viewport: { width: 1440, height: 900 },
 });
 
-test.beforeAll(async () => {
-  const account = await connectImapAccount(json);
+const syncMessage = async (subject: string, body: string, extraHtml = "") => {
   await appendRawMessage(
     account.imapUser,
     [
       `From: Sender <sender@remit.test>`,
       `To: ${account.imapUser}`,
-      `Subject: ${SUBJECT}`,
+      `Subject: ${subject}`,
       `Message-ID: <${crypto.randomUUID()}@remit.test>`,
       "MIME-Version: 1.0",
       "Content-Type: text/html; charset=utf-8",
       "",
-      `<p>${BODY}</p><img alt="external test image" src="${IMAGE_URL}">`,
+      `<p>${body}</p>${extraHtml}`,
       "",
     ].join("\r\n"),
   );
@@ -120,21 +120,31 @@ test.beforeAll(async () => {
         "GET",
         `/mailboxes/${inbox.mailboxId}/threads`,
       ),
-    (page) => page.items.some((item) => item.subject === SUBJECT),
+    (page) => page.items.some((item) => item.subject === subject),
   );
-  const message = threads.items.find((item) => item.subject === SUBJECT);
-  if (!message) throw new Error("No seeded message");
-  messageId = message.messageId;
-  await waitFor(async () => {
+  const message = threads.items.find((item) => item.subject === subject);
+  if (!message) throw new Error(`Expected synced message "${subject}"`);
+  const contentUrl = await waitFor(async () => {
     const description = await json<{ bodyParts: { contentUrl?: string }[] }>(
       "GET",
-      `/messages/${messageId}`,
+      `/messages/${message.messageId}`,
     );
     const url = description.bodyParts.find((part) => part.contentUrl)?.contentUrl;
-    if (!url) return false;
+    if (!url) return;
     const response = await fetch(url, { headers: { "x-dev-identity": identity } });
-    return response.status === 200 && (await response.text()).includes(BODY);
+    if (response.status === 200 && (await response.text()).includes(body)) return url;
   }, Boolean);
+  if (!contentUrl) throw new Error(`Expected body for "${subject}"`);
+  return { messageId: message.messageId, contentUrl };
+};
+
+test.beforeAll(async () => {
+  account = await connectImapAccount(json);
+  ({ messageId } = await syncMessage(
+    SUBJECT,
+    BODY,
+    `<img alt="external test image" src="${IMAGE_URL}">`,
+  ));
   ({ partitionKey } = await json<{ partitionKey: string }>("GET", "/session"));
 });
 
@@ -152,6 +162,117 @@ test("the mail shell has no offline storage bar", async ({ page }) => {
     await expect(page.getByText(text, { exact: false })).toHaveCount(0);
   }
 });
+
+const refreshTag = "remit-refresh";
+const refreshTags = (page: Page) =>
+  page.evaluate(async () => {
+    const registration = (await navigator.serviceWorker.ready) as ServiceWorkerRegistration & {
+      periodicSync: { getTags(): Promise<string[]> };
+    };
+    return registration.periodicSync.getTags();
+  });
+
+const backgroundTest = test.extend<{
+  background: { context: BrowserContext; page: Page; dispatch(): Promise<void> };
+}>({
+  background: async ({ baseURL: origin }, use) => {
+    if (!origin) throw new Error("Missing Playwright baseURL");
+    const context = await chromium.launchPersistentContext("", {
+      channel: "chromium",
+      baseURL: origin,
+      extraHTTPHeaders: { "x-dev-identity": identity },
+    });
+    try {
+      await context.route("**/*", (route) => {
+        const request = route.request();
+        return request.serviceWorker()
+          ? route.continue({ headers: { ...request.headers(), "x-dev-identity": identity } })
+          : route.continue();
+      });
+      const page = await context.newPage();
+      const cdp = await context.newCDPSession(page);
+      await cdp.send("Browser.setPermission", {
+        permission: { name: "periodic-background-sync" },
+        setting: "granted",
+        origin,
+      });
+      const registrationId = new Promise<string>((resolve) => {
+        cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+          const registration = registrations.find(({ scopeURL }) => scopeURL === `${origin}/`);
+          if (registration) resolve(registration.registrationId);
+        });
+      });
+      await cdp.send("ServiceWorker.enable");
+      await page.goto("/downloads");
+      await shellReady(page);
+      await expect.poll(() => refreshTags(page), poll).toContain(refreshTag);
+      await use({
+        context,
+        page,
+        dispatch: async () => {
+          await cdp.send("ServiceWorker.dispatchPeriodicSyncEvent", {
+            origin,
+            registrationId: await registrationId,
+            tag: refreshTag,
+          });
+        },
+      });
+    } finally {
+      await context.close();
+    }
+  },
+});
+
+backgroundTest(
+  "one background refresh makes new mail readable offline in Downloads",
+  async ({ background: { context, page, dispatch } }) => {
+    const unique = crypto.randomUUID();
+    const subject = `Background refresh ${unique}`;
+    const body = `Downloaded in the background: ${unique}`;
+    const message = await syncMessage(subject, body);
+    const { origin, pathname } = new URL(message.contentUrl);
+    const partSaved = async () =>
+      (await stored(page)).records.some(
+        ({ key }) =>
+          String(key).startsWith("part:") && String(key).endsWith(`:${origin}${pathname}`),
+      );
+
+    expect(await partSaved()).toBe(false);
+    await dispatch();
+    await expect.poll(partSaved, poll).toBe(true);
+    await context.setOffline(true);
+    await page.goto(`/downloads/${message.messageId}`);
+    await expect(page.getByRole("heading", { name: subject })).toBeVisible();
+    await readBody(page, body);
+  },
+);
+
+for (const status of [401, 302]) {
+  backgroundTest(
+    `a background session ${status} removes the refresh tag without fetching mail`,
+    async ({ background: { context, page, dispatch } }) => {
+      const requests: string[] = [];
+      let requestedWith: string | undefined;
+      await context.route("**/api/session", (route) => {
+        if (!route.request().serviceWorker()) return route.fallback();
+        requestedWith = route.request().headers()["x-requested-with"];
+        return route.fulfill({
+          status,
+          headers: status === 302 ? { location: "https://access.remit.test/login" } : {},
+        });
+      });
+      const before = await stored(page);
+      context.on("request", (request) => {
+        if (request.serviceWorker()) requests.push(new URL(request.url()).pathname);
+      });
+      await dispatch();
+      await expect.poll(() => refreshTags(page), poll).toEqual([]);
+      expect(await stored(page)).toEqual(before);
+      expect(requests).toEqual(["/api/session"]);
+      expect(requestedWith).toBe("XMLHttpRequest");
+    },
+  );
+}
 
 const imageReady = (page: Page) =>
   expect
