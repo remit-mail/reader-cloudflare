@@ -204,8 +204,8 @@ const backgroundTest = test.extend<{
       });
       await cdp.send("ServiceWorker.enable");
       await page.goto("/downloads");
-      await shellReady(page);
       await expect.poll(() => refreshTags(page), poll).toContain(refreshTag);
+      await shellReady(page);
       await use({
         context,
         page,
@@ -403,13 +403,13 @@ test("cold offline launch keeps downloaded mail after the Access cookie expires,
     const session = page.waitForResponse(
       (response) => response.url().endsWith("/api/session") && response.status() === 200,
     );
-    const refreshed = page.waitForResponse(
-      (response) => response.url().includes("/threads") && response.status() === 200,
+    const config = page.waitForResponse(
+      (response) => response.url().endsWith("/api/config") && response.status() === 200,
     );
     await signIn.click();
     await session;
     await shellReady(page);
-    await refreshed;
+    await config;
     await page.goto(`/downloads/${messageId}`);
     await readBody(page);
   } finally {

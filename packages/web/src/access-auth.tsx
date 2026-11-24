@@ -91,8 +91,6 @@ const AccessProbeProvider = ({ children }: { children: ReactNode }) => {
   const [probe, setProbe] = useState<Probe>({ state: "checking" });
 
   const check = useCallback(() => {
-    if (!navigator.onLine) return;
-    setProbe({ state: "checking" });
     void probeApi().then((next) => {
       setProbe(next);
       if (next.state === "signedOut" && navigator.onLine) renewOnce();
@@ -171,7 +169,11 @@ export const accessAuthProvider: AuthProvider = {
   getToken: async () => null,
   resetToken: () => {},
   Provider: AccessProbeProvider,
-  Shell: AccessSessionGate,
+  Shell: ({ children }) => (
+    <AccessProbeProvider>
+      <AccessSessionGate>{children}</AccessSessionGate>
+    </AccessProbeProvider>
+  ),
   SessionGate: AccessSessionGate,
   Account: AccessAccount,
 };
