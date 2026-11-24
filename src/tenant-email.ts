@@ -1,9 +1,17 @@
-import { and, eq, ne, sql } from "drizzle-orm";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { and, eq, ne, notExists, sql } from "drizzle-orm";
 import { openAppDb } from "./db/client";
-import { tenantEmails, tenantKeys } from "./db/schema";
+import {
+  calendarFeedTokens,
+  mcpDeviceCode,
+  mcpOauthAccessToken,
+  mcpOauthConsent,
+  mcpOauthRefreshToken,
+  mcpSession,
+  tenantEmails,
+  tenantKeys,
+} from "./db/schema";
 import type { LoginOperatorService } from "./operator-audit-contract";
-
-const recorded = new Map<string, string>();
 
 export const normalizedEmail = (email: string): string => email.trim().toLowerCase();
 
@@ -13,9 +21,19 @@ export const recordTenantEmail = async (
   email: string,
 ): Promise<void> => {
   const normalized = normalizedEmail(email);
-  if (recorded.get(tenantId) === normalized) return;
   const db = openAppDb(binding);
+  const unenrolled = notExists(
+    db.select({ one: sql`1` }).from(tenantEmails).where(eq(tenantEmails.tenantId, tenantId)),
+  );
   await db.batch([
+    db
+      .delete(calendarFeedTokens)
+      .where(
+        and(eq(calendarFeedTokens.accountConfigId, deriveAccountConfigId(tenantId)), unenrolled),
+      ),
+    ...[mcpOauthAccessToken, mcpOauthRefreshToken, mcpSession, mcpOauthConsent, mcpDeviceCode].map(
+      (table) => db.delete(table).where(and(eq(table.userId, tenantId), unenrolled)),
+    ),
     db
       .delete(tenantEmails)
       .where(and(eq(tenantEmails.email, normalized), ne(tenantEmails.tenantId, tenantId))),
@@ -28,7 +46,6 @@ export const recordTenantEmail = async (
         setWhere: sql`${tenantEmails.email} <> excluded.email`,
       }),
   ]);
-  recorded.set(tenantId, normalized);
 };
 
 export const emailOfTenant = async (

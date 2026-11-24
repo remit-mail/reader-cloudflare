@@ -11,7 +11,7 @@ export interface LoginMailReader {
 
 export const serveLoginMail = async (request: Request, env: Env): Promise<Response> => {
   const reader = env.LOGIN_MAIL;
-  const agent = env.LOGIN_MAIL_READER;
+  const agent = env.AGENT_TENANT;
   if (reader === undefined || agent === undefined || request.method !== "GET") {
     return notFound("Captured login mail");
   }

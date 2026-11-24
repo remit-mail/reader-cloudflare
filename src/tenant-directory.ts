@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { openAppDb } from "./db/client";
-import { calendarFeedTokens, tenantAccountConfigs } from "./db/schema";
+import { calendarFeedTokens, tenantAccountConfigs, tenantEmails } from "./db/schema";
 
 export const tenantOfAccountConfig = async (
   binding: D1Database,
@@ -16,6 +16,7 @@ export const tenantOfAccountConfig = async (
 export const tenantOfFeedToken = async (
   binding: D1Database,
   tokenHash: string,
+  agentTenant: string | undefined,
 ): Promise<string | undefined> => {
   const [row] = await openAppDb(binding)
     .select({ tenantId: tenantAccountConfigs.tenantId })
@@ -24,7 +25,16 @@ export const tenantOfFeedToken = async (
       tenantAccountConfigs,
       eq(calendarFeedTokens.accountConfigId, tenantAccountConfigs.accountConfigId),
     )
-    .where(eq(calendarFeedTokens.tokenHash, tokenHash))
+    .leftJoin(tenantEmails, eq(tenantEmails.tenantId, tenantAccountConfigs.tenantId))
+    .where(
+      and(
+        eq(calendarFeedTokens.tokenHash, tokenHash),
+        or(
+          isNotNull(tenantEmails.tenantId),
+          agentTenant === undefined ? undefined : eq(tenantAccountConfigs.tenantId, agentTenant),
+        ),
+      ),
+    )
     .limit(1);
   return row?.tenantId;
 };

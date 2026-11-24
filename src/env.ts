@@ -30,7 +30,7 @@ export interface Env {
   readonly CLASSIFICATION_DEFAULT_API_KEY?: SecretsStoreSecret;
   readonly SPAM_PIPELINE?: string;
   readonly LOGIN_MAIL?: LoginMailReader;
-  readonly LOGIN_MAIL_READER?: string;
+  readonly AGENT_TENANT?: string;
   readonly LOGIN_OPERATOR: LoginOperatorService;
 }
 
