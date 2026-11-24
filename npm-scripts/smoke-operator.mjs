@@ -21,18 +21,27 @@ const check = (step, ok, detail) => {
   throw new Error(`${step}: ${detail}`);
 };
 
-const withCleanup = async (step, run, cleanup) => {
+const withCleanup = async (step, run, cleanup, secrets = cleanupSecrets) => {
+  let result;
+  let failure;
   try {
-    await run();
+    result = await run();
   } catch (error) {
-    try {
-      await cleanup();
-    } catch {
-      console.error(`${step} also failed`);
-    }
-    throw error;
+    failure = { error };
   }
-  await cleanup();
+  try {
+    await cleanup();
+  } catch (error) {
+    // JSON parse errors can quote the response body.
+    let detail = error instanceof Error ? error.message : "cleanup rejected without an Error";
+    if (error instanceof SyntaxError) detail = "invalid JSON response";
+    for (const secret of secrets) detail = detail.replaceAll(secret, "[redacted]");
+    const message = `${step} failed: ${detail}`;
+    if (!failure) throw new Error(message);
+    console.error(message);
+  }
+  if (failure) throw failure.error;
+  return result;
 };
 
 const [userId, ...extraArgs] = process.argv.slice(2);
@@ -61,87 +70,97 @@ if (!deploySecrets.classification) {
   process.exit(1);
 }
 
+const cleanupSecrets = [
+  tofuToken,
+  access.CF_ACCESS_CLIENT_ID,
+  access.CF_ACCESS_CLIENT_SECRET,
+  deploySecrets.classification.api_key,
+];
+
 const authorizeOperator = async () => {
   const verifier = randomBytes(32).toString("base64url");
   const state = randomBytes(32).toString("base64url");
   const server = createServer().listen(0, "127.0.0.1");
   await once(server, "listening");
-  try {
-    const redirect = `http://127.0.0.1:${server.address().port}/callback`;
-    const registered = await fetch(new URL("/auth/oauth2/register", access.APP_URL), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        client_name: "smoke:operator",
-        redirect_uris: [redirect],
-        grant_types: ["authorization_code", "refresh_token"],
-        response_types: ["code"],
-        token_endpoint_auth_method: "none",
-      }),
-      redirect: "manual",
-    });
-    check("register operator smoke client", registered.ok, `answered ${registered.status}`);
-    const { client_id: clientId } = await registered.json();
-    if (!clientId) throw new Error("Operator smoke client registration returned no client id");
-
-    const authorize = new URL("/auth/oauth2/authorize", access.APP_URL);
-    authorize.search = new URLSearchParams({
-      response_type: "code",
-      client_id: clientId,
-      redirect_uri: redirect,
-      scope: [...MCP_SCOPES, MCP_OPERATOR_SCOPE].join(" "),
-      state,
-      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
-      code_challenge_method: "S256",
-    }).toString();
-    const code = await new Promise((resolve, reject) => {
-      server.on("request", (request, response) => {
-        const callback = URL.parse(request.url, redirect);
-        if (
-          request.method !== "GET" ||
-          callback?.pathname !== "/callback" ||
-          callback.searchParams.get("state") !== state
-        ) {
-          response.writeHead(400).end("Invalid authorization callback.");
-          return;
-        }
-        const code = callback.searchParams.get("code");
-        if (!code || callback.searchParams.has("error")) {
-          response.writeHead(400).end("Operator authorization failed. Return to the terminal.");
-          reject(new Error("Operator authorization returned no usable code"));
-          return;
-        }
-        response.end("Authorization received. Return to the terminal.");
-        resolve(code);
+  return withCleanup(
+    "Close OAuth callback listener",
+    async () => {
+      const redirect = `http://127.0.0.1:${server.address().port}/callback`;
+      const registered = await fetch(new URL("/auth/oauth2/register", access.APP_URL), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "smoke:operator",
+          redirect_uris: [redirect],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+        redirect: "manual",
       });
-      console.log(`Open this URL in your browser and tick the operator box:\n${authorize}`);
-    });
+      check("register operator smoke client", registered.ok, `answered ${registered.status}`);
+      const { client_id: clientId } = await registered.json();
+      if (!clientId) throw new Error("Operator smoke client registration returned no client id");
 
-    const exchanged = await fetch(new URL("/auth/oauth2/token", access.APP_URL), {
-      method: "POST",
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
+      const authorize = new URL("/auth/oauth2/authorize", access.APP_URL);
+      authorize.search = new URLSearchParams({
+        response_type: "code",
         client_id: clientId,
         redirect_uri: redirect,
-        code,
-        code_verifier: verifier,
-      }),
-      redirect: "manual",
-    });
-    check("exchange operator authorization code", exchanged.ok, `answered ${exchanged.status}`);
-    const { access_token: token, scope } = await exchanged.json();
-    check(
-      "operator authorization granted",
-      Boolean(token) && scope?.split(" ").includes(MCP_OPERATOR_SCOPE),
-      "the token response must include an access token with the operator scope",
-    );
-    return token;
-  } finally {
-    server.close();
-  }
+        scope: [...MCP_SCOPES, MCP_OPERATOR_SCOPE].join(" "),
+        state,
+        code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+        code_challenge_method: "S256",
+      }).toString();
+      const code = await new Promise((resolve, reject) => {
+        server.on("request", (request, response) => {
+          const callback = URL.parse(request.url, redirect);
+          if (
+            request.method !== "GET" ||
+            callback?.pathname !== "/callback" ||
+            callback.searchParams.get("state") !== state
+          ) {
+            response.writeHead(400).end("Invalid authorization callback.");
+            return;
+          }
+          const code = callback.searchParams.get("code");
+          if (!code || callback.searchParams.has("error")) {
+            response.writeHead(400).end("Operator authorization failed. Return to the terminal.");
+            reject(new Error("Operator authorization returned no usable code"));
+            return;
+          }
+          response.end("Authorization received. Return to the terminal.");
+          resolve(code);
+        });
+        console.log(`Open this URL in your browser and tick the operator box:\n${authorize}`);
+      });
+
+      const exchanged = await fetch(new URL("/auth/oauth2/token", access.APP_URL), {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: clientId,
+          redirect_uri: redirect,
+          code,
+          code_verifier: verifier,
+        }),
+        redirect: "manual",
+      });
+      check("exchange operator authorization code", exchanged.ok, `answered ${exchanged.status}`);
+      const { access_token: token, scope } = await exchanged.json();
+      check(
+        "operator authorization granted",
+        Boolean(token) && scope?.split(" ").includes(MCP_OPERATOR_SCOPE),
+        "the token response must include an access token with the operator scope",
+      );
+      return token;
+    },
+    () => server[Symbol.asyncDispose](),
+  );
 };
 
 const operatorToken = await authorizeOperator();
+cleanupSecrets.push(operatorToken);
 
 let requestId = 0;
 const mcp = (path, headers, method, params) =>
@@ -215,7 +234,10 @@ const appendMessage = async () => {
       );
       check("append classifier fixture", appended !== false, "server returned no append result");
     },
-    () => client.logout(),
+    async () => {
+      if ((await client.logout()) === false) throw new Error("server did not complete logout");
+    },
+    [...cleanupSecrets, test.TEST_IMAP_PASSWORD],
   );
 };
 
