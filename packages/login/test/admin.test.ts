@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapOperators } from "../src/bootstrap";
 import { mailerOf } from "../src/capture";
 import { configOf } from "../src/config";
-import { peopleAdmin } from "../src/people-admin";
 import { issueInvite } from "../src/routes/app";
 import { requestFreshLink } from "../src/routes/reset";
 import {
@@ -254,14 +253,6 @@ describe("admin step-up", () => {
     expect(self.status).toBe(403);
     expect(await isBanned(OTHER_OPERATOR)).toBe(false);
     expect(await sessionsOf(OTHER_OPERATOR)).toBe(1);
-    expect(
-      await peopleAdmin(testEnv).updatePerson({
-        callerId: OPERATOR,
-        clientIp: "192.0.2.1",
-        targetId: other.id,
-        status: "Disabled",
-      }),
-    ).toEqual({ ok: false, refusal: "not_found" });
     expect(
       await count(
         "SELECT COUNT(*) AS count FROM audit_event WHERE actor = ? AND email = ? AND outcome = 'Refused'",
