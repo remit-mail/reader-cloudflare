@@ -200,6 +200,7 @@ const devTenant = async (
   if (!LOOPBACK_HOSTS.has(new URL(request.url).hostname)) {
     return denied("dev identity is only accepted on loopback");
   }
+  if (!email.includes("@")) return denied("malformed dev identity");
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(email.toLowerCase()));
   return admittedPerson(env, `dev-${toHex(digest).slice(0, 32)}`, email, recordEmail);
 };
