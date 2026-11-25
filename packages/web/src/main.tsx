@@ -1,6 +1,5 @@
 import { mountApp } from "@remit/web-client/shell";
-import { accessAuthProvider, PEOPLE_URL } from "./access-auth";
-import { SESSION_URL } from "./access-session";
+import { accessAuthProvider, PEOPLE_URL, SESSION_URL } from "./access-auth";
 import { securitySlot } from "./security-slot";
 
 mountApp({

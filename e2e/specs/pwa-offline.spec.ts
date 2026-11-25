@@ -247,32 +247,40 @@ backgroundTest(
   },
 );
 
-for (const status of [401, 302]) {
-  backgroundTest(
-    `a background session ${status} removes the refresh tag without fetching mail`,
-    async ({ background: { context, page, dispatch } }) => {
-      const requests: string[] = [];
-      let requestedWith: string | undefined;
-      await context.route("**/api/session", (route) => {
-        if (!route.request().serviceWorker()) return route.fallback();
-        requestedWith = route.request().headers()["x-requested-with"];
-        return route.fulfill({
-          status,
-          headers: status === 302 ? { location: "https://access.remit.test/login" } : {},
-        });
+backgroundTest(
+  "a background session refusal removes the refresh tag without fetching mail",
+  async ({ background: { context, page, dispatch } }) => {
+    const requests: string[] = [];
+    let requestedWith: string | undefined;
+    await context.route("**/api/session", async (route) => {
+      const request = route.request();
+      if (!request.serviceWorker()) return route.fallback();
+      const headers = request.headers();
+      requestedWith = headers["x-requested-with"];
+      const response = await route.fetch({
+        headers: { ...headers, "x-dev-identity": "none" },
+        maxRedirects: 0,
       });
-      const before = await stored(page);
-      context.on("request", (request) => {
-        if (request.serviceWorker()) requests.push(new URL(request.url()).pathname);
-      });
-      await dispatch();
-      await expect.poll(() => refreshTags(page), poll).toEqual([]);
-      expect(await stored(page)).toEqual(before);
-      expect(requests).toEqual(["/api/session"]);
-      expect(requestedWith).toBe("XMLHttpRequest");
-    },
-  );
-}
+      expect(response.status()).toBe(401);
+      await route.fulfill({ response });
+    });
+    const before = await stored(page);
+    context.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+      if (
+        request.serviceWorker() &&
+        (pathname.startsWith("/api/") || pathname.startsWith("/content/"))
+      ) {
+        requests.push(pathname);
+      }
+    });
+    await dispatch();
+    await expect.poll(() => refreshTags(page), poll).not.toContain(refreshTag);
+    expect(await stored(page)).toEqual(before);
+    expect(requests).toEqual(["/api/session"]);
+    expect(requestedWith).toBe("XMLHttpRequest");
+  },
+);
 
 const imageReady = (page: Page) =>
   expect

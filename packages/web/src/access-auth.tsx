@@ -1,20 +1,14 @@
 import { AuthCard, AuthHero, Banner, Button, ButtonLink } from "@remit/ui";
 import type { AuthAccountProps, AuthProvider } from "@remit/web-client/auth/provider";
-import { readSession } from "@remit/web-client/offline";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { SESSION_URL } from "./access-session";
-
-type Probe =
-  | { readonly state: "checking" }
-  | { readonly state: "ready" }
-  | { readonly state: "signedOut" }
-  | { readonly state: "failed"; readonly detail: string };
+import { getOfflineRuntime } from "@remit/web-client/offline";
+import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 
 const IDENTITY_URL = "/cdn-cgi/access/get-identity";
 const LOGIN_ORIGIN: string = import.meta.env.VITE_LOGIN_ORIGIN;
 const LOGOUT_URL = `${LOGIN_ORIGIN}/sign-out`;
 export const SECURITY_URL = `${LOGIN_ORIGIN}/security`;
 export const PEOPLE_URL = `${LOGIN_ORIGIN}/admin`;
+export const SESSION_URL = "/api/session";
 const RENEWAL_KEY = "remit-access-renewal-at";
 const RENEWAL_GUARD_MS = 60_000;
 const ISSUES_URL = "https://github.com/remit-mail/reader-cloudflare/issues/new";
@@ -24,15 +18,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const emailOf = (body: unknown): string | null =>
   isRecord(body) && typeof body.email === "string" ? body.email : null;
-
-const probeApi = (): Promise<Probe> =>
-  readSession(SESSION_URL).then(
-    (session) => ({ state: session ? "ready" : "signedOut" }),
-    (error: unknown) => ({
-      state: "failed",
-      detail: error instanceof Error ? error.message : String(error),
-    }),
-  );
 
 const reportUrl = (detail: string): string => {
   const params = new URLSearchParams({
@@ -69,13 +54,6 @@ const renewOnce = (): boolean => {
   return true;
 };
 
-const clearRenewalUrl = (): void => {
-  const url = new URL(window.location.href);
-  if (url.searchParams.get("reauth") !== "1") return;
-  url.searchParams.delete("reauth");
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
-};
-
 const Frame = ({ children }: { children: ReactNode }) => (
   <AuthCard>
     <AuthHero />
@@ -85,42 +63,46 @@ const Frame = ({ children }: { children: ReactNode }) => (
   </AuthCard>
 );
 
-const AccessProbe = createContext<{ probe: Probe; check(): void } | null>(null);
+const useAccessSession = () => {
+  // biome-ignore lint/style/noNonNullAssertion: mountApp installs the offline runtime before rendering the provider.
+  const runtime = getOfflineRuntime()!;
+  return {
+    session: useSyncExternalStore(runtime.subscribe, runtime.snapshot).session,
+    verify: runtime.verify,
+  };
+};
 
 const AccessProbeProvider = ({ children }: { children: ReactNode }) => {
-  const [probe, setProbe] = useState<Probe>({ state: "checking" });
-
-  const check = useCallback(() => {
-    void probeApi().then((next) => {
-      setProbe(next);
-      if (next.state === "signedOut" && navigator.onLine) renewOnce();
-      if (next.state === "ready") clearRenewalUrl();
-    });
-  }, []);
+  const { session } = useAccessSession();
 
   useEffect(() => {
-    check();
-    window.addEventListener("online", check);
-    return () => window.removeEventListener("online", check);
-  }, [check]);
+    if (session?.status === "signedOut" && navigator.onLine) renewOnce();
+    if (session?.status !== "ready") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("reauth") !== "1") return;
+    url.searchParams.delete("reauth");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [session]);
 
-  return <AccessProbe.Provider value={{ probe, check }}>{children}</AccessProbe.Provider>;
+  return <>{children}</>;
 };
 
 const AccessSessionGate = ({ children }: { children: ReactNode }) => {
-  const access = useContext(AccessProbe);
-  if (!access) throw new Error("AccessSessionGate requires AccessProbeProvider");
-  const { probe, check } = access;
+  const { session, verify } = useAccessSession();
 
-  if (probe.state === "ready") return <>{children}</>;
-  if (probe.state === "checking") {
+  if (session?.status === "ready") return <>{children}</>;
+  if (!session) {
     return (
       <Frame>
         <p className="text-sm text-fg-muted">Connecting to remit…</p>
       </Frame>
     );
   }
-  if (probe.state === "signedOut") {
+  if (session.status === "signedOut") {
     return (
       <Frame>
         <Banner tone="warning">
@@ -130,14 +112,13 @@ const AccessSessionGate = ({ children }: { children: ReactNode }) => {
       </Frame>
     );
   }
+  const error = session.status === "failed" ? session.error : "This device is offline.";
+  const detail = error instanceof Error ? error.message : String(error);
   return (
     <Frame>
-      <Banner tone="danger">
-        remit could not load its API. {probe.detail} The Worker is not serving the API, or it is
-        failing. Retry once it is deployed, or report the issue.
-      </Banner>
-      <Button onClick={check}>Retry</Button>
-      <ButtonLink variant="ghost" href={reportUrl(probe.detail)} external>
+      <Banner tone="danger">remit could not load its API. {detail}</Banner>
+      <Button onClick={() => void verify()}>Retry</Button>
+      <ButtonLink variant="ghost" href={reportUrl(detail)} external>
         Report an issue
       </ButtonLink>
     </Frame>
@@ -169,11 +150,6 @@ export const accessAuthProvider: AuthProvider = {
   getToken: async () => null,
   resetToken: () => {},
   Provider: AccessProbeProvider,
-  Shell: ({ children }) => (
-    <AccessProbeProvider>
-      <AccessSessionGate>{children}</AccessSessionGate>
-    </AccessProbeProvider>
-  ),
   SessionGate: AccessSessionGate,
   Account: AccessAccount,
 };

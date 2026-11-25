@@ -58,7 +58,6 @@
     "@biomejs/biome": "^2.6.3",
     "@cloudflare/workers-types": "^5.20261024.1",
     "@kattebak/typespec-drizzle-orm-generator": "^6.3.1",
-    "@tanstack/router-plugin": "1.168.22",
     "@typespec/compiler": "^1.17.0",
     "drizzle-kit": "1.0.0-rc.5",
     "miniflare": "^4.20260730.0",
